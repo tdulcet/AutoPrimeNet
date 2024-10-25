@@ -188,8 +188,8 @@ Options:
                         preference for all workers or once for each worker to
                         use different work preferences. Not all worktypes are
                         supported by all the GIMPS programs.
-  --cert-work           Get PRP proof certification work, Default: none. Not
-                        yet supported by any of the GIMPS programs.
+  --cert-work           Get PRP proof certification work, Default: none.
+                        Currently only supported by PRPLL.
   --cert-work-limit=CERT_CPU_LIMIT
                         PRP proof certification work limit in percentage of
                         CPU or GPU time, Default: 10%. Requires the --cert-
@@ -202,8 +202,9 @@ Options:
   --min-bit=MIN_BIT     Minimum bit level of TF1G assignments to fetch
   --max-bit=MAX_BIT     Maximum bit level of TF1G assignments to fetch
   -m, --mlucas          Get assignments for Mlucas.
-  -g, --gpuowl          Get assignments for GpuOwl. PRPLL is not yet fully
-                        supported.
+  -g, --gpuowl          Get assignments for GpuOwl.
+  --prpll               Get assignments for PRPLL. PRPLL is not PrimeNet
+                        server compatible and is thus not yet fully supported.
   --cudalucas           Get assignments for CUDALucas.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
