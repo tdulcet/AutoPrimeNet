@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - '.github/workflows/**'
+      - 'wrapper.py'
       - 'autoprimenet.py'
   schedule:
     - cron:  '0 0 1 * *'
@@ -35,7 +36,7 @@ jobs:
       run: |
         python -X dev autoprimenet.py --help
         curl -sSO https://www.mersenne.org/favicon.ico
-        pyinstaller -F -i favicon.ico --optimize 2 autoprimenet.py
+        pyinstaller -F -n autoprimenet --optimize 2 -i favicon.ico wrapper.py
         .\dist\autoprimenet --help
     - uses: actions/upload-artifact@v4
       with:

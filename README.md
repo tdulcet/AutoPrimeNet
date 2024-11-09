@@ -146,8 +146,8 @@ Options:
   -d, --debug           Output detailed information. Provide multiple times
                         for even more verbose output.
   -w WORKDIR, --workdir=WORKDIR
-                        Working directory with the local file from this
-                        program, Default: . (current directory)
+                        Working directory with the configuration file from
+                        this program, Default: . (current directory)
   -D DIRS, --dir=DIRS   Directories relative to --workdir with the work and
                         results files from the GIMPS program. Provide once for
                         each worker. It automatically sets the --cpu-num
@@ -198,8 +198,8 @@ Options:
                         setting this flag to 1,000,000,000 or above.
   --max-exp=MAX_EXP     Maximum exponent to get from PrimeNet or TF1G (2 -
                         9,999,999,999)
-  --bit-min=BIT_MIN     Minimum bit level of TF1G assignments to fetch
-  --bit-max=BIT_MAX     Maximum bit level of TF1G assignments to fetch
+  --min-bit=MIN_BIT     Minimum bit level of TF1G assignments to fetch
+  --max-bit=MAX_BIT     Maximum bit level of TF1G assignments to fetch
   -m, --mlucas          Get assignments for Mlucas.
   -g, --gpuowl          Get assignments for GpuOwl. PRPLL is not yet fully
                         supported.
