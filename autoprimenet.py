@@ -747,6 +747,8 @@ class PRIMENET:
 	ERROR_INVALID_RESULT_TYPE = 45
 	ERROR_INVALID_WORK_TYPE = 46
 	ERROR_WORK_NO_LONGER_NEEDED = 47
+	# Undocumented and missing from Prime95/MPrime
+	ERROR_ILLEGAL_RESIDUE = 48
 
 	# Valid work_preference values
 	WP_WHATEVER = 0  # Whatever makes most sense
@@ -818,6 +820,11 @@ ERRORS = {
 	PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY: "Invalid assignment key",
 	PRIMENET.ERROR_INVALID_ASSIGNMENT_TYPE: "Invalid assignment type",
 	PRIMENET.ERROR_INVALID_RESULT_TYPE: "Invalid result type",
+	# Missing from Prime95/MPrime
+	PRIMENET.ERROR_INVALID_WORK_TYPE: "Invalid work type",
+	PRIMENET.ERROR_WORK_NO_LONGER_NEEDED: "Work no longer needed",
+	# Undocumented
+	PRIMENET.ERROR_ILLEGAL_RESIDUE: "Illegal residue",
 }
 
 
