@@ -6107,10 +6107,12 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 			"tf_min": options.min_bit,
 			"tf_limit": options.max_bit,
 			"max_ghd": max_ghd,
-			"max_assignments": "" if max_ghd else max_assignments,
+			"max_assignments": None if max_ghd else max_assignments,
 			"download_worktodo": 1,
 			"stages": stages,
 		})
+		if config.has_option(SEC.PrimeNet, "tf1g_biggest"):
+			data["biggest"] = int(config.getboolean(SEC.PrimeNet, "tf1g_biggest"))
 	retry = False
 	try:
 		r = session.post(mersenne_ca_baseurl + "tf1G.php", data=data, timeout=180, stream=True)
