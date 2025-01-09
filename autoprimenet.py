@@ -200,6 +200,7 @@ if sys.platform == "win32":  # Windows
 		import _winreg as winreg
 
 	kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+	advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
 
 	class GROUP_AFFINITY(ctypes.Structure):
 		_fields_ = (("Mask", wintypes.WPARAM), ("Group", wintypes.WORD), ("Reserved", wintypes.WORD * 3))
@@ -313,6 +314,57 @@ if sys.platform == "win32":  # Windows
 		def __init__(self):
 			self.dwLength = ctypes.sizeof(self)
 			super(MEMORYSTATUSEX, self).__init__()
+
+	def get_windows_serial_number():
+		output = ""
+		for path in (r"Software\Microsoft\Windows\CurrentVersion", r"Software\Microsoft\Windows NT\CurrentVersion"):
+			try:
+				with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as hkey:
+					product_id, regtype = winreg.QueryValueEx(hkey, "ProductId")
+					if regtype == winreg.REG_SZ:
+						output = product_id
+						break
+			except WindowsError:
+				pass
+
+		return output
+
+	def get_windows_sid():
+		# output = ""
+		computer_name = ctypes.create_unicode_buffer(256)
+		size = wintypes.DWORD(ctypes.sizeof(computer_name))
+		if not kernel32.GetComputerNameW(computer_name, ctypes.byref(size)):
+			raise ctypes.WinError()
+			# return output
+
+		sid_size = wintypes.DWORD()
+		domain_size = wintypes.DWORD()
+		snu = wintypes.DWORD()
+		if (
+			not advapi32.LookupAccountNameW(
+				None, computer_name, None, ctypes.byref(sid_size), None, ctypes.byref(domain_size), ctypes.byref(snu)
+			)
+			and ctypes.get_last_error() != 122  # ERROR_INSUFFICIENT_BUFFER
+		):
+			raise ctypes.WinError()
+			# return output
+
+		sid = ctypes.create_string_buffer(sid_size.value)
+		domain = ctypes.create_unicode_buffer(domain_size.value)
+		if not advapi32.LookupAccountNameW(
+			None, computer_name, sid, ctypes.byref(sid_size), domain, ctypes.byref(domain_size), ctypes.byref(snu)
+		):
+			raise ctypes.WinError()
+			# return output
+
+		stringsid = wintypes.LPWSTR()
+		if not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(stringsid)):
+			raise ctypes.WinError()
+			# return output
+
+		output = stringsid.value
+		kernel32.LocalFree(stringsid)
+		return output
 
 elif sys.platform == "darwin":  # macOS
 	libc = ctypes.CDLL(find_library("c"))
@@ -519,7 +571,7 @@ if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -594,12 +646,14 @@ class timedelta(timedelta):
 		m, s = divmod(self.seconds, 60)
 		h, m = divmod(m, 60)
 		d = self.days
-		# self.microseconds
+		# ms, us = divmod(self.microseconds, 1000)
 		return "{0}{1}{2}{3}".format(
 			"{0:n}d".format(d) if d else "",
-			"{0:02n}h".format(h) if d else "{0:n}h".format(h) if h else "",
-			"{0:02n}m".format(m) if h or d else "{0:n}m".format(m) if m else "",
-			"{0:02n}s".format(s) if m or h or d else "{0:n}s".format(s),
+			" {0:2n}h".format(h) if d else "{0:n}h".format(h) if h else "",
+			" {0:2n}m".format(m) if h or d else "{0:n}m".format(m) if m else "",
+			" {0:2n}s".format(s) if m or h or d else "{0:n}s".format(s),  # if s else "",
+			# " {0:3n}ms".format(ms) if s or m or h or d else "{0:n}ms".format(ms) if ms else "",
+			# " {0:3n}µs".format(us) if ms or s or m or h or d else "{0:n}µs".format(us),
 		)
 
 
@@ -949,15 +1003,24 @@ def outputunit(number, scale=False):
 	return strm
 
 
+INPUT_UNIT_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(?:\s*([" + "".join(suffix_power) + r"])i?)?$")
+
+
 def inputunit(astr, scale=False):
 	"""Converts a string with a unit suffix to an integer value."""
 	scale_base = 1000 if scale else 1024
 
-	unit = astr[-1]
-	if unit in suffix_power:
-		return int(float(astr[:-1]) * scale_base ** suffix_power[unit])
+	input_unit = INPUT_UNIT_RE.match(astr)
+	if not input_unit:
+		msg = "Invalid number or suffix: {0!r}".format(astr)
+		raise ValueError(msg)
 
-	return int(astr)
+	number, unit = input_unit.groups()
+
+	if unit:
+		return int(Decimal(number) * scale_base ** suffix_power[unit])
+
+	return int(number)
 
 
 def output_available(available, total):
@@ -1281,7 +1344,7 @@ def setup():
 	)
 	day_night_memory = ask_float("Configured day/night P-1 stage 2 memory in GiB", options.day_night_memory / 1024, 0)
 	archive_dir = ask_str("Optional directory to archive PRP proof files after upload", options.archive_dir or "")
-	# cert_cpu = ask_int("PRP proof certification work limit in percentage of CPU or GPU time", options.cert_cpu_limit, 1, 100)
+	cert_cpu = ask_int("PRP proof certification work limit in percentage of CPU or GPU time", options.cert_cpu_limit, 1, 100)
 
 	if not ask_ok_cancel():
 		return None
@@ -1302,8 +1365,8 @@ def setup():
 	config.set(SEC.PrimeNet, "ProofArchiveDir", archive_dir)
 	options.day_night_memory = int(day_night_memory * 1024)
 	config.set(SEC.PrimeNet, "Memory", str(options.day_night_memory))
-	# # options.cert_cpu_limit = cert_cpu
-	# config.set(SEC.PrimeNet, "CertDailyCPULimit", str(cert_cpu))
+	# options.cert_cpu_limit = cert_cpu
+	config.set(SEC.PrimeNet, "CertDailyCPULimit", str(cert_cpu))
 
 	num_thread = ask_int("Number of workers (CPU cores or GPUs)", options.num_workers, 1)
 
@@ -1392,7 +1455,7 @@ def setup():
 			)
 		)
 
-	# cert_work = ask_yn("Get occasional PRP proof certification work", False if options.cert_work is None else options.cert_work)
+	cert_work = ask_yn("Get occasional PRP proof certification work", False if options.cert_work is None else options.cert_work)
 
 	if not ask_ok_cancel():
 		return None
@@ -1402,9 +1465,9 @@ def setup():
 
 	options.work_preference = work_pref
 
-	# if cert_work:
-	# 	# options.cert_work = cert_work
-	# 	config.set(SEC.PrimeNet, "CertWork", str(cert_work))
+	if cert_work:
+		# options.cert_work = cert_work
+		config.set(SEC.PrimeNet, "CertWork", str(cert_work))
 
 	work = ask_float(
 		"Days of work to queue up",
@@ -4560,18 +4623,25 @@ def program_options(send=False, start=-1, retry_count=0):
 def register_instance(guid=None):
 	"""Register the computer with the PrimeNet server."""
 	# register the instance to server, guid is the instance identifier
-	hardware_id = md5((options.cpu_brand + str(uuid.getnode())).encode("utf-8")).hexdigest()  # similar as MPrime
+	hardware_guid = md5((options.cpu_brand + str(uuid.getnode())).encode("utf-8")).hexdigest()  # similar as MPrime
 	if config.has_option(SEC.PrimeNet, "HardwareGUID"):
-		hardware_id = config.get(SEC.PrimeNet, "HardwareGUID")
+		hardware_guid = config.get(SEC.PrimeNet, "HardwareGUID")
 	else:
-		config.set(SEC.PrimeNet, "HardwareGUID", hardware_id)
+		config.set(SEC.PrimeNet, "HardwareGUID", hardware_guid)
+	windows_guid = (
+		md5((get_windows_serial_number() + get_windows_sid()).encode("utf-8")).hexdigest() if sys.platform == "win32" else None
+	)
+	if config.has_option(SEC.PrimeNet, "WindowsGUID"):
+		windows_guid = config.get(SEC.PrimeNet, "WindowsGUID")
+	elif windows_guid:
+		config.set(SEC.PrimeNet, "WindowsGUID", windows_guid)
 	args = primenet_v5_bargs.copy()
 	args["t"] = "uc"  # update compute command
 	if guid is None:
 		guid = create_new_guid()
 	args["g"] = guid
-	args["hg"] = hardware_id  # 32 hex char (128 bits)
-	args["wg"] = ""  # only filled on Windows by MPrime
+	args["hg"] = hardware_guid  # 32 hex char (128 bits)
+	args["wg"] = windows_guid  # only filled on Windows by MPrime
 	args["a"] = generate_application_str()
 	if config.has_option(SEC.PrimeNet, "sw_version"):
 		args["a"] = config.get(SEC.PrimeNet, "sw_version")
@@ -6488,7 +6558,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks):
 
 		if num_cache <= num_existing:
 			adapter.debug("%s ≥ %s assignments already in %r, not getting new work", num_existing, num_cache, workfile)
-			if cur_time_left and options.min_exp and options.min_exp >= MAX_PRIMENET_EXP:
+			if cur_time_left and (not new_tasks or (options.min_exp and options.min_exp >= MAX_PRIMENET_EXP)):
 				adapter.info("Estimated time to complete queued work is %s, days of work requested is %s", time_left, days_work)
 			if not new_tasks:
 				return
