@@ -129,7 +129,7 @@ MODULUS_TYPE_MERSENNE = 1
 MODULUS_TYPE_FERMAT = 3
 # MODULUS_TYPE_GENFFTMUL = 4
 
-# GpuOwl/PRPLL headers
+# GpuOwl headers
 
 # Exponent, iteration, 0, hash
 # HEADER_v1 = "OWL LL 1 %u %u 0 %" SCNx64 "\n"
@@ -138,9 +138,6 @@ LL_v1_RE = re.compile(br"^OWL LL (1) (\d+) (\d+) 0 ([\da-f]+)$")
 # E, k, CRC
 # LL_v1 = "OWL LL 1 E=%u k=%u CRC=%u\n"
 LL_v1a_RE = re.compile(br"^OWL LL (1) E=(\d+) k=(\d+) CRC=(\d+)$")
-
-# LL_v13 = "OWL LL 13 N=1*2^%u-1 k=%u time=%lf\n"
-LL_v13_RE = re.compile(br"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
 
 # # OWL 1 <exponent> <iteration> <width> <height> <sum> <nErrors>
 # # HEADER = "OWL 1 %d %d %d %d %d %d\n"
@@ -210,9 +207,6 @@ PRP_v11_RE = re.compile(br"^OWL PRP (11) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)(?
 # PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n"
 PRP_v12_RE = re.compile(br"^OWL PRP (12) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+) (\d+)$")
 
-# PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u time=%lf\n"
-PRP_v13_RE = re.compile(br"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
-
 # # Exponent, iteration, total-iterations, B1.
 # # HEADER = "OWL PF 1 %u %u %u %u\n"
 
@@ -269,6 +263,14 @@ MFAKTO_TF_RE = re.compile(br'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\
 
 PROOF_NUMBER_RE = re.compile(br"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+))(?(1)\))(?:/(\d+(?:/\d+)*))?$")
 
+# PRPLL headers
+
+# LL_v13 = "OWL LL 13 N=1*2^%u-1 k=%u time=%lf\n"
+LL_v13_RE = re.compile(br"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
+
+# PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u time=%lf\n"
+PRP_v13_RE = re.compile(br"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
 
 PRIME95_RE = re.compile(
 	r"^[pfemnc](?:[0-9]{2}[B-T][0-9]{4}|[0-9][A-Z][0-9]{5}|[A-Y][0-9]{6}|[0-9]+)(?:_[0-9]+){0,2}(?:\.(?:[0-9]{3,}|(bu([0-9]*))|bad[0-9]+))?$"
@@ -281,6 +283,7 @@ GPUOWL_RE = re.compile(
 	+ re.escape(os.sep)
 	+ r"(?:([0-9]+)(?:-([0-9]+)\.(?:ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|(-old)?\.(?:(?:ll|p[12])\.)?owl)|unverified\.prp(\.bak)?)|[0-9]+(-prev)?\.(?:tf\.)?owl)$"
 )
+PRPLL_RE = re.compile(r"(?:(?:ll-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp)|unverified\.prp))$")
 MFAKTC_RE = re.compile(r"^([MW][0-9]+)\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
 
@@ -1560,16 +1563,11 @@ def parse_work_unit_gpuowl(filename):
 			if header.startswith(b"OWL LL "):
 				ll_v1 = LL_v1_RE.match(header)
 				ll_v1a = LL_v1a_RE.match(header)
-				ll_v13 = LL_v13_RE.match(header)
 
 				wu.work_type = WORK_TEST
-				ahash = elapsed = None
+				ahash = None
 
-				if ll_v13:
-					version, exponent, iteration, elapsed = ll_v13.groups()
-
-					(crc,) = unpack("=I", f)
-				elif ll_v1a:
+				if ll_v1a:
 					version, exponent, iteration, crc = ll_v1a.groups()
 				elif ll_v1:
 					version, exponent, iteration, ahash = ll_v1.groups()
@@ -1580,8 +1578,6 @@ def parse_work_unit_gpuowl(filename):
 				wu.n = int(exponent)
 				wu.counter = int(iteration)
 				wu.shift_count = 0
-				if elapsed:
-					wu.total_time = int(float(elapsed) * 1000 * 1000)
 
 				if options.check or options.jacobi:
 					nWords = (wu.n - 1) // 32 + 1
@@ -1615,16 +1611,11 @@ def parse_work_unit_gpuowl(filename):
 				prp_v10 = PRP_v10_RE.match(header)
 				prp_v11 = PRP_v11_RE.match(header)
 				prp_v12 = PRP_v12_RE.match(header)
-				prp_v13 = PRP_v13_RE.match(header)
 
 				wu.work_type = WORK_PRP
-				nErrors = elapsed = None
+				nErrors = None
 
-				if prp_v13:
-					version, exponent, iteration, block_size, res64, nErrors, elapsed = prp_v13.groups()
-
-					(crc,) = unpack("=I", f)
-				elif prp_v12:
+				if prp_v12:
 					version, exponent, iteration, block_size, res64, nErrors, crc = prp_v12.groups()
 				elif prp_v11:
 					version, exponent, iteration, block_size, res64, nErrors, _B1, _nBits, _start, _nextK, crc = prp_v11.groups()
@@ -1643,8 +1634,6 @@ def parse_work_unit_gpuowl(filename):
 				wu.res64 = res64.decode().upper()
 				if nErrors is not None:
 					wu.nerr_gcheck = int(nErrors)
-				if elapsed:
-					wu.total_time = int(float(elapsed) * 1000 * 1000)
 
 				if options.check:
 					nWords = (wu.n - 1) // 32 + 1
@@ -1762,7 +1751,115 @@ def parse_work_unit_gpuowl(filename):
 				return None
 
 			# if options.check and f.read():
-			# return None
+			# 	return None
+	except EOFError:
+		return None
+	except (IOError, OSError):
+		logging.exception("Error reading %r file.", filename)
+		return None
+
+	if options.check and crc is not None:
+		crc = int(crc)
+		acrc = binascii.crc32(buffer) & 0xFFFFFFFF
+		if crc != acrc:
+			logging.error("CRC error. Expected %X, actual %X.", crc, acrc)
+
+	wu.version = int(version)
+	return wu
+
+
+def parse_work_unit_prpll(filename):
+	"""Parses a PRPLL work unit file, extracting important information."""
+	wu = work_unit()
+
+	try:
+		with open(filename, "rb") as f:
+			header = f.readline().rstrip(b"\n")
+
+			if not header.startswith(b"OWL "):
+				return None
+
+			crc = None
+
+			if header.startswith(b"OWL LL "):
+				ll_v13 = LL_v13_RE.match(header)
+
+				wu.work_type = WORK_TEST
+
+				if ll_v13:
+					version, exponent, iteration, elapsed = ll_v13.groups()
+
+					(crc,) = unpack("=I", f)
+				else:
+					logging.error("LL savefile with unknown version: %s", header)
+					return None
+
+				wu.n = int(exponent)
+				wu.counter = int(iteration)
+				wu.shift_count = 0
+				wu.total_time = int(float(elapsed) * 1000 * 1000)
+
+				if options.check or options.jacobi:
+					nWords = (wu.n - 1) // 32 + 1
+					size = nWords * 4
+					buffer = f.read(size)
+					if len(buffer) != size:
+						return None
+					residue = from_bytes(buffer)
+					wu.res64 = "{0:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+
+				wu.stage = "LL"
+				wu.pct_complete = wu.counter / (wu.n - 2)
+
+				if options.jacobi:
+					if executor:
+						executor.submit(jacobi_test, wu, wu.n, residue, filename)
+					else:
+						jacobi_test(wu, wu.n, residue, filename)
+			elif header.startswith(b"OWL PRP "):
+				prp_v13 = PRP_v13_RE.match(header)
+
+				wu.work_type = WORK_PRP
+
+				if prp_v13:
+					version, exponent, iteration, block_size, res64, nErrors, elapsed = prp_v13.groups()
+
+					(crc,) = unpack("=I", f)
+				else:
+					logging.error("PRP savefile with unknown version: %s", header)
+					return None
+
+				wu.n = int(exponent)
+				wu.counter = int(iteration)
+				wu.shift_count = 0
+				wu.L = int(block_size)
+				wu.res64 = res64.decode().upper()
+				wu.nerr_gcheck = int(nErrors)
+				wu.total_time = int(float(elapsed) * 1000 * 1000)
+
+				if options.check:
+					nWords = (wu.n - 1) // 32 + 1
+					size = nWords * 4
+					buffer = f.read(size)
+					if len(buffer) != size:
+						return None
+					residue = from_bytes(buffer)
+					# Getting the original residue from the GEC residue is currently too computationally expensive in Python
+					# res64 = int(res64, 16)
+					# ares64 = residue & 0xFFFFFFFFFFFFFFFF
+					# if res64 != ares64:
+					# logging.error("Res64 error. Expected %X, actual %X.", res64, ares64)
+					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+
+				wu.stage = "PRP"
+				wu.pct_complete = wu.counter / wu.n
+			else:
+				logging.error("Unknown save/checkpoint file header: %s", header)
+				return None
+
+			if options.check and f.read():
+				return None
 	except EOFError:
 		return None
 	except (IOError, OSError):
@@ -2386,7 +2483,7 @@ def main(dirs):
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
 		if options.gpuowl:
-			aaresults = aresults["GpuOwl/PRPLL"] = []
+			aaresults = aresults["GpuOwl"] = []
 			entries = OrderedDict()
 			for entry in (
 				aglob
@@ -2408,6 +2505,30 @@ def main(dirs):
 			for entry in entries.values():
 				for j, (num, file) in enumerate(sorted(entry)):
 					result = parse_work_unit_gpuowl(file)
+					if result is not None:
+						aaresults.append((j, num, file, result))
+					else:
+						logging.error("unable to parse the %r save/checkpoint file", file)
+
+		if options.prpll:
+			aaresults = aresults["PRPLL"] = []
+			entries = OrderedDict()
+			for entry in (
+				aglob
+				for globs in (
+					os.path.join(adir, "ll-[0-9]*", "[0-9]*-[0-9]*.ll"),
+					os.path.join(adir, "[0-9]*", "[0-9]*-[0-9]*.prp"),
+					os.path.join(adir, "[0-9]*", "unverified.prp"),
+				)
+				for aglob in glob.iglob(globs)
+			):
+				match = PRPLL_RE.search(entry)
+				if match:
+					exponent = int(match.group(1))
+					entries.setdefault(exponent, []).append((-1 if match.group(3) else 0, entry))
+			for entry in entries.values():
+				for j, (num, file) in enumerate(sorted(entry)):
+					result = parse_work_unit_prpll(file)
 					if result is not None:
 						aaresults.append((j, num, file, result))
 					else:
@@ -2483,13 +2604,14 @@ def main(dirs):
 if __name__ == "__main__":
 	parser = optparse.OptionParser(
 		version="%prog 1.0",
-		description="Read Prime95/MPrime, Mlucas, GpuOwl/PRPLL, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files",
+		description="Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files",
 	)
 	parser.add_option("-w", "--workdir", default=os.curdir, help="Working directory, Default: %default (current directory)")
 	# parser.add_option("-D", "--dir", action="append", dest="dirs", help="Directories with the save/checkpoint files. Provide once for each directory.")
 	parser.add_option("-p", "--prime95", "--mprime", action="store_true", help="Look for Prime95/MPrime save/checkpoint files")
 	parser.add_option("-m", "--mlucas", action="store_true", help="Look for Mlucas save/checkpoint files")
-	parser.add_option("-g", "--gpuowl", "--prpll", action="store_true", help="Look for GpuOwl/PRPLL save/checkpoint files")
+	parser.add_option("-g", "--gpuowl", action="store_true", help="Look for GpuOwl save/checkpoint files")
+	parser.add_option("--prpll", action="store_true", help="Look for PRPLL save/checkpoint files")
 	parser.add_option("-c", "--cudalucas", action="store_true", help="Look for CUDALucas save/checkpoint files")
 	parser.add_option("--cudapm1", action="store_true", help="Look for CUDAPm1 save/checkpoint files")
 	parser.add_option("--mfaktc", action="store_true", help="Look for mfaktc save/checkpoint files")
@@ -2525,6 +2647,7 @@ if __name__ == "__main__":
 		or options.cudalucas
 		or options.cudapm1
 		or options.gpuowl
+		or options.prpll
 		or options.mfaktc
 		or options.mfakto
 		or options.proof

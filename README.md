@@ -130,7 +130,7 @@ Use --setup to configure this instance of the program
 
 This program will automatically get and register assignments, report
 assignment progress and results, upload proof files to and download
-certification starting values from PrimeNet for the Mlucas, GpuOwl/PRPLL,
+certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL,
 CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments and report
 results to mersenne.ca for exponents above the PrimeNet limit of 1G. It also
 saves its configuration to a 'prime.ini' file by default, so it is only
@@ -151,13 +151,14 @@ Options:
                         this program, Default: . (current directory)
   -D DIRS, --dir=DIRS   Directories relative to --workdir with the work and
                         results files from the GIMPS program. Provide once for
-                        each worker. It automatically sets the --cpu-num
-                        option for each directory.
+                        each worker. This is incompatible with PRPLL.
   -i WORKTODO_FILE, --work-file=WORKTODO_FILE
-                        Work file filename, Default: 'worktodo.txt'
+                        Work file filename, Default: 'worktodo.txt'. Not used
+                        with PRPLL.
   -r RESULTS_FILE, --results-file=RESULTS_FILE
                         Results file filename, Default: 'results.json.txt' for
-                        mfaktc/mfakto or 'results.txt' otherwise
+                        mfaktc/mfakto or 'results.txt' otherwise. Not used
+                        with PRPLL.
   -L LOGFILE, --logfile=LOGFILE
                         Log file filename, Default: 'autoprimenet.log'
   -l LOCALFILE, --config-file=LOCALFILE
@@ -190,6 +191,7 @@ Options:
                         supported by all the GIMPS programs.
   --cert-work           Get PRP proof certification work, Default: none.
                         Currently only supported by PRPLL.
+  --no-cert-work
   --cert-work-limit=CERT_CPU_LIMIT
                         PRP proof certification work limit in percentage of
                         CPU or GPU time, Default: 10%. Requires the --cert-
@@ -205,16 +207,12 @@ Options:
                         PrimeNet or TF1G
   -m, --mlucas          Get assignments for Mlucas.
   -g, --gpuowl          Get assignments for GpuOwl.
-  --prpll               Get assignments for PRPLL. PRPLL is not PrimeNet
-                        server compatible and is thus not yet fully supported.
+  --prpll               Get assignments for PRPLL.
   --cudalucas           Get assignments for CUDALucas.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
   --num-workers=NUM_WORKERS
                         Number of workers (CPU Cores/GPUs), Default: 1
-  -c CPU, --cpu-num=CPU
-                        CPU core or GPU number to get assignments for,
-                        Default: 0. Deprecated in favor of the --dir option.
   -n NUM_CACHE, --num-cache=NUM_CACHE
                         Number of assignments to cache, Default: 0. Deprecated
                         in favor of the --days-work option.
@@ -249,6 +247,7 @@ Options:
                         than or equal to 100 million digits. You must setup
                         another method to notify yourself, such as setting the
                         notification options below.
+  --report-100m
   --checkin=HOURS_BETWEEN_CHECKINS
                         Hours to wait between sending assignment progress and
                         expected completion dates (1-168 hours), Default: 1
@@ -282,6 +281,7 @@ Options:
   --ping                Ping the PrimeNet server, show version information and
                         exit.
   --no-color            Do not use color in output.
+  --color
   --setup               Prompt for all the options that are needed to setup
                         this program and exit.
 
@@ -344,7 +344,9 @@ Options:
                         'hostname:port' syntax. Defaults to port 465 with
                         --tls and port 25 otherwise.
     --tls               Use a secure connection with SSL/TLS
+    --no-tls
     --starttls          Upgrade to a secure connection with StartTLS
+    --no-starttls
     -U EMAIL_USERNAME, --email-username=EMAIL_USERNAME
                         SMTP server username
     -P EMAIL_PASSWORD, --email-password=EMAIL_PASSWORD
