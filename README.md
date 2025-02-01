@@ -280,6 +280,14 @@ Options:
                         run the --no-more-work option and exit.
   --ping                Ping the PrimeNet server, show version information and
                         exit.
+  --no-version-check    Disable the automatic AutoPrimeNet and GIMPS program
+                        version check
+  --version-check
+  --version-check-channel=VERSION_CHECK_CHANNEL
+                        Prefer the 'alpha', 'beta' or 'stable' channel/branch
+                        when checking for new versions of AutoPrimeNet and the
+                        GIMPS program. Not all programs provide alpha or beta
+                        releases. Default: 'stable'
   --no-color            Do not use color in output.
   --color
   --setup               Prompt for all the options that are needed to setup
@@ -291,7 +299,10 @@ Options:
     GIMPS website CPUs page (https://www.mersenne.org/cpus/), just like
     with Prime95/MPrime. This also allows the program to get much smaller
     Category 0 and 1 exponents, if it meets the other requirements
-    (https://www.mersenne.org/thresholds/).
+    (https://www.mersenne.org/thresholds/). AutoPrimeNet should
+    automatically detect most of this system information. When using the
+    --setup option and a GPU based GIMPS program, it can optionally report
+    the GPU instead of the CPU.
 
     -H COMPUTER_ID, --hostname=COMPUTER_ID
                         Optional computer name, Default: example
@@ -329,10 +340,12 @@ Options:
   Notification Options:
     Optionally configure this program to automatically send an e-mail/text
     message notification if there is an error, if the GIMPS program has
-    stalled, if the available disk space is low or if it found a new
-    Mersenne prime. Send text messages by using your mobile providers
-    e-mail to SMS or MMS gateway. Use the --test-email option to verify
-    the configuration.
+    stalled, if the available disk space is low, if it found a new
+    Mersenne prime or if their is a new version of the GIMPS program. Send
+    text messages by using your mobile providers e-mail to SMS or MMS
+    gateway. Use the --test-email option to verify the configuration. When
+    using the --setup option, it will automatically lookup the
+    configuration.
 
     --to=TOEMAILS       To e-mail address. Use multiple times for multiple
                         To/recipient e-mail addresses. Defaults to the --from
