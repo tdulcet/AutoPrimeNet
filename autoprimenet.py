@@ -68,6 +68,7 @@ import locale
 import logging.handlers
 import math
 import mimetypes
+import operator
 import optparse
 import os
 import platform
@@ -83,9 +84,10 @@ import threading
 import time
 import timeit
 import uuid
+import xml.etree.ElementTree as ET
 import zipfile
 from array import array
-from collections import deque
+from collections import deque, namedtuple
 from ctypes.util import find_library
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -437,11 +439,11 @@ elif sys.platform.startswith("linux"):
 
 cl_lib = find_library("OpenCL")
 if cl_lib:
-	cl = ctypes.CDLL(cl_lib)
+	cl = ctypes.CDLL("OpenCL" if sys.platform == "win32" else cl_lib)
 
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
-	nvml = ctypes.CDLL(nvml_lib)
+	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
 
 
 class nvmlMemory_t(ctypes.Structure):
@@ -453,8 +455,6 @@ try:
 	from shutil import disk_usage
 except ImportError:
 	# Adapted from: https://code.activestate.com/recipes/577972-disk-usage/
-	from collections import namedtuple
-
 	_ntuple_diskusage = namedtuple("usage", "total used free")
 
 	if hasattr(os, "statvfs"):  # POSIX
@@ -554,7 +554,7 @@ try:
 	# import certifi
 	import requests
 	import urllib3
-	from requests.exceptions import ConnectionError, HTTPError, RequestException, Timeout
+	from requests.exceptions import HTTPError, RequestException
 except ImportError as e:
 	executable = os.path.basename(sys.executable) if sys.executable else "python3"
 	print(
@@ -567,6 +567,21 @@ Please run the below command to install the Requests library:
 Then, run AutoPrimeNet again.""".format(e, executable[:-4] if executable.endswith(".exe") else executable)
 	)
 	sys.exit(1)
+
+try:
+	import idna
+except ImportError:
+
+	def punycode(hostname):
+		"""Converts a given hostname to its Punycode representation."""
+		return hostname.lower().encode("idna").decode("utf-8")
+
+else:
+
+	def punycode(hostname):
+		"""Converts a given hostname to its Punycode representation."""
+		return idna.encode(hostname.lower(), uts46=True).decode("utf-8")
+
 
 locale.setlocale(locale.LC_ALL, "")
 if hasattr(sys, "set_int_max_str_digits"):
@@ -730,7 +745,7 @@ class LockFile:
 			except (IOError, OSError) as e:
 				if e.errno == errno.EEXIST:
 					if not i:
-						logging.warning("%r lockfile already exists, waiting...", self.lockfile)
+						logging.warning("%r lockfile already exists, waiting…", self.lockfile)
 					time.sleep(min(1 << i, 60 * 1000) / 1000)
 				else:
 					logging.exception("Error opening %r lockfile: %s", self.lockfile, e, exc_info=options.debug)
@@ -1238,6 +1253,185 @@ def get_gpus():
 	return gpus
 
 
+def dns_lookup(domain, atype):
+	"""Perform a DNS lookup for the given domain and record type using Cloudflare's DNS over HTTPS (DoH) service."""
+	try:
+		r = session.get(
+			# "https://cloudflare-dns.com/dns-query", # Cloudflare
+			# "https://dns.google/resolve", # Google Public DNS
+			"https://mozilla.cloudflare-dns.com/dns-query",
+			params={"name": domain, "type": atype},
+			headers={"accept": "application/dns-json"},
+			timeout=5,
+		)
+		result = r.json()
+		r.raise_for_status()
+	except HTTPError as e:
+		logging.exception("%s: %s", result.get("error", result), e, exc_info=options.debug)
+		return None
+	except RequestException as e:
+		logging.exception("%s", e, exc_info=options.debug)
+		return None
+
+	return result
+
+
+PLACEHOLDER_RE = re.compile(r"%(\w+)%")
+
+
+def parse_autoconfig(xml_data, email, local_part, email_domain):
+	"""Parses the autoconfig XML data to extract SMTP server details with placeholders replaced by provided email information."""
+	try:
+		root = ET.fromstring(xml_data)
+	except ET.ParseError as e:
+		logging.debug("%s", e)
+		return None
+
+	replacements = {"EMAILADDRESS": email, "EMAILLOCALPART": local_part, "EMAILDOMAIN": email_domain}
+
+	def replacer(match):
+		return replacements.get(match.group(1), match.group())
+
+	for provider in root.findall("./emailProvider"):
+		display_name = provider.findtext("displayName")
+		display_name = PLACEHOLDER_RE.sub(replacer, display_name) if display_name else provider["id"]
+
+		for server in provider.findall("./outgoingServer[@type='smtp']"):
+			hostname = server.findtext("hostname")
+			port = server.findtext("port")
+			socket_type = server.findtext("socketType")
+			username = server.findtext("username")
+			# password = server.findtext("password")
+
+			if not hostname or not port:
+				continue
+
+			hostname = PLACEHOLDER_RE.sub(replacer, hostname)
+
+			if username:
+				username = PLACEHOLDER_RE.sub(replacer, username)
+
+			return display_name, hostname, int(port), socket_type, username
+
+	return None
+
+
+def get_email_config(domain, email, local_part, email_domain, https_only=False, use_optional_url=True):
+	"""Retrieve email configuration settings from the specified domain or Mozilla ISP database."""
+	adomain = punycode(domain)
+	print("Looking up configuration at e-mail provider {0!r}…".format(domain))
+	for scheme in ("https://",) + (() if https_only else ("http://",)):
+		for url, args in (("autoconfig.{0}/mail/config-v1.1.xml".format(domain), {"emailaddress": email}),) + (
+			(("{0}/.well-known/autoconfig/mail/config-v1.1.xml".format(domain), None),) if use_optional_url else ()
+		):
+			try:
+				r = requests.get(scheme + url, params=args, timeout=5)
+				r.raise_for_status()
+				result = r.content
+			except RequestException as e:
+				logging.debug("%s", e)
+			else:
+				smtp_config = parse_autoconfig(result, email, local_part, email_domain)
+				if smtp_config is not None:
+					# print("Configuration found at e-mail provider")
+					_, hostname, _, _, _ = smtp_config
+					if scheme == "http://" and not punycode(hostname).endswith(adomain):
+						logging.warning(
+							"The connection used to lookup the configuration did not use HTTPS and thus was not secure."
+						)
+					return smtp_config
+
+	# https://github.com/thunderbird/autoconfig
+	print("Looking up configuration for {0!r} in the Mozilla ISP database…".format(domain))
+	try:
+		r = requests.get("https://autoconfig.thunderbird.net/v1.1/{0}".format(adomain), timeout=5)
+		r.raise_for_status()
+		result = r.content
+	except RequestException as e:
+		logging.debug("%s", e)
+	else:
+		smtp_config = parse_autoconfig(result, email, local_part, email_domain)
+		if smtp_config is not None:
+			# print("Configuration found in Mozilla ISP database")
+			return smtp_config
+
+
+EMAILRE = re.compile(
+	r'^(?=.{6,254}$)(?=.{1,64}@)((?:(?:[^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"(?:[^"\\]|\\.)+")(?:\.(?:(?:[^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"(?:[^"\\]|\\.)+"))*)@((?:(?:xn--)?[^\W_](?:[\w-]{0,61}[^\W_])?\.)+(?:xn--)?[^\W\d_]{2,63})$',
+	re.U,
+)
+
+
+def email_autoconfig(email):
+	"""Automatically configures email settings based on the provided email address."""
+	aemail = EMAILRE.match(email)
+	if not aemail:
+		logging.error("Could not parse e-mail address %r", email)
+		return None
+	local_part, email_domain = aemail.groups()
+	aemail_domain = punycode(email_domain)
+
+	# https://datatracker.ietf.org/doc/draft-ietf-mailmaint-autoconfig/
+	smtp_config = get_email_config(email_domain, email, local_part, email_domain)
+	if smtp_config is not None:
+		return smtp_config
+
+	print("Looking up incoming mail domain (DNS MX Record)")
+	result = dns_lookup(aemail_domain, "MX")
+	if result is not None and not result["Status"] and "Answer" in result:
+		records = []
+		for answer in result["Answer"]:
+			fields = answer["data"].split()
+			if len(fields) == 2:
+				priority, target = fields
+				records.append((int(priority), target))
+			else:
+				logging.error("Error parsing DNS MX Record: %r", answer["data"])
+
+		for _, target in sorted(records, key=operator.itemgetter(0)):
+			mx_hostname = target.rstrip(".").lower()
+			print("Found mail domain {0!r}".format(mx_hostname))
+			# mx_base_domain # Needs the Public Suffix List (PSL)
+			mx_full_domain = ".".join(mx_hostname.split(".")[1:])
+			if aemail_domain not in {mx_hostname, mx_full_domain}:
+				smtp_config = get_email_config(mx_full_domain, email, local_part, email_domain, True, False)
+				if smtp_config is not None:
+					_, hostname, _, _, _ = smtp_config
+					if not result["AD"] and not punycode(hostname).endswith(aemail_domain):
+						logging.warning(
+							"The DNS MX record used to lookup the mail domain was not signed with DNS Security Extensions (DNSSEC)."
+						)
+					return smtp_config
+			break
+
+	# https://datatracker.ietf.org/doc/html/rfc6186
+	# https://datatracker.ietf.org/doc/html/rfc8314#section-5.1
+	print("Looking up DNS SRV Records for configuration…")
+	for label, security in (("_submissions._tcp.", "SSL"), ("_submission._tcp.", "STARTTLS")):
+		result = dns_lookup(label + aemail_domain, "SRV")
+		if result is not None and not result["Status"] and "Answer" in result:
+			records = []
+			for answer in result["Answer"]:
+				fields = answer["data"].split()
+				if len(fields) == 4:
+					priority, weight, port, target = fields
+					records.append((int(priority), int(weight), int(port), target))
+				else:
+					logging.error("Error parsing DNS SRV Record: %r", answer["data"])
+
+			for _, _, port, target in sorted(records, key=lambda x: (x[0], -x[1])):
+				if target != ".":
+					# print("Configuration found from DNS SRV Records")
+					hostname = target.rstrip(".")
+					if not result["AD"] and not hostname.endswith(aemail_domain):
+						logging.warning(
+							"The DNS SRV record used to lookup the configuration was not signed with DNS Security Extensions (DNSSEC)."
+						)
+					return hostname, hostname, port, security, None
+
+	return None
+
+
 def setup(config, options):
 	"""Configures the GIMPS/PrimeNet client with user preferences and system settings."""
 	wrapper = textwrap.TextWrapper(width=75)
@@ -1545,18 +1739,48 @@ def setup(config, options):
 
 	test_email = False
 	if ask_yn(
-		"Do you want to set the optional e-mail/text message notification settings? (requires providing an SMTP server)",
+		"Do you want to set the optional e-mail/text message notification settings? (may require providing an SMTP server)",
 		options.fromemail and options.smtp,
 	):
-		smtp_server = ask_str("SMTP server (hostname and optional port), e.g., 'mail.example.com:465'", options.smtp or "")
-		tls = ask_yn("Use a secure connection with SSL/TLS?", True if options.tls is None else options.tls)
-		starttls = None
+		fromemail = ask_str("From e-mail address, e.g., 'User <user@example.com>'", options.fromemail or "")
+		print("\nAttempting to lookup the configuration")
+		tls = starttls = smtp_server = username = None
+		_, fromaddress = parseaddr(fromemail)
+		smtp_config = email_autoconfig(fromaddress or fromemail)
+		if smtp_config is not None:
+			display_name, hostname, port, socket_type, username = smtp_config
+			smtp_server = "{0}:{1}".format(hostname, port)
+			security = None
+			if socket_type:
+				if socket_type == "SSL":
+					tls = True
+					security = "SSL/TLS"
+				elif socket_type == "STARTTLS":
+					starttls = True
+					security = "StartTLS"
+				elif socket_type == "plain":
+					security = "None"
+				else:
+					security = "Unknown ({0!r})".format(socket_type)
+			print(
+				"""Outgoing (SMTP) server configuration found for {0!r}:
+	Hostname: {1!r}
+	Port: {2}
+	Connection security: {3}
+	Username: {4}
+""".format(display_name, hostname, port, security, repr(username) if username else "Unknown")
+			)
+		else:
+			print("Unable to find the configuration\n")
+		smtp_server = ask_str(
+			"SMTP server (hostname and optional port), e.g., 'mail.example.com:465'", options.smtp or smtp_server or ""
+		)
+		tls = ask_yn("Use a secure connection with SSL/TLS?", tls if options.tls is None else options.tls)
 		if not tls:
 			starttls = ask_yn(
-				"Upgrade to a secure connection with StartTLS?", True if options.starttls is None else options.starttls
+				"Upgrade to a secure connection with StartTLS?", starttls if options.starttls is None else options.starttls
 			)
-		fromemail = ask_str("From e-mail address, e.g., 'User <user@example.com>'", options.fromemail or "")
-		username = ask_str("Optional username for this account, e.g., 'user@example.com'", options.email_username or "")
+		username = ask_str("Optional username for this account, e.g., 'user@example.com'", options.email_username or username or "")
 		password = ask_pass("Optional password for this account", options.email_password or "")
 		toemails = []
 		for i in count():
@@ -1575,8 +1799,9 @@ def setup(config, options):
 			toemails.append(toemail)
 		test_email = ask_yn("Send a test e-mail message?", True)
 
-		# if not ask_ok_cancel():
-		# 	return None
+		if not ask_ok_cancel():
+			# return None
+			sys.exit(1)
 		options.smtp = smtp_server
 		config.set(SEC.Email, "smtp", smtp_server)
 		if tls:
@@ -1639,6 +1864,8 @@ attr_to_copy = {
 		"convert_ll_to_prp": "convert_ll_to_prp",
 		"convert_prp_to_ll": "convert_prp_to_ll",
 		"hours_between_checkins": "HoursBetweenCheckins",
+		"version_check": "version_check",
+		"version_check_channel": "version_check_channel",
 		"color": "color",
 		"computer_id": "ComputerID",
 		"cpu_brand": "CpuBrand",
@@ -1682,6 +1909,7 @@ OPTIONS_TYPE_HINTS = {
 		"DaysOfWork": float,
 		"tests_saved": float,
 		"pm1_multiplier": float,
+		"version_check": bool,
 		"color": bool,
 	},
 	SEC.Email: {"toemails": list, "tls": bool, "starttls": bool},
@@ -2146,7 +2374,7 @@ else:
 		return adigits
 
 
-WORKPATTERN = re.compile(
+WORK_PATTERN = re.compile(
 	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|Cert)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
 )
 
@@ -2171,7 +2399,7 @@ Cert_RE = re.compile(
 def parse_assignment(task):
 	"""Parses an assignment string and returns an Assignment object with the extracted details."""
 	# Ex: Test=197ED240A7A41EC575CB408F32DDA661,57600769,74
-	found = WORKPATTERN.match(task)
+	found = WORK_PATTERN.match(task)
 	if not found:
 		return None
 	# logging.debug(task)
@@ -2559,7 +2787,7 @@ def test_msg(guid):
 This is the requested test message from AutoPrimeNet! You have successfully configured the program to send e-mail notifications.
 
 Version: {1}
-Requests/urllib3 library version: {2}/{3}
+Requests/urllib3 library version: {2} / {3}
 Python version: {4}
 
 PrimeNet User ID: {5}
@@ -2608,15 +2836,20 @@ def generate_application_str():
 		return "{0},{1[name]},v{1[version]},build {1[build]}".format(aplatform, program)
 	name = program["name"]
 	version = program["version"]
+	build = program.get("build")
 	if config.has_option(SEC.Internals, "program"):
-		aprogram = config.get(SEC.Internals, "program").split(None, 1)
-		if len(aprogram) == 2:
+		aprogram = config.get(SEC.Internals, "program").split()
+		if len(aprogram) == 3:
+			name, version, build = aprogram
+		elif len(aprogram) == 2:
 			name, version = aprogram
 			# Python 3.9+: version = version.removeprefix("v")
 			version = version[1:] if version.startswith("v") else version
+		elif len(aprogram) == 1:
+			(name,) = aprogram
 	# return "{0},{1},v{2};Python {3},{4}".format(
-	#     aplatform, name, version, platform.python_version(), parser.get_version())
-	return "{0},{1},v{2}".format(aplatform, name, version)
+	# 	 aplatform, name, version, platform.python_version(), parser.get_version())
+	return "{0},{1},v{2}{3}".format(aplatform, name, version, ",build {0}".format(build) if build else "")
 
 
 def get_os():
@@ -2897,14 +3130,8 @@ def send_request(adapter, guid, args):
 		# adapter.debug("URL: " + r.url)
 		r.raise_for_status()
 		text = r.text
-	except Timeout as e:
+	except RequestException as e:
 		adapter.exception("%s", e, exc_info=options.debug)
-		return None
-	except HTTPError as e:
-		adapter.exception("Error receiving answer to request: %s", e, exc_info=options.debug)
-		return None
-	except ConnectionError as e:
-		adapter.exception("Error connecting to server for request: %s", e, exc_info=options.debug)
 		return None
 
 	result = parse_v5_resp(text)
@@ -3531,8 +3758,8 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 				if astage == 1:
 					counter = nsquares
 				# elif astage == 2:
-				#     interim_C = from_bytes(tmp[:-1])
-				#     _psmall = from_bytes(tmp[-1:])
+				# 	interim_C = from_bytes(tmp[:-1])
+				# 	_psmall = from_bytes(tmp[-1:])
 				stage = "S{0}".format(astage)
 			else:
 				adapter.debug("savefile with unknown TEST_TYPE = %s", t)
@@ -4217,7 +4444,7 @@ def parse_mfaktc_output_file(adapter, adir, p):
 		if result is not None:
 			iteration, avg_msec_per_iter, pct_complete = result
 	# else:
-	#     adapter.debug("Checkpoint file %r does not exist", savefile)
+	# 	adapter.debug("Checkpoint file %r does not exist", savefile)
 
 	return iteration, avg_msec_per_iter, stage, pct_complete, None, 0, 0
 
@@ -4233,7 +4460,7 @@ def parse_mfakto_output_file(adapter, adir, p):
 		if result is not None:
 			iteration, avg_msec_per_iter, pct_complete = result
 	# else:
-	#     adapter.debug("Checkpoint file %r does not exist", savefile)
+	# 	adapter.debug("Checkpoint file %r does not exist", savefile)
 
 	return iteration, avg_msec_per_iter, stage, pct_complete, None, 0, 0
 
@@ -4556,7 +4783,7 @@ def check_disk_space(dirs):
 				outputunit(total),
 				outputunit(disk_space),
 			)
-			if not config.has_option(SEC.PrimeNet, "storage_usage_critical"):
+			if not config.has_option(SEC.Internals, "storage_usage_critical"):
 				send_msg(
 					"⚠️🗃️ {0:.1%} of the disk space limit used on {1}".format(precent, options.computer_id),
 					"""{0:%} or {1}B of the configured {2}B ({3}B × {4}) disk space limit is used on your {5!r} computer.
@@ -4577,9 +4804,9 @@ Total limit usage: {7}
 					),
 					priority="2 (High)",
 				)
-				config.set(SEC.PrimeNet, "storage_usage_critical", str(True))
+				config.set(SEC.Internals, "storage_usage_critical", str(True))
 		else:
-			config.remove_option(SEC.PrimeNet, "storage_usage_critical")
+			config.remove_option(SEC.Internals, "storage_usage_critical")
 
 	logging.debug("Disk space available: %s", output_available(usage.free, usage.total))
 	precent = usage.free / usage.total
@@ -4596,7 +4823,7 @@ Total limit usage: {7}
 			outputunit(usage.free),
 			outputunit(usage.total),
 		)
-		if not config.has_option(SEC.PrimeNet, "storage_available_critical"):
+		if not config.has_option(SEC.Internals, "storage_available_critical"):
 			send_msg(
 				"🚨🗃️ Only {0:.1%} of the disk space available on {1}".format(precent, options.computer_id),
 				"""Only {0:%} or {1}B of the total {2}B disk space is available on your {3!r} computer.
@@ -4613,9 +4840,9 @@ Disk space available: {4}
 				),
 				priority="1 (Highest)",
 			)
-			config.set(SEC.PrimeNet, "storage_available_critical", str(True))
+			config.set(SEC.Internals, "storage_available_critical", str(True))
 	else:
-		config.remove_option(SEC.PrimeNet, "storage_available_critical")
+		config.remove_option(SEC.Internals, "storage_available_critical")
 
 
 def checksum_md5(filename):
@@ -5684,12 +5911,12 @@ SCRIPT = {
 	},
 	"os": get_os(),
 }
-CUDA_RESULTPATTERN = re.compile(r"CUDALucas v|CUDAPm1 v")
+CUDA_RESULT_PATTERN = re.compile(r"CUDALucas v|CUDAPm1 v")
 
 
 def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 	"""Parses the result from a given sendline, processes it, and sends the appropriate response to the server."""
-	if CUDA_RESULTPATTERN.search(sendline):  # CUDALucas or CUDAPm1
+	if CUDA_RESULT_PATTERN.search(sendline):  # CUDALucas or CUDAPm1
 		ar = cuda_result_to_json(adapter, resultsfile, sendline)
 	else:  # Mlucas or GpuOwl
 		try:
@@ -5702,7 +5929,12 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			return None
 
 	program = ar["program"]
-	aprogram = "{0} {1}".format(program["name"], program["version"])
+	aprogram = "{0}{1}".format(
+		program["name"],
+		" {0}{1}".format(program["version"], " {0}".format(program["build"]) if "build" in program else "")
+		if program["version"]
+		else "",
+	)
 	# adapter.debug("Program: %s", aprogram)
 	config.set(SEC.Internals, "program", aprogram)
 
@@ -5923,7 +6155,7 @@ Attached is a zipped copy of the full log file and last savefile/checkpoint file
 Exponent links: https://www.mersenne.org/M{12}, https://www.mersenne.ca/M{12}
 
 AutoPrimeNet version: {13}
-Requests/urllib3 library version: {14}/{15}
+Requests/urllib3 library version: {14} / {15}
 Python version: {16}
 """.format(
 					user_name,
@@ -5972,7 +6204,7 @@ Python version: {16}
 	return ar, message, assignment, result_type, no_report
 
 
-RESULTPATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gpuowl|prpll|mfakt[co]|cofact")
+RESULT_PATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gpuowl|prpll|mfakt[co]|cofact")
 
 
 def submit_work(dirs, adapter, adir, cpu_num, tasks):
@@ -5989,7 +6221,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 		# EWM: Note that readonly_list_file does not need the file(s) to exist - nonexistent files simply yield 0-length rs-array entries.
 		# remove nonsubmittable lines from list of possibles
 		# if a line was previously submitted, discard
-		results_send = [line for line in results if RESULTPATTERN.search(line) and line not in results_sent]
+		results_send = [line for line in results if RESULT_PATTERN.search(line) and line not in results_sent]
 
 	if not results_send:
 		adapter.debug("No new results in %r.", resultsfile)
@@ -7105,6 +7337,230 @@ def ping_server(ping_type=1):
 	return None
 
 
+VERSION_PATTERN = re.compile(
+	r"^v?([0-9]+)(?:\.([0-9]+)(?:\.([0-9]+))?(?:-([0-9]+))?|\b)(?:-?(alpha|beta|pre)\.?([0-9]+)?\b)?", re.I
+)
+
+Version = namedtuple("Version", ("major", "minor", "micro", "patch", "release", "num"))
+
+
+def parse_version(version, build=None):
+	"""Parses a version string into a Version object with major, minor, micro, patch, release, and num components."""
+	version_res = VERSION_PATTERN.match(version)
+	if not version_res:
+		return None
+
+	major, minor, micro, patch, release, num = version_res.groups()
+	return Version(
+		int(major),
+		int(minor) if minor else 0,
+		int(micro) if micro else 0,
+		int(patch) if patch else int(build) if build else 0,
+		release.lower() if release else "z",
+		int(num) if num else 0,
+	)
+
+
+def autoprimenet_version_check():
+	"""Check for the latest version of AutoPrimeNet and notify if an update is available."""
+	try:
+		r = session.get(
+			mersenne_ca_baseurl + "versioncheck/autoprimenet/source/{0}".format(options.version_check_channel or "stable"),
+			timeout=30,
+		)
+		r.raise_for_status()
+		result = r.json()
+	except RequestException as e:
+		logging.exception("AutoPrimeNet version check failed: %s", e, exc_info=options.debug)
+		return
+
+	releases = result["releases"]
+	if not releases:
+		return
+	release = releases[0]
+	version = release["version"]
+	date_release = release["date_release"]
+	date = datetime.strptime(date_release, "%Y-%m-%d")  # "%F"
+	latest_version = parse_version(version)
+	if latest_version > parse_version(VERSION):
+		logging.warning("New version %s of AutoPrimeNet is available as of %s", version, date.strftime("%Y-%m-%d"))
+		new_version = (
+			config.get(SEC.Internals, "autoprimenet_new_version")
+			if config.has_option(SEC.Internals, "autoprimenet_new_version")
+			else None
+		)
+		if new_version is None or latest_version > parse_version(new_version):
+			send_msg(
+				"🆕 New version {0} of AutoPrimeNet is available for {1}".format(version, options.computer_id),
+				"""A new version {0} of AutoPrimeNet is available for your {1} computer as of {2:%Y-%m-%d}.
+
+Information: {3[url_info]}
+Discuss/Forum: {3[url_discuss]}
+Download: {3[url_download]}
+
+Current version: {4}
+Latest version: {0}
+
+Requests/urllib3 library version: {5} / {6}
+Python version: {7}
+""".format(
+					version,
+					options.computer_id,
+					date,
+					release,
+					VERSION,
+					requests.__version__,
+					urllib3.__version__,
+					platform.python_version(),
+				),
+			)
+			config.set(SEC.Internals, "autoprimenet_new_version", version)
+			config.set(SEC.Internals, "autoprimenet_new_date", date_release)
+	else:
+		logging.debug("AutoPrimeNet is up to date")
+		config.remove_option(SEC.Internals, "autoprimenet_new_version")
+		config.remove_option(SEC.Internals, "autoprimenet_new_date")
+
+
+def program_version_check():
+	"""Check for updates to the GIMPS program and notify if a new version is available."""
+	if not config.has_option(SEC.Internals, "program"):
+		return
+	program = config.get(SEC.Internals, "program")
+	aprogram = program.split()
+	build = None
+	if len(aprogram) == 3:
+		name, version, build = aprogram
+	elif len(aprogram) == 2:
+		name, version = aprogram
+	else:
+		logging.error("Unable to parse current version number %r", program)
+		return
+	aname = name.lower()  # casefold()
+
+	os_version = None
+	if sys.platform == "win32":
+		aos = "windows"
+		release, _version, _csd, _ptype = platform.win32_ver()
+		if release and "Server" not in release:
+			os_version = "xp" if release.startswith("XP") else release.lower()
+	elif sys.platform == "darwin":
+		aos = "macosx"
+	elif sys.platform.startswith("linux"):
+		aos = "linux"
+	elif sys.platform.startswith("freebsd"):
+		aos = "freebsd"
+	else:
+		aos = "source"
+
+	machine = platform.machine().lower()
+	if machine in {"x86_64", "amd64"}:
+		arch = "x86-64"
+	elif machine in {"x86", "i386", "i686"}:
+		arch = "x86-32"
+	elif machine in {"arm64", "aarch64"}:
+		arch = "arm-64"
+	elif machine.startswith("arm"):
+		arch = "arm-32"
+	else:
+		arch = None
+		logging.debug("Unknown architecture %r for version check", machine)
+
+	if aname not in {"prime95", "mlucas", "gpuowl", "prpll", "cudalucas", "cudapm1", "mfaktc", "mfakto", "cofact"}:
+		logging.error("Unknown GIMPS program %r for version check", name)
+		return
+
+	try:
+		r = session.get(
+			mersenne_ca_baseurl
+			+ "versioncheck/{0}/{1}_{2}_{3}/{4}".format(
+				aname, aos, arch or "", os_version or "", options.version_check_channel or "stable"
+			),
+			timeout=30,
+		)
+		r.raise_for_status()
+		result = r.json()
+	except RequestException as e:
+		logging.exception("GIMPS program version check failed: %s", e, exc_info=options.debug)
+		return
+
+	releases = result["releases"] or result["releases_other"]
+	if not releases:
+		return
+	release = releases[0]
+	aversion = release["version"]
+	abuild = release["build"]
+	date_release = release["date_release"]
+	date = datetime.strptime(date_release, "%Y-%m-%d")  # "%F"
+	latest_version = parse_version(aversion, abuild)
+	if not latest_version:
+		logging.error("Unable to parse new version number %r for %s", aversion, name)
+		return
+	current_version = parse_version(version, build)
+	if not current_version:
+		logging.error("Unable to parse current version number %r for %s", version, name)
+		return
+	option_version = "{0}_new_version".format(aname)
+	option_date = "{0}_new_date".format(aname)
+	if latest_version > current_version:
+		version_str = aversion + (" build {0}".format(abuild) if abuild else "")
+		logging.warning(
+			"New version %s of the GIMPS program %s is available as of %s", version_str, name, date.strftime("%Y-%m-%d")
+		)
+		new_version = None
+		if config.has_option(SEC.Internals, option_version):
+			program = config.get(SEC.Internals, option_version)
+			aprogram = program.split()
+			aabuild = None
+			if len(aprogram) == 2:
+				aaversion, aabuild = aprogram
+			elif len(aprogram) == 1:
+				aaversion = program
+			new_version = parse_version(aaversion, aabuild)
+		new_date = (
+			datetime.strptime(config.get(SEC.Internals, option_date), "%Y-%m-%d")
+			if config.has_option(SEC.Internals, option_date)
+			else None
+		)
+		if new_version is None or latest_version > new_version or new_date is None or date > new_date:
+			send_msg(
+				"🆕 New version {0} of {1} is available for {2}".format(version_str, name, options.computer_id),
+				"""A new version {0} of the {1} GIMPS program is available for your {2} computer as of {3:%Y-%m-%d}.
+
+Information: {4[url_info]}
+Discuss/Forum: {4[url_discuss]}
+Download: {4[url_download]}
+
+Current version: {5}
+Latest version: {0}
+""".format(version_str, name, options.computer_id, date, release, version + (" build {0}".format(build) if build else "")),
+			)
+			config.set(SEC.Internals, option_version, aversion + (" {0}".format(abuild) if abuild else ""))
+			config.set(SEC.Internals, option_date, date_release)
+	else:
+		logging.debug("The GIMPS program %s is up to date", name)
+		config.remove_option(SEC.Internals, option_version)
+		config.remove_option(SEC.Internals, option_date)
+
+
+def version_check(current_time):
+	"""Checks if a version update is needed based on the last check time and the current time."""
+	if options.version_check is not None and not options.version_check:
+		return
+	last_version_check = (
+		config.getint(SEC.Internals, "last_version_check") if config.has_option(SEC.Internals, "last_version_check") else 0
+	)
+	if current_time < last_version_check + 24 * 60 * 60:
+		return
+	logging.debug("Checking for new versions…")
+
+	autoprimenet_version_check()
+
+	program_version_check()
+
+	config.set(SEC.Internals, "last_version_check", str(int(current_time)))
+
+
 def is_pyinstaller():
 	"""Check if the script is running as a PyInstaller bundle."""
 	# Adapted from: https://pyinstaller.org/en/stable/runtime-information.html
@@ -7361,6 +7817,19 @@ parser.add_option(
 	help="Resume getting new assignments after having previously run the --no-more-work option and exit.",
 )
 parser.add_option("--ping", action="store_true", dest="ping", help="Ping the PrimeNet server, show version information and exit.")
+parser.add_option(
+	"--no-version-check",
+	action="store_false",
+	dest="version_check",
+	help="Disable the automatic AutoPrimeNet and GIMPS program version check",
+)
+parser.add_option("--version-check", action="store_true", dest="version_check")
+parser.add_option(
+	"--version-check-channel",
+	dest="version_check_channel",
+	choices=("alpha", "beta", "stable"),
+	help="Prefer the 'alpha', 'beta' or 'stable' channel/branch when checking for new versions of AutoPrimeNet and the GIMPS program. Not all programs provide alpha or beta releases. Default: 'stable'",
+)
 parser.add_option("--no-color", action="store_false", dest="color", help="Do not use color in output.")
 parser.add_option("--color", action="store_true", dest="color")
 parser.add_option("--setup", action="store_true", help="Prompt for all the options that are needed to setup this program and exit.")
@@ -7373,7 +7842,7 @@ cache_sizes = get_cpu_cache_sizes()
 group = optparse.OptionGroup(
 	parser,
 	"Registering Options",
-	"Sent to PrimeNet/GIMPS when registering. It will automatically send the progress, which allows the program to then be monitored on the GIMPS website CPUs page (https://www.mersenne.org/cpus/), just like with Prime95/MPrime. This also allows the program to get much smaller Category 0 and 1 exponents, if it meets the other requirements (https://www.mersenne.org/thresholds/).",
+	"Sent to PrimeNet/GIMPS when registering. It will automatically send the progress, which allows the program to then be monitored on the GIMPS website CPUs page (https://www.mersenne.org/cpus/), just like with Prime95/MPrime. This also allows the program to get much smaller Category 0 and 1 exponents, if it meets the other requirements (https://www.mersenne.org/thresholds/). AutoPrimeNet should automatically detect most of this system information. When using the --setup option and a GPU based GIMPS program, it can optionally report the GPU instead of the CPU.",
 )
 group.add_option(
 	"-H", "--hostname", dest="computer_id", default=platform.node()[:20], help="Optional computer name, Default: %default"
@@ -7441,7 +7910,7 @@ parser.add_option_group(group)
 group = optparse.OptionGroup(
 	parser,
 	"Notification Options",
-	"Optionally configure this program to automatically send an e-mail/text message notification if there is an error, if the GIMPS program has stalled, if the available disk space is low or if it found a new Mersenne prime. Send text messages by using your mobile providers e-mail to SMS or MMS gateway. Use the --test-email option to verify the configuration.",
+	"Optionally configure this program to automatically send an e-mail/text message notification if there is an error, if the GIMPS program has stalled, if the available disk space is low, if it found a new Mersenne prime or if their is a new version of the GIMPS program. Send text messages by using your mobile providers e-mail to SMS or MMS gateway. Use the --test-email option to verify the configuration. When using the --setup option, it will automatically lookup the configuration.",
 )
 group.add_option(
 	"--to",
@@ -7616,11 +8085,6 @@ CONVERT = {
 	PRIMENET.WP_LL_WORLD_RECORD: PRIMENET.WP_PRP_WORLD_RECORD,
 	PRIMENET.WP_LL_100M: PRIMENET.WP_PRP_100M,
 }
-
-EMAILRE = re.compile(
-	r'^(?=.{6,254}$)(?=.{1,64}@)(([^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"([^"\\]|\\.)+")(\.(([^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"([^"\\]|\\.)+"))*@((xn--)?[^\W_]([\w-]{0,61}[^\W_])?\.)+(xn--)?[^\W\d_]{2,63}$',
-	re.U,
-)
 
 check_options(parser, options)
 
@@ -7805,7 +8269,7 @@ while True:
 			if options.num_cores >= 2
 			else 24
 		)
-	cert_freq = max(0.25, cert_freq)
+	cert_freq = max(cert_freq, 0.25)
 	cert_last_update = (
 		config.getint(SEC.Internals, "CertDailyRemainingLastUpdate")
 		if config.has_option(SEC.Internals, "CertDailyRemainingLastUpdate")
@@ -7839,6 +8303,8 @@ while True:
 	start_time = config.getint(SEC.Internals, "RollingStartTime") if config.has_option(SEC.Internals, "RollingStartTime") else 0
 	if current_time >= start_time + 6 * 60 * 60:
 		adjust_rolling_average(dirs)
+
+	version_check(current_time)
 
 	if cert_work:
 		config.set(SEC.Internals, "CertDailyRemainingLastUpdate", str(int(current_time)))
