@@ -120,6 +120,12 @@ except ImportError:
 	from ConfigParser import Error as ConfigParserError
 	from ConfigParser import SafeConfigParser as ConfigParser
 
+try:
+	# Python 3+
+	import queue
+except ImportError:
+	import Queue as queue
+
 if sys.version_info >= (3, 7):
 	# Python 3.7+
 	# If is OK to use dict in 3.7+ because insertion order is guaranteed to be preserved
@@ -318,6 +324,7 @@ if sys.platform == "win32":  # Windows
 			super(MEMORYSTATUSEX, self).__init__()
 
 	def get_windows_serial_number():
+		"""Retrieves the Windows Product ID from the system registry."""
 		output = ""
 		for path in (r"Software\Microsoft\Windows\CurrentVersion", r"Software\Microsoft\Windows NT\CurrentVersion"):
 			try:
@@ -332,6 +339,7 @@ if sys.platform == "win32":  # Windows
 		return output
 
 	def get_windows_sid():
+		"""Retrieves the Security Identifier (SID) of the Windows computer."""
 		# output = ""
 		computer_name = ctypes.create_unicode_buffer(256)
 		size = wintypes.DWORD(ctypes.sizeof(computer_name))
@@ -416,7 +424,7 @@ elif sys.platform.startswith("linux"):
 					break
 			return info
 
-	libc = ctypes.CDLL(find_library("c"))
+	libc = ctypes.CDLL(find_library("c"), use_errno=True)
 
 	class sysinfo(ctypes.Structure):
 		_fields_ = (
@@ -549,6 +557,378 @@ try:
 	from json.decoder import JSONDecodeError
 except ImportError:
 	JSONDecodeError = ValueError
+
+results_queue = queue.Queue()
+proofs_queue = queue.Queue()
+
+if sys.platform == "win32":
+
+	class FILE_NOTIFY_INFORMATION(ctypes.Structure):
+		_fields_ = (
+			("NextEntryOffset", wintypes.DWORD),
+			("Action", wintypes.DWORD),
+			("FileNameLength", wintypes.DWORD),
+			("FileName", wintypes.WCHAR * 1),
+		)
+
+	def watch_files(adir, cpu_num):
+		"""Monitors a directory for file changes and processes specific file actions."""
+		fun = kernel32.CreateFileW if sys.version_info >= (3,) or isinstance(adir, unicode) else kernel32.CreateFileA
+		handle = fun(
+			adir,
+			1,  # FILE_LIST_DIRECTORY
+			# FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+			0x00000001 | 0x00000002 | 0x00000004,
+			None,  # lpSecurityAttributes
+			3,  # OPEN_EXISTING
+			0x02000000,  # FILE_FLAG_BACKUP_SEMANTICS
+			None,  # hTemplateFile
+		)
+		if handle == -1:
+			raise ctypes.WinError(ctypes.get_last_error())
+		results_files = (
+			["results-{0}.txt".format(i) for i in range(options.num_workers)] if options.prpll else [options.results_file]
+		)
+		logging.info("Watching the directory: %r.", os.path.abspath(adir))
+
+		size = FILE_NOTIFY_INFORMATION.FileName.offset
+		try:
+			while True:
+				buffer = ctypes.create_string_buffer(1024)
+				bytes_returned = wintypes.DWORD()
+				result = kernel32.ReadDirectoryChangesW(
+					handle,
+					buffer,
+					len(buffer),
+					True,  # bWatchSubdirectory
+					# FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+					0x00000001 | 0x00000002 | 0x00000010,
+					ctypes.byref(bytes_returned),
+					None,  # lpOverlapped
+					None,  # lpCompletionRoutine
+				)
+				if not result:
+					raise ctypes.WinError(ctypes.get_last_error())
+
+				offset = 0
+				while offset < bytes_returned.value:  # len(data)
+					record = FILE_NOTIFY_INFORMATION.from_buffer(buffer, offset)
+					filename = buffer[offset + size : offset + size + record.FileNameLength].decode("utf-16")
+					file = os.path.join(adir, filename)
+					if record.Action == 0x00000001:  # FILE_ACTION_ADDED
+						aadir, afile = os.path.split(filename)
+						if aadir == "proof" and afile.endswith(".proof"):
+							logging.debug("A new proof file %r was detected.", file)
+							proofs_queue.put((adir, cpu_num, file))
+					if record.Action == 0x00000003 and filename in results_files:  # FILE_ACTION_MODIFIED
+						logging.debug("The results file %r was modified.", file)
+						results_queue.put((adir, results_files.index(filename) if options.prpll else cpu_num))
+					if not record.NextEntryOffset:
+						break
+					offset += record.NextEntryOffset
+		finally:
+			kernel32.CloseHandle(handle)
+
+elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."))) >= (10, 7):
+	CoreFoundation = ctypes.CDLL(find_library("CoreFoundation"))
+	CoreServices = ctypes.CDLL(find_library("CoreServices"))
+
+	class info(ctypes.Structure):
+		_fields_ = (("dir", ctypes.c_char_p), ("cpu_num", ctypes.c_int))
+
+	class FSEventStreamContext(ctypes.Structure):
+		_fields_ = (
+			("version", ctypes.c_int),
+			("info", ctypes.POINTER(info)),
+			("retain", ctypes.c_void_p),
+			("release", ctypes.c_void_p),
+			("copyDescription", ctypes.c_void_p),
+		)
+
+	FSEventStreamCallback = ctypes.CFUNCTYPE(
+		None,
+		ctypes.c_void_p,
+		ctypes.POINTER(info),
+		ctypes.c_size_t,
+		ctypes.POINTER(ctypes.c_void_p),
+		ctypes.POINTER(ctypes.c_ulong),
+		ctypes.POINTER(ctypes.c_uint64),
+	)
+
+	# CoreFoundation.CFStringCreateWithCString.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32)
+	CoreFoundation.CFStringCreateWithCString.restype = ctypes.c_void_p
+
+	# CoreFoundation.CFArrayCreate.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_void_p)
+	CoreFoundation.CFArrayCreate.restype = ctypes.c_void_p
+
+	CoreFoundation.CFRunLoopGetCurrent.restype = ctypes.c_void_p
+
+	CoreServices.FSEventStreamCreate.argtypes = (
+		ctypes.c_void_p,
+		FSEventStreamCallback,
+		ctypes.POINTER(FSEventStreamContext),
+		ctypes.c_void_p,
+		ctypes.c_uint64,
+		ctypes.c_double,
+		ctypes.c_uint32,
+	)
+	CoreServices.FSEventStreamCreate.restype = ctypes.c_void_p
+
+	CoreServices.FSEventStreamScheduleWithRunLoop.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+
+	CoreServices.FSEventStreamStart.argtypes = (ctypes.c_void_p,)
+
+	CoreServices.FSEventStreamStop.argtypes = (ctypes.c_void_p,)
+
+	CoreServices.FSEventStreamInvalidate.argtypes = (ctypes.c_void_p,)
+
+	CoreServices.FSEventStreamRelease.argtypes = (ctypes.c_void_p,)
+
+	@FSEventStreamCallback
+	def fs_event_callback(_stream_ref, client_info, num_events, event_paths, event_flags, _event_ids):
+		"""Callback function for handling file system events."""
+		paths = []
+		for item in client_info:
+			if item.dir is None:
+				break
+			paths.append((item.dir.decode("utf-8"), item.cpu_num))
+		((adir, cpu_num),) = paths
+		results = (
+			[os.path.join(adir, "results-{0}.txt".format(i)) for i in range(options.num_workers)]
+			if options.prpll
+			else [os.path.join(adir, options.results_file)]
+		)
+		proof = os.path.join(adir, "proof")
+
+		for i in range(num_events):
+			path = ctypes.string_at(event_paths[i]).decode("utf-8")
+			flag = event_flags[i]
+			# aid = event_ids[i]
+			if flag & 0x00000800:  # kFSEventStreamEventFlagItemRenamed
+				aadir, afile = os.path.split(path)
+				if flag & 0x00010000 and aadir == proof and afile.endswith(".proof"):  # kFSEventStreamEventFlagItemIsFile
+					logging.debug("A new proof file %r was detected.", path)
+					proofs_queue.put((adir, cpu_num, path))
+			# kFSEventStreamEventFlagItemModified # kFSEventStreamEventFlagItemIsFile
+			if flag & 0x00001000 and flag & 0x00010000 and path in results:
+				logging.debug("The results file %r was modified.", path)
+				results_queue.put((adir, results.index(path) if options.prpll else cpu_num))
+
+	def watch_files(adir, cpu_num):
+		"""Watches the specified directory for file system events and processes them using a callback function."""
+		paths = ((adir, cpu_num),)
+		strings = (ctypes.c_void_p * len(paths))(
+			*(CoreFoundation.CFStringCreateWithCString(None, s.encode("utf-8"), 0x8000100) for s, _ in paths)
+		)
+		logging.info("Watching the directory: %r.", os.path.abspath(adir))
+
+		context = FSEventStreamContext()
+		context.version = 0
+		context.info = (info * (len(paths) + 1))(*((os.path.abspath(s).encode("utf-8"), i) for s, i in paths))
+		context.retain = None
+		context.release = None
+		context.copyDescription = None
+
+		stream = CoreServices.FSEventStreamCreate(
+			None,
+			fs_event_callback,
+			ctypes.byref(context),
+			CoreFoundation.CFArrayCreate(
+				None, strings, len(strings), ctypes.c_void_p.in_dll(CoreFoundation, "kCFTypeArrayCallBacks")
+			),
+			0xFFFFFFFFFFFFFFFF,  # kFSEventStreamEventIdSinceNow
+			ctypes.c_double(0.0),
+			0x00000010,  # kFSEventStreamCreateFlagFileEvents
+		)
+
+		try:
+			CoreServices.FSEventStreamScheduleWithRunLoop(
+				stream, CoreFoundation.CFRunLoopGetCurrent(), ctypes.c_void_p.in_dll(CoreFoundation, "kCFRunLoopDefaultMode")
+			)
+			CoreServices.FSEventStreamStart(stream)
+			CoreFoundation.CFRunLoopRun()
+		finally:
+			CoreServices.FSEventStreamStop(stream)
+			CoreServices.FSEventStreamInvalidate(stream)
+			CoreServices.FSEventStreamRelease(stream)
+
+elif sys.platform == "darwin":
+	import select
+
+	def add_watch(path, fflags):
+		"""Adds a watch on the specified path for the given file flags."""
+		fd = os.open(path, 0x8000)  # os.O_EVTONLY
+
+		event = select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, fflags)
+		return fd, event
+
+	def watch_files(adir, cpu_num):
+		"""Monitors a directory and its files for changes, handling file events."""
+		results = (
+			[os.path.join(adir, "results-{0}.txt".format(i)) for i in range(options.num_workers)]
+			if options.prpll
+			else [os.path.join(adir, options.results_file)]
+		)
+		fds = {}
+		result_fds = {}
+		proof_fd = None
+		changelist = []
+
+		kq = select.kqueue()
+
+		try:
+			dir_fd, event = add_watch(adir, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
+			fds[dir_fd] = adir, event
+			changelist.append(event)
+			logging.info("Watching the directory: %r.", os.path.abspath(adir))
+
+			for result in results:
+				if os.path.isfile(result):
+					result_fd, event = add_watch(result, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
+					fds[result_fd] = result_fds[result_fd] = result, event
+					changelist.append(event)
+					logging.debug("Watching the file: %r.", result)
+
+			proof = os.path.join(adir, "proof")
+			if os.path.isdir(proof):
+				proof_fd, event = add_watch(proof, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
+				fds[proof_fd] = proof, event
+				changelist.append(event)
+				logging.debug("Watching the directory: %r.", proof)
+
+			while True:
+				eventlist = kq.control(changelist, 1024)
+				for event in reversed(eventlist):
+					file, aevent = fds[event.ident]
+					if event.fflags & select.KQ_NOTE_DELETE:
+						del fds[event.ident]
+						if event.ident in result_fds:
+							del result_fds[event.ident]
+						elif event.ident == proof_fd:
+							proof_fd = None
+						changelist.remove(aevent)
+						# os.close(event.ident)
+					if event.fflags & select.KQ_NOTE_WRITE:
+						if event.ident in result_fds:
+							logging.debug("The results file %r was modified.", file)
+							results_queue.put((adir, results.index(file) if options.prpll else cpu_num))
+						elif event.ident == dir_fd:
+							for result in results:
+								if result not in result_fds.values() and os.path.isfile(result):
+									result_fd, aevent = add_watch(result, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
+									fds[result_fd] = result_fds[result_fd] = result, aevent
+									changelist.append(aevent)
+									logging.debug("Watching the file: %r.", result)
+						if event.ident == proof_fd:
+							logging.debug("A potential new proof file was detected in %r.", file)
+							proofs_queue.put((adir, cpu_num, None))
+						elif proof_fd is None and event.ident == dir_fd and os.path.isdir(proof):
+							proof_fd, aevent = add_watch(proof, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
+							fds[proof_fd] = proof, aevent
+							changelist.append(aevent)
+							logging.debug("Watching the directory: %r.", proof)
+		finally:
+			for fd in fds:
+				os.close(fd)
+			kq.close()
+
+elif sys.platform.startswith("linux"):
+	IN_CLOSE_WRITE = 0x00000008  # Writtable file was closed
+	IN_MOVED_TO = 0x00000080  # File was moved to Y
+	IN_CREATE = 0x00000100  # Subfile was created
+
+	IN_IGNORED = 0x00008000  # File was ignored.
+
+	# IN_ISDIR = 0x40000000  # event occurred against dir
+
+	class InotifyEvent(ctypes.Structure):
+		_fields_ = (
+			("wd", ctypes.c_int),
+			("mask", ctypes.c_uint32),
+			("cookie", ctypes.c_uint32),
+			("len", ctypes.c_uint32),
+			# ("name", ctypes.c_char_p)
+		)
+
+	BUF_LEN = 1024 * (ctypes.sizeof(InotifyEvent) + 16)
+
+	def add_watch(fd, path, mask):
+		"""Add a watch to the inotify instance for the specified path with the given mask."""
+		wd = libc.inotify_add_watch(fd, path.encode("utf-8"), mask)
+		if wd < 0:
+			raise OSError(ctypes.get_errno(), "Error adding watch to {0!r}".format(path))
+		return wd
+
+	def watch_files(adir, cpu_num):
+		"""Monitors specified directory and files for changes and handles events accordingly."""
+		results_files = (
+			["results-{0}.txt".format(i) for i in range(options.num_workers)] if options.prpll else [options.results_file]
+		)
+		results = [os.path.join(adir, file) for file in results_files]
+		wds = {}
+		result_wds = {}
+		proof_wd = None
+
+		inotify_fd = libc.inotify_init()
+		if inotify_fd < 0:
+			raise OSError(ctypes.get_errno(), "Error initializing inotify")
+
+		try:
+			dir_wd = add_watch(inotify_fd, adir, IN_CREATE)
+			wds[dir_wd] = adir
+			logging.info("Watching the directory: %r.", os.path.abspath(adir))
+
+			for result in results:
+				if os.path.isfile(result):
+					result_wd = add_watch(inotify_fd, result, IN_CLOSE_WRITE)
+					wds[result_wd] = result_wds[result_wd] = result
+					logging.debug("Watching the file: %r.", result)
+
+			proof = os.path.join(adir, "proof")
+			if os.path.isdir(proof):
+				proof_wd = add_watch(inotify_fd, proof, IN_MOVED_TO)
+				wds[proof_wd] = proof
+				logging.debug("Watching the directory: %r.", proof)
+
+			size = ctypes.sizeof(InotifyEvent)
+			while True:
+				buffer = os.read(inotify_fd, BUF_LEN)
+
+				offset = 0
+				while offset < len(buffer):
+					event = InotifyEvent.from_buffer_copy(buffer, offset)
+					name = buffer[offset + size : offset + size + event.len].rstrip(b"\0").decode("utf-8")
+					file = wds[event.wd] + (os.sep + name if name else "")
+					if event.mask & IN_CLOSE_WRITE and event.wd in result_wds:
+						logging.debug("The results file %r was modified.", file)
+						results_queue.put((adir, results_files.index(name) if options.prpll else cpu_num))
+					if event.mask & IN_MOVED_TO and event.wd == proof_wd and name.endswith(".proof"):
+						logging.debug("A new proof file %r was detected.", file)
+						proofs_queue.put((adir, cpu_num, file))
+					if event.mask & IN_CREATE:
+						if event.wd == dir_wd and name in results_files:
+							result = results[results_files.index(name)]
+							result_wd = add_watch(inotify_fd, result, IN_CLOSE_WRITE)
+							wds[result_wd] = result_wds[result_wd] = result
+							logging.debug("Watching the file: %r.", result)
+						elif event.wd == dir_wd and name == "proof":
+							# if not event.mask & IN_ISDIR:
+							# 	logging.error("The file is not a directory")
+							proof_wd = add_watch(inotify_fd, proof, IN_MOVED_TO)
+							wds[proof_wd] = proof
+							logging.debug("Watching the directory: %r.", proof)
+					if event.mask & IN_IGNORED:
+						del wds[event.wd]
+						if event.wd in result_wds:
+							del result_wds[event.wd]
+						elif event.wd == proof_wd:
+							proof_wd = None
+					offset += size + event.len
+		finally:
+			for wd in wds:
+				libc.inotify_rm_watch(inotify_fd, wd)
+			os.close(inotify_fd)
+
 
 try:
 	# import certifi
@@ -1866,6 +2246,7 @@ attr_to_copy = {
 		"hours_between_checkins": "HoursBetweenCheckins",
 		"version_check": "version_check",
 		"version_check_channel": "version_check_channel",
+		"watch": "watch",
 		"color": "color",
 		"computer_id": "ComputerID",
 		"cpu_brand": "CpuBrand",
@@ -1910,6 +2291,7 @@ OPTIONS_TYPE_HINTS = {
 		"tests_saved": float,
 		"pm1_multiplier": float,
 		"version_check": bool,
+		"watch": bool,
 		"color": bool,
 	},
 	SEC.Email: {"toemails": list, "tls": bool, "starttls": bool},
@@ -4043,9 +4425,8 @@ def class_needed(exp, k_min, c, more_classes):
 		and ((2 * (exp % 3) * ((k_min + c) % 3)) % 3 != 2)
 		and ((2 * (exp % 5) * ((k_min + c) % 5)) % 5 != 4)
 		and ((2 * (exp % 7) * ((k_min + c) % 7)) % 7 != 6)
-	):
-		if not more_classes or (2 * (exp % 11) * ((k_min + c) % 11)) % 11 != 10:
-			return True
+	) and (not more_classes or (2 * (exp % 11) * ((k_min + c) % 11)) % 11 != 10):
+		return True
 
 	return False
 
@@ -4595,6 +4976,7 @@ def adjust_rolling_average(dirs):
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
 		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
+		# with LockFile(workfile):
 		tasks = read_workfile(adapter, workfile)
 		assignment = next((assignment for assignment in tasks if isinstance(assignment, Assignment)), None)
 		if assignment is None:
@@ -4857,7 +5239,7 @@ def checksum_md5(filename):
 PROOF_NUMBER_RE = re.compile(br"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+))(?(1)\))(?:/(\d+(?:/\d+)*))?$")
 
 
-def upload_proof(adapter, filename):
+def upload_proof_file(adapter, filename):
 	"""Uploads a proof file to the server in chunks, resuming from the last uploaded position if interrupted."""
 	max_chunk_size = config.getfloat(SEC.PrimeNet, "UploadChunkSize") if config.has_option(SEC.PrimeNet, "UploadChunkSize") else 5
 	max_chunk_size = int(min(max(max_chunk_size, 1), 8) * 1024 * 1024)
@@ -4995,52 +5377,75 @@ def upload_proof(adapter, filename):
 		return False
 
 
-def upload_proofs(adapter, adir, cpu_num):
-	"""Uploads proof files from a given directory."""
+def upload_proof(adapter, cpu_num, file):
+	"""Uploads a proof file and handles post-upload actions such as archiving or deleting the file."""
 	if config.has_option(SEC.PrimeNet, "ProofUploads") and not config.getboolean(SEC.PrimeNet, "ProofUploads"):
-		return
-	proof = os.path.join(adir, "proof")
-	if not os.path.isdir(proof):
-		adapter.debug("Proof directory %r does not exist", proof)
-		return
-	entries = glob.glob(os.path.join(proof, "*.proof"))
-	if not entries:
-		adapter.debug("No proof files in %r to upload.", proof)
-		return
-	if options.archive_dir:
-		archive = os.path.join(workdir, options.archive_dir)
-	for entry in entries:
-		filename = os.path.basename(entry)
-		if upload_proof(adapter, entry):
-			if options.archive_dir:
-				shutil.move(entry, os.path.join(archive, filename))
-			else:
-				os.remove(entry)
+		return True
+	if not os.path.isfile(file):
+		return True
+
+	filename = os.path.basename(file)
+	if upload_proof_file(adapter, file):
+		if options.archive_dir:
+			archive = os.path.join(workdir, options.archive_dir)
+			shutil.move(file, os.path.join(archive, filename))
 		else:
-			send_msg(
-				"❌📜 Failed to upload the {0} proof file on {1}".format(filename, options.computer_id),
-				"""Failed to upload the {0!r} PRP proof file on your {1!r} computer (worker #{2}).
+			os.remove(file)
+		return True
+
+	send_msg(
+		"❌📜 Failed to upload the {0} proof file on {1}".format(filename, options.computer_id),
+		"""Failed to upload the {0!r} PRP proof file on your {1!r} computer (worker #{2}).
 
 Below is the last up to 10 lines of the {3!r} log file for AutoPrimeNet:
 
 {4}
 
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
-""".format(entry, options.computer_id, cpu_num + 1, logfile, tail(logfile, 10)),
-				priority="2 (High)",
+""".format(file, options.computer_id, cpu_num + 1, logfile, tail(logfile, 10)),
+		priority="2 (High)",
+	)
+	return False
+
+
+def upload_proofs(adapter, adir, cpu_num, queue=False):
+	"""Uploads proof files from a specified directory, optionally queuing them for later processing."""
+	proof = os.path.join(adir, "proof")
+	if not os.path.isdir(proof):
+		adapter.debug("Proof directory %r does not exist", proof)
+		return True
+	entries = glob.glob(os.path.join(proof, "*.proof"))
+	if not entries:
+		adapter.debug("No proof files in %r to upload.", proof)
+		return True
+	success = True
+	for entry in entries:
+		if queue:
+			proofs_queue.put((cpu_num, entry))
+		elif not upload_proof(adapter, cpu_num, entry):
+			success = False
+	return success
+
+
+def proofs_worker():
+	"""Worker function to handle proof uploads from the queue."""
+	while True:
+		proof = proofs_queue.get()
+		time.sleep(60)  # Prevent race condition uploading the proof file before reporting the result
+		adir, cpu_num, file = proof
+		adapter = logging.LoggerAdapter(logger, {"cpu_num": cpu_num} if options.num_workers > 1 else None)
+		failed = False
+		if not (upload_proofs(adapter, adir, cpu_num) if file is None else upload_proof(adapter, cpu_num, file)):
+			proofs_queue.put(proof)
+			failed = True
+
+		proofs_queue.task_done()
+
+		if failed:
+			logging.info(
+				"Will retry uploading the proof file in %.0f minute%s", options.timeout / 60, "s" if options.timeout != 60 else ""
 			)
-
-
-def aupload_proofs(dirs):
-	"""Uploads proofs from the given directories."""
-	if not options.dirs:
-		adapter = logging.LoggerAdapter(logger, None)
-		upload_proofs(adapter, workdir, 0)
-		return
-
-	for i, adir in enumerate(dirs):
-		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
-		upload_proofs(adapter, adir, i)
+			time.sleep(options.timeout)
 
 
 # TODO -- have people set their own program options for commented out portions
@@ -5885,13 +6290,14 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 				),
 			)
 		accepted = sum(results["accepted"].values())
-		adapter.info("Submitted %s result%s to mersenne.ca.", accepted, "s" if accepted != 1 else "")
-		factors = results["factors"]["new"]
-		adapter.info(
-			"Total credit is %s GHz-days%s.",
-			format(sum(results["ghd"].values()), "n"),
-			", found {0:n} new factor{1}".format(factors, "s" if factors != 1 else "") if factors else "",
-		)
+		if accepted > 1:
+			adapter.info("Submitted %s result%s to mersenne.ca.", accepted, "s" if accepted != 1 else "")
+			factors = results["factors"]["new"]
+			adapter.info(
+				"Total credit is %s GHz-days%s.",
+				format(sum(results["ghd"].values()), "n"),
+				", found {0:n} new factor{1}".format(factors, "s" if factors != 1 else "") if factors else "",
+			)
 	if retry:
 		if retry_count >= 2:
 			adapter.info("Retry count exceeded.")
@@ -6225,7 +6631,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 
 	if not results_send:
 		adapter.debug("No new results in %r.", resultsfile)
-		return
+		return True
 	length = len(results_send)
 	adapter.debug("Found %s new result%s to report in %r", length, "s" if length != 1 else "", resultsfile)
 
@@ -6356,6 +6762,44 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 			[(resultsfile, "\n".join(failed).encode("utf-8"))] if length > 10 else None,
 			priority="2 (High)",
 		)
+		return False
+	return True
+
+
+def results_worker(dirs):
+	"""Processes and submits work results, retrying on failure and handling multiple workers."""
+	while True:
+		results = [results_queue.get()]
+		try:
+			while True:
+				results.append(results_queue.get_nowait())
+		except queue.Empty:
+			pass
+
+		start = timeit.default_timer()
+		time.sleep(1)  # Prevent race condition reading the work file before the assignment is removed
+		failed = False
+
+		for cpu_num, adir in sorted({cpu_num: adir for adir, cpu_num in results}.items()):
+			adapter = logging.LoggerAdapter(logger, {"cpu_num": cpu_num} if options.num_workers > 1 else None)
+			workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
+			# with LockFile(workfile):
+			tasks = list(read_workfile(adapter, workfile))
+			if not submit_work(dirs, adapter, adir, cpu_num, tasks):
+				results_queue.put((adir, cpu_num))
+				failed = True
+
+		for _ in results:
+			results_queue.task_done()
+
+		elapsed = timeit.default_timer() - start
+		if failed:
+			logging.info(
+				"Will retry reporting the results in %.0f minute%s", options.timeout / 60, "s" if options.timeout != 60 else ""
+			)
+			time.sleep(options.timeout - elapsed)
+		else:
+			time.sleep(5 * 60 - elapsed)
 
 
 def tf1g_unreserve_all(adapter, cpu_num, retry_count=0):
@@ -7056,7 +7500,7 @@ def update_progress(adapter, cpu_num, assignment, progress, msec_per_iter, p, no
 	return percent, cur_time_left
 
 
-def get_assignments(adapter, adir, cpu_num, progress, tasks):
+def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 	"""Get new assignments from the PrimeNet server."""
 	if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS"):
 		return
@@ -7141,7 +7585,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks):
 
 		if num_cache <= num_existing:
 			adapter.debug("%s ≥ %s assignments already in %r, not getting new work", num_existing, num_cache, workfile)
-			if cur_time_left and (not new_tasks or (options.min_exp and options.min_exp >= MAX_PRIMENET_EXP)):
+			if cur_time_left and ((not checkin and not new_tasks) or (options.min_exp and options.min_exp >= MAX_PRIMENET_EXP)):
 				adapter.info("Estimated time to complete queued work is %s, days of work requested is %s", time_left, days_work)
 			if not new_tasks:
 				return
@@ -7561,6 +8005,19 @@ def version_check(current_time):
 	config.set(SEC.Internals, "last_version_check", str(int(current_time)))
 
 
+def watch(dirs):
+	"""Starts a thread to watch each directory in the given list."""
+	threads = []
+	for i, adir in enumerate(dirs):
+		thread = threading.Thread(
+			target=watch_files, name="Watcher #{0:n}".format(i + 1) if options.dirs else "Watcher", args=(adir, i)
+		)
+		thread.daemon = True
+		thread.start()
+		threads.append(thread)
+	return threads
+
+
 def is_pyinstaller():
 	"""Check if the script is running as a PyInstaller bundle."""
 	# Adapted from: https://pyinstaller.org/en/stable/runtime-information.html
@@ -7577,7 +8034,7 @@ def is_pyinstaller():
 parser = optparse.OptionParser(
 	usage="%prog [options]\nUse -h/--help to see all options\nUse --setup to configure this instance of the program",
 	version="%prog " + VERSION,
-	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to give most of the arguments once. The first time it is run, it will register the current Mlucas/GpuOwl/PRPLL/CUDALucas/mfaktc/mfakto instance with PrimeNet (see the Registering Options below). Then, it will report assignment results, get assignments and upload any proof files to PrimeNet on the --timeout interval, or only once if --timeout is 0. It will additionally report the progress on the --checkin interval.",
+	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to give most of the arguments once. The first time it is run, it will register the current Mlucas/GpuOwl/PRPLL/CUDALucas/mfaktc/mfakto instance with PrimeNet (see the Registering Options below). Then, it will report assignment results and upload any proof files to PrimeNet immediately. It will get assignments on the --timeout interval, or only once if --timeout is 0. It will additionally report the progress on the --checkin interval.",
 )
 
 # options not saved to prime.ini
@@ -7763,7 +8220,7 @@ parser.add_option(
 	dest="timeout",
 	type="int",
 	default=60 * 60,
-	help="Seconds to wait between updates, Default: %default seconds (1 hour). Users with slower internet may want to set a larger value to give time for any PRP proof files to upload. Use 0 to update once and exit.",
+	help="Seconds to wait between updates, Default: %default seconds (1 hour). Use 0 to update once and exit.",
 )
 parser.add_option(
 	"-s",
@@ -7830,6 +8287,13 @@ parser.add_option(
 	choices=("alpha", "beta", "stable"),
 	help="Prefer the 'alpha', 'beta' or 'stable' channel/branch when checking for new versions of AutoPrimeNet and the GIMPS program. Not all programs provide alpha or beta releases. Default: 'stable'",
 )
+parser.add_option(
+	"--no-watch",
+	action="store_false",
+	dest="watch",
+	help="Report assignment results and upload proof files on the --timeout interval instead of immediately. This may be needed if the filesystem is unsupported.",
+)
+parser.add_option("--watch", action="store_true", dest="watch")
 parser.add_option("--no-color", action="store_false", dest="color", help="Do not use color in output.")
 parser.add_option("--color", action="store_true", dest="color")
 parser.add_option("--setup", action="store_true", help="Prompt for all the options that are needed to setup this program and exit.")
@@ -8175,13 +8639,17 @@ if options.proofs:
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
 		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
-		tasks = list(read_workfile(adapter, workfile))
-		submit_work(dirs, adapter, adir, i, tasks)
-		if options.dirs:
-			upload_proofs(adapter, adir, i)
+		with LockFile(workfile):
+			tasks = list(read_workfile(adapter, workfile))
+			submit_work(dirs, adapter, adir, i, tasks)
 
-	if not options.dirs:
-		aupload_proofs(dirs)
+	if options.dirs:
+		for i, adir in enumerate(dirs):
+			adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
+			upload_proofs(adapter, adir, i)
+	else:
+		adapter = logging.LoggerAdapter(logger, None)
+		upload_proofs(adapter, workdir, 0)
 	sys.exit(0)
 
 if options.recover or options.recover_all:
@@ -8237,19 +8705,31 @@ if guid is None:
 elif config_updated:
 	register_instance(guid)
 
-logging.info(
-	"Monitoring director%s: %s",
-	"ies" if options.dirs and len(dirs) != 1 else "y",
-	", ".join(map(repr, map(os.path.abspath, dirs))) if options.dirs else repr(os.path.abspath(workdir)),
-)
+if options.timeout > 0:
+	proofs_thread = threading.Thread(target=proofs_worker, name="UploadProofs")
+	proofs_thread.daemon = True
+	proofs_thread.start()
 
-while True:
+if options.timeout > 0 and (options.watch is None or options.watch):
+	results_thread = threading.Thread(target=results_worker, name="ReportResults", args=(dirs,))
+	results_thread.daemon = True
+	results_thread.start()
+	watcher_threads = watch(dirs)
+else:
+	logging.info(
+		"Monitoring director%s: %s",
+		"ies" if options.dirs and len(dirs) != 1 else "y",
+		", ".join(map(repr, map(os.path.abspath, dirs))) if options.dirs else repr(os.path.abspath(workdir)),
+	)
+
+for j in count():
 	start = timeit.default_timer()
 	config = config_read()
 	current_time = time.time()
 	last_time = config.getint(SEC.Internals, "LastEndDatesSent") if config.has_option(SEC.Internals, "LastEndDatesSent") else 0
 	checkin = options.timeout <= 0 or current_time >= last_time + options.hours_between_checkins * 60 * 60
 	last_time = last_time if checkin else None
+	watching = options.timeout <= 0 or (options.watch is not None and not options.watch) or not j
 
 	if config.has_option(SEC.PrimeNet, "CertGetFrequency"):
 		cert_freq = config.getfloat(SEC.PrimeNet, "CertGetFrequency")
@@ -8285,20 +8765,24 @@ while True:
 		with LockFile(workfile):
 			process_add_file(adapter, workfile)
 			tasks = list(read_workfile(adapter, workfile))  # deque
-			submit_work(dirs, adapter, adir, i, tasks)
+			if watching:
+				submit_work(dirs, adapter, adir, i, tasks)
 			registered = register_assignments(adapter, adir, i, tasks)
 			progress = update_progress_all(adapter, adir, i, last_time, tasks, checkin or registered)
 			if cert_work:
 				get_cert_work(adapter, adir, i, current_time, progress, tasks)
-			get_assignments(adapter, adir, i, progress, tasks)
+			get_assignments(adapter, adir, i, progress, tasks, checkin)
 
 		download_certs(adapter, adir, i, tasks)
 
-		if options.dirs and options.timeout <= 0:
-			upload_proofs(adapter, adir, i)
-
-	if not options.dirs and options.timeout <= 0:
-		aupload_proofs(dirs)
+	if watching:
+		if options.dirs:
+			for i, adir in enumerate(dirs):
+				adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
+				upload_proofs(adapter, adir, i, options.timeout > 0)
+		else:
+			adapter = logging.LoggerAdapter(logger, None)
+			upload_proofs(adapter, workdir, 0, options.timeout > 0)
 
 	start_time = config.getint(SEC.Internals, "RollingStartTime") if config.has_option(SEC.Internals, "RollingStartTime") else 0
 	if current_time >= start_time + 6 * 60 * 60:
@@ -8316,23 +8800,35 @@ while True:
 		logging.info("Done communicating with server.")
 		break
 	logging.debug("Done communicating with server.")
-	thread = threading.Thread(target=aupload_proofs, name="UploadProofs", args=(dirs,))
-	thread.start()
 	elapsed = timeit.default_timer() - start
 	if options.timeout > elapsed:
-		logging.info(
-			"Will report results%s and upload proof files every %.01f hour%s, and report progress every %s hour%s. Next check at: %s",
-			"" if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS") else ", get work",
-			options.timeout / (60 * 60),
-			"s" if options.timeout != 60 * 60 else "",
-			options.hours_between_checkins,
-			"s" if options.hours_between_checkins != 1 else "",
-			(datetime.fromtimestamp(current_time) + timedelta(seconds=options.timeout)).strftime("%c"),
-		)
+		if options.watch is None or options.watch:
+			logging.info(
+				"Will report results and upload proof files immediately%s, and report progress every %s hour%s. Next check at: %s",
+				""
+				if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS")
+				else ", get work every {0:.01f} hour{1}".format(
+					options.timeout / (60 * 60), "s" if options.timeout != 60 * 60 else ""
+				),
+				options.hours_between_checkins,
+				"s" if options.hours_between_checkins != 1 else "",
+				(datetime.fromtimestamp(current_time) + timedelta(seconds=options.timeout)).strftime("%c"),
+			)
+		else:
+			logging.info(
+				"Will report results%s and upload proof files every %.01f hour%s, and report progress every %s hour%s. Next check at: %s",
+				""
+				if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS")
+				else ", get work",
+				options.timeout / (60 * 60),
+				"s" if options.timeout != 60 * 60 else "",
+				options.hours_between_checkins,
+				"s" if options.hours_between_checkins != 1 else "",
+				(datetime.fromtimestamp(current_time) + timedelta(seconds=options.timeout)).strftime("%c"),
+			)
 		try:
 			time.sleep(options.timeout - elapsed)
 		except KeyboardInterrupt:
 			break
-	thread.join()
 
 sys.exit(0)

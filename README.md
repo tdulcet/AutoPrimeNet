@@ -137,9 +137,9 @@ saves its configuration to a 'prime.ini' file by default, so it is only
 necessary to give most of the arguments once. The first time it is run, it
 will register the current Mlucas/GpuOwl/PRPLL/CUDALucas/mfaktc/mfakto instance
 with PrimeNet (see the Registering Options below). Then, it will report
-assignment results, get assignments and upload any proof files to PrimeNet on
-the --timeout interval, or only once if --timeout is 0. It will additionally
-report the progress on the --checkin interval.
+assignment results and upload any proof files to PrimeNet immediately. It will
+get assignments on the --timeout interval, or only once if --timeout is 0. It
+will additionally report the progress on the --checkin interval.
 
 Options:
   --version             show program's version number and exit
@@ -254,9 +254,7 @@ Options:
                         hours.
   -t TIMEOUT, --timeout=TIMEOUT
                         Seconds to wait between updates, Default: 3600 seconds
-                        (1 hour). Users with slower internet may want to set a
-                        larger value to give time for any PRP proof files to
-                        upload. Use 0 to update once and exit.
+                        (1 hour). Use 0 to update once and exit.
   -s, --status          Output a status report and any expected completion
                         dates for all assignments and exit.
   --upload-proofs       Report assignment results, upload all PRP proofs and
@@ -288,6 +286,10 @@ Options:
                         when checking for new versions of AutoPrimeNet and the
                         GIMPS program. Not all programs provide alpha or beta
                         releases. Default: 'stable'
+  --no-watch            Report assignment results and upload proof files on
+                        the --timeout interval instead of immediately. This
+                        may be needed if the filesystem is unsupported.
+  --watch
   --no-color            Do not use color in output.
   --color
   --setup               Prompt for all the options that are needed to setup
