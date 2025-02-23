@@ -4813,10 +4813,11 @@ def parse_prpll_log_file(adapter, adir, p):
 
 	return iteration, avg_msec_per_iter, stage, pct_complete, fftlen, bits, buffs
 
+MFAKTC_NUM_CLASSES = 4620
 
-def parse_mfaktc_output_file(adapter, adir, p):
+def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
 	"""Parse the mfaktc output file for the progress of the assignment."""
-	savefile = os.path.join(adir, "M{0}.ckp".format(p))
+	savefile = os.path.join(adir, "M{0}_{1}-{2}_{3}.ckp".format(p, int(sieve_depth), int(factor_to), MFAKTC_NUM_CLASSES))
 	iteration = 0
 	avg_msec_per_iter = None
 	stage = pct_complete = None
@@ -4857,7 +4858,7 @@ def get_progress_assignment(adapter, adir, assignment):
 	elif options.cudalucas:  # CUDALucas
 		result = parse_cuda_output_file(adapter, adir, assignment.n)
 	elif options.mfaktc:  # mfaktc
-		result = parse_mfaktc_output_file(adapter, adir, assignment.n)
+		result = parse_mfaktc_output_file(adapter, adir, assignment.n, assignment.sieve_depth, assignment.factor_to)
 	elif options.mfakto:  # mfakto
 		result = parse_mfakto_output_file(adapter, adir, assignment.n)
 	else:  # Mlucas
@@ -7686,8 +7687,10 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 	modified = True
 	file = os.path.join(
 		adir,
-		"M{0}.ckp".format(p)
-		if options.mfaktc or options.mfakto
+		"M{0}_{1}-{2}_{3}.ckp".format(p, int(assignment.sieve_depth), int(assignment.factor_to), MFAKTC_NUM_CLASSES)
+		if options.mfaktc
+		else "M{0}.ckp".format(p)
+		if options.mfakto
 		else "c{0}".format(p)
 		if options.cudalucas
 		else "gpuowl.log"
