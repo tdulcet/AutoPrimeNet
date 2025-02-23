@@ -4917,7 +4917,9 @@ def get_assignment(
 			config.remove_option(SEC.PrimeNet, "ProofHashLength")
 	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
 		assignment.sieve_depth = float(r["sf"])
-		assignment.factor_to = float(r["ef"])
+		if options.max_bit_enforce : 
+			assignment.factor_to = options.max_bit 
+		else: assignment.factor_to = float(r["ef"])
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
@@ -6799,6 +6801,13 @@ parser.add_option("--max-exp", dest="max_exp", type="int", help="Maximum exponen
 
 parser.add_option("--min-bit", dest="min_bit", type="int", help="Minimum bit level of TF assignments to get from PrimeNet or TF1G")
 parser.add_option("--max-bit", dest="max_bit", type="int", help="Maximum bit level of TF assignments to get from PrimeNet or TF1G")
+
+parser.add_option(
+	"--max-bit-enforce", 
+	dest="max_bit_enforce", 
+	action="store_true",
+	help="Override TF assignments to end at the bit level specified for --max-bit."
+)
 
 parser.add_option("-m", "--mlucas", action="store_true", help="Get assignments for Mlucas.")
 parser.add_option("-g", "--gpuowl", action="store_true", help="Get assignments for GpuOwl.")
