@@ -6804,7 +6804,6 @@ parser.add_option("--max-bit", dest="max_bit", type="int", help="Maximum bit lev
 
 parser.add_option(
 	"--max-bit-enforce", 
-	dest="max_bit_enforce", 
 	action="store_true",
 	help="Override TF assignments to end at the bit level specified for --max-bit."
 )
