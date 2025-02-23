@@ -1914,7 +1914,7 @@ def setup(config, options):
 		config.set(SEC.PrimeNet, "CpuSpeed", str(freq))
 		options.memory = memory
 		config.set(SEC.PrimeNet, "memory", str(memory))
-		options.day_night_memory = memory * 0.9
+		options.day_night_memory = int(memory * 0.9)
 	if tf1g:
 		options.min_exp = MAX_PRIMENET_EXP
 		config.set(SEC.PrimeNet, "GetMinExponent", str(MAX_PRIMENET_EXP))
