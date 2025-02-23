@@ -203,6 +203,9 @@ Options:
                         PrimeNet or TF1G
   --max-bit=MAX_BIT     Maximum bit level of TF assignments to get from
                         PrimeNet or TF1G
+  --max-bit-enforce     Uses --max-bit parameter as the "Factor To" bit 
+                        level for TF assignements effectively reserving the
+                        whole range.
   -m, --mlucas          Get assignments for Mlucas.
   -g, --gpuowl          Get assignments for GpuOwl.
   --prpll               Get assignments for PRPLL. PRPLL is not PrimeNet
