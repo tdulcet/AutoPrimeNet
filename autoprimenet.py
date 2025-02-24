@@ -4813,11 +4813,25 @@ def parse_prpll_log_file(adapter, adir, p):
 
 	return iteration, avg_msec_per_iter, stage, pct_complete, fftlen, bits, buffs
 
+
 MFAKTC_NUM_CLASSES = 4620
+
+
+def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
+	"""Get the mfaktc output filename based on the assignment and mfaktc version."""
+	new_filename = "M{0}_{1}-{2}_{3}.ckp".format(p, int(sieve_depth), int(factor_to), MFAKTC_NUM_CLASSES) # used with mfaktc 0.24.0
+	old_filename = "M{0}.ckp".format(p) # used with mfaktc <= 0.23
+
+	# if the file with the new filename structure exists, use it
+	if (os.path.isfile(os.path.join(adir, new_filename))):
+		return new_filename
+	# otherwise, assume the old filename structure	
+	return old_filename
+
 
 def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
 	"""Parse the mfaktc output file for the progress of the assignment."""
-	savefile = os.path.join(adir, "M{0}_{1}-{2}_{3}.ckp".format(p, int(sieve_depth), int(factor_to), MFAKTC_NUM_CLASSES))
+	savefile = os.path.join(adir, get_mfaktc_output_filename(adir, p, sieve_depth, factor_to))
 	iteration = 0
 	avg_msec_per_iter = None
 	stage = pct_complete = None
@@ -7687,7 +7701,7 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 	modified = True
 	file = os.path.join(
 		adir,
-		"M{0}_{1}-{2}_{3}.ckp".format(p, int(assignment.sieve_depth), int(assignment.factor_to), MFAKTC_NUM_CLASSES)
+		get_mfaktc_output_filename(adir, p, assignment.sieve_depth, assignment.factor_to)
 		if options.mfaktc
 		else "M{0}.ckp".format(p)
 		if options.mfakto
