@@ -2179,9 +2179,8 @@ def setup(config, options):
 			toemails.append(toemail)
 		test_email = ask_yn("Send a test e-mail message?", True)
 
-		if not ask_ok_cancel():
-			# return None
-			sys.exit(1)
+		# if not ask_ok_cancel():
+		# 	return None
 		options.smtp = smtp_server
 		config.set(SEC.Email, "smtp", smtp_server)
 		if tls:
@@ -2198,6 +2197,9 @@ def setup(config, options):
 		config.set(SEC.Email, "password", password)
 		options.toemails = toemails
 		config.set(SEC.Email, "toemails", ",".join(toemails))
+
+	if not ask_ok_cancel():
+		sys.exit(1)
 	return test_email
 
 
@@ -2656,6 +2658,7 @@ def primes(limit):
 	return array("H", chain((2,), (3 + 2 * i for i in range(size) if sieve[i])))
 
 
+# memoryview()
 PRIMES = primes(3671)
 BASES = PRIMES[: PRIME_BASES[-1][0]]
 
@@ -5230,9 +5233,11 @@ Disk space available: {4}
 def checksum_md5(filename):
 	"""Calculate and return the MD5 checksum of a given file."""
 	amd5 = md5()
+	buf = bytearray(amd5.block_size * 4096)
+	view = memoryview(buf)
 	with open(filename, "rb") as f:
-		for chunk in iter(lambda: f.read(256 * amd5.block_size), b""):
-			amd5.update(chunk)
+		for size in iter(lambda: f.readinto(buf), 0):
+			amd5.update(view[:size])
 	return amd5.hexdigest()
 
 
@@ -5326,14 +5331,17 @@ def upload_proof_file(adapter, filename):
 					adapter.info("Resuming from offset %s", pos)
 
 				bytessent = 0
+				buffer = bytearray(max_chunk_size)
+				view = memoryview(buffer)
 				while pos < end:
 					f.seek(pos)
-					size = min(end - pos + 1, max_chunk_size)
-					chunk = f.read(size)
+					size = f.readinto(buffer)
+					size = min(size, end - pos + 1)
+					chunk = view[:size]
 					bytessent += size
 					response = session.post(
 						baseUrl,
-						params={"FileMD5": fileHash, "DataOffset": pos, "DataSize": len(chunk), "DataMD5": md5(chunk).hexdigest()},
+						params={"FileMD5": fileHash, "DataOffset": pos, "DataSize": size, "DataMD5": md5(chunk).hexdigest()},
 						files={"Data": (None, chunk)},
 						timeout=180,
 					)
@@ -5877,10 +5885,7 @@ def get_assignment(
 			if rc == PRIMENET.ERROR_UNREGISTERED_CPU:
 				register_instance()
 				retry = True
-			elif rc == PRIMENET.ERROR_STALE_CPU_INFO:
-				register_instance(guid)
-				retry = True
-			elif rc == PRIMENET.ERROR_CPU_CONFIGURATION_MISMATCH:
+			elif rc in {PRIMENET.ERROR_STALE_CPU_INFO, PRIMENET.ERROR_CPU_CONFIGURATION_MISMATCH}:
 				register_instance(guid)
 				retry = True
 			if not retry:
@@ -5909,10 +5914,7 @@ def get_assignment(
 		# TODO: Unreserve assignment
 		# assignment_unreserve()
 		# return None
-	if assignment.work_type == PRIMENET.WORK_TYPE_FIRST_LL:
-		assignment.sieve_depth = float(r["sf"])
-		assignment.pminus1ed = int(r["p1"])
-	elif assignment.work_type == PRIMENET.WORK_TYPE_DBLCHK:
+	if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
 		assignment.sieve_depth = float(r["sf"])
 		assignment.pminus1ed = int(r["p1"])
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
@@ -6230,16 +6232,10 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 		elif rc == PRIMENET.ERROR_STALE_CPU_INFO:
 			register_instance(guid)
 		# In all other error case, the submission must not be retried
-		elif rc == PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY:
+		elif rc in {PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY, PRIMENET.ERROR_WORK_NO_LONGER_NEEDED, PRIMENET.ERROR_NO_ASSIGNMENT}:
 			# TODO: Delete assignment from workfile if it is not done
 			return rc, ghd
-		elif rc == PRIMENET.ERROR_WORK_NO_LONGER_NEEDED:
-			# TODO: Delete assignment from workfile if it is not done
-			return rc, ghd
-		elif rc == PRIMENET.ERROR_NO_ASSIGNMENT:
-			# TODO: Delete assignment from workfile if it is not done
-			return rc, ghd
-		elif rc == PRIMENET.ERROR_INVALID_RESULT_TYPE:
+		elif rc in {PRIMENET.ERROR_INVALID_RESULT_TYPE, PRIMENET.ERROR_ILLEGAL_RESIDUE}:
 			return rc, ghd
 		elif rc == PRIMENET.ERROR_INVALID_PARAMETER:
 			adapter.error(
@@ -7024,11 +7020,7 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 			assignment.uid = result["k"]
 			adapter.info("Assignment registered as: %s", assignment.uid)
 			return assignment
-		if rc == PRIMENET.ERROR_NO_ASSIGNMENT:
-			pass
-		elif rc == PRIMENET.ERROR_INVALID_ASSIGNMENT_TYPE:
-			pass
-		elif rc == PRIMENET.ERROR_INVALID_PARAMETER:
+		if rc in {PRIMENET.ERROR_NO_ASSIGNMENT, PRIMENET.ERROR_INVALID_ASSIGNMENT_TYPE, PRIMENET.ERROR_INVALID_PARAMETER}:
 			pass
 		elif rc == PRIMENET.ERROR_UNREGISTERED_CPU:
 			register_instance()
@@ -7427,10 +7419,7 @@ def send_progress(adapter, cpu_num, assignment, percent, stage, time_left, now, 
 		if rc == PRIMENET.ERROR_OK:
 			# adapter.debug("Update correctly sent to server")
 			pass
-		elif rc == PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY:
-			# TODO: Delete assignment from workfile
-			pass
-		elif rc == PRIMENET.ERROR_WORK_NO_LONGER_NEEDED:
+		elif rc in {PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY, PRIMENET.ERROR_WORK_NO_LONGER_NEEDED}:
 			# TODO: Delete assignment from workfile
 			pass
 		elif rc == PRIMENET.ERROR_UNREGISTERED_CPU:
