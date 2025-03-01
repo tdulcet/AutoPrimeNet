@@ -205,6 +205,8 @@ Options:
                         PrimeNet or TF1G
   --max-bit=MAX_BIT     Maximum bit level of TF assignments to get from
                         PrimeNet or TF1G
+  --force-target-bits   Forces a depth first search by registering TF 
+                        assignments for the entire target bit range
   -m, --mlucas          Get assignments for Mlucas.
   -g, --gpuowl          Get assignments for GpuOwl.
   --prpll               Get assignments for PRPLL.

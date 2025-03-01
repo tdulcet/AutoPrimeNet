@@ -2230,6 +2230,7 @@ attr_to_copy = {
 		"max_exp": "GetMaxExponent",
 		"min_bit": "bit_min",
 		"max_bit": "bit_max",
+		"force_target_bits": "force_target_bits",	
 		"mlucas": "mlucas",
 		"gpuowl": "gpuowl",
 		"prpll": "prpll",
@@ -6884,6 +6885,10 @@ def update_assignment(adapter, cpu_num, assignment, task):
 		assignment.prp_dblchk = assignment.work_type == PRIMENET.WORK_TYPE_DBLCHK
 		assignment.work_type = PRIMENET.WORK_TYPE_PRP
 		changed = True
+	if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR and options.force_target_bits:
+		adapter.info("Converting TF assignment to entire target bit range")
+		assignment.factor_to = factor_limit(assignment.n)
+		changed = True
 	if options.tests_saved is not None and assignment.work_type in {
 		PRIMENET.WORK_TYPE_FIRST_LL,
 		PRIMENET.WORK_TYPE_DBLCHK,
@@ -8132,6 +8137,8 @@ parser.add_option("--max-exp", dest="max_exp", type="int", help="Maximum exponen
 
 parser.add_option("--min-bit", dest="min_bit", type="int", help="Minimum bit level of TF assignments to get from PrimeNet or TF1G")
 parser.add_option("--max-bit", dest="max_bit", type="int", help="Maximum bit level of TF assignments to get from PrimeNet or TF1G")
+
+parser.add_option("--force-target-bits", action="store_true", dest="force_target_bits")
 
 parser.add_option("-m", "--mlucas", action="store_true", help="Get assignments for Mlucas.")
 parser.add_option("-g", "--gpuowl", action="store_true", help="Get assignments for GpuOwl.")
