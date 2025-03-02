@@ -4466,7 +4466,7 @@ def tf_ghd_credit(exp, bit_min, bit_max):
 
 
 # "%s%u %d %d %d %s: %d %d %s %llu %08X", NAME_NUMBERS, exp, bit_min, bit_max, NUM_CLASSES, MFAKTC_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
-MFAKTC_TF_RE = re.compile(br'^M(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*) (\d+) ([\dA-F]{8})$')
+MFAKTC_TF_RE = re.compile(br'^M(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) ([\dA-F]{8})$')
 
 
 def parse_work_unit_mfaktc(adapter, filename, p):
@@ -4814,19 +4814,14 @@ def parse_prpll_log_file(adapter, adir, p):
 	return iteration, avg_msec_per_iter, stage, pct_complete, fftlen, bits, buffs
 
 
-MFAKTC_NUM_CLASSES = 4620
-
-
 def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
 	"""Get the mfaktc output filename based on the assignment and mfaktc version."""
-	new_filename = "M{0}_{1}-{2}_{3}.ckp".format(p, int(sieve_depth), int(factor_to), MFAKTC_NUM_CLASSES) # used with mfaktc 0.24.0
-	old_filename = "M{0}.ckp".format(p) # used with mfaktc <= 0.23
-
-	# if the file with the new filename structure exists, use it
-	if (os.path.isfile(os.path.join(adir, new_filename))):
-		return new_filename
-	# otherwise, assume the old filename structure	
-	return old_filename
+	filenames = glob.glob("M{0}_{1}-{2}_*.ckp".format(p, int(sieve_depth), int(factor_to)))
+	for filename in filenames:
+		if (os.path.isfile(os.path.join(adir, filename))):
+			return filename
+	# default to <= 0.23 mfaktc filenames if new one not found
+	return "M{0}.ckp".format(p)
 
 
 def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
