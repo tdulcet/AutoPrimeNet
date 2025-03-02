@@ -64,6 +64,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Supports using the save/checkpoint files to determine progress
 * Can specify minimum and maximum exponent for assignments
 	* Can specify minimum and maximum bit level for assignments from mersenne.ca
+  * TF the entire remaining target bit range with a `--force-target-bits` option
 * Automatically registers assignments without an assignment ID (AID)
 	* Interactively register specific exponents with a `--register-exponents` option
 		* Automatically gets existing parameters from mersenne.ca
