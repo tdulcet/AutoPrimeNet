@@ -8138,7 +8138,12 @@ parser.add_option("--max-exp", dest="max_exp", type="int", help="Maximum exponen
 parser.add_option("--min-bit", dest="min_bit", type="int", help="Minimum bit level of TF assignments to get from PrimeNet or TF1G")
 parser.add_option("--max-bit", dest="max_bit", type="int", help="Maximum bit level of TF assignments to get from PrimeNet or TF1G")
 
-parser.add_option("--force-target-bits", action="store_true", dest="force_target_bits")
+parser.add_option(
+	"--force-target-bits", 
+	action="store_true",
+	dest="force_target_bits",
+	help="Forces a depth first search by registering TF assignments for the entire target bit range."
+)
 
 parser.add_option("-m", "--mlucas", action="store_true", help="Get assignments for Mlucas.")
 parser.add_option("-g", "--gpuowl", action="store_true", help="Get assignments for GpuOwl.")
