@@ -64,7 +64,6 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Supports using the save/checkpoint files to determine progress
 * Can specify minimum and maximum exponent for assignments
 	* Can specify minimum and maximum bit level for assignments from mersenne.ca
-  * TF the entire remaining target bit range with a `--force-target-bits` option
 * Automatically registers assignments without an assignment ID (AID)
 	* Interactively register specific exponents with a `--register-exponents` option
 		* Automatically gets existing parameters from mersenne.ca
@@ -72,6 +71,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 * Supports recovering all assignments
 * Supports unreserving specific exponents or all assignments
 * Supports automatically updating assignments
+	* Force TF assignments to factor to the target bit level
 	* Force P-1 factoring before LL/PRP tests
 	* Use the optimal P-1 bounds
 	* Convert LL assignments to PRP
@@ -206,8 +206,9 @@ Options:
                         PrimeNet or TF1G
   --max-bit=MAX_BIT     Maximum bit level of TF assignments to get from
                         PrimeNet or TF1G
-  --force-target-bits   Forces a depth first search by registering TF 
-                        assignments for the entire target bit range
+  --force-target-bits   Perform a depth first factor search by forcing TF
+                        assignments to factor to the target bit level (as
+                        listed on mersenne.ca)
   -m, --mlucas          Get assignments for Mlucas.
   -g, --gpuowl          Get assignments for GpuOwl.
   --prpll               Get assignments for PRPLL.

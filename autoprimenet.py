@@ -2230,7 +2230,7 @@ attr_to_copy = {
 		"max_exp": "GetMaxExponent",
 		"min_bit": "bit_min",
 		"max_bit": "bit_max",
-		"force_target_bits": "force_target_bits",	
+		"force_target_bits": "force_target_bits",
 		"mlucas": "mlucas",
 		"gpuowl": "gpuowl",
 		"prpll": "prpll",
@@ -2283,6 +2283,7 @@ OPTIONS_TYPE_HINTS = {
 	SEC.PrimeNet: {
 		"GetMinExponent": int,
 		"GetMaxExponent": int,
+		"force_target_bits": bool,
 		"mlucas": bool,
 		"gpuowl": bool,
 		"prpll": bool,
@@ -6872,6 +6873,7 @@ def update_assignment(adapter, cpu_num, assignment, task):
 	"""Update the assignment based on various conditions and options, potentially converting work types and adjusting bounds."""
 	bounds = ("MIN", "MID", "MAX")
 	changed = False
+
 	if assignment.work_type == PRIMENET.WORK_TYPE_PRP and (
 		options.convert_prp_to_ll or (not assignment.prp_dblchk and int(options.work_preference[cpu_num]) in CONVERT)
 	):
@@ -6879,16 +6881,21 @@ def update_assignment(adapter, cpu_num, assignment, task):
 		assignment.work_type = PRIMENET.WORK_TYPE_DBLCHK if assignment.prp_dblchk else PRIMENET.WORK_TYPE_FIRST_LL
 		assignment.pminus1ed = int(not assignment.tests_saved)
 		changed = True
+
 	if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK} and options.convert_ll_to_prp:
 		adapter.info("Converting from LL to PRP")
 		assignment.tests_saved = float(not assignment.pminus1ed)
 		assignment.prp_dblchk = assignment.work_type == PRIMENET.WORK_TYPE_DBLCHK
 		assignment.work_type = PRIMENET.WORK_TYPE_PRP
 		changed = True
-	if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR and options.force_target_bits:
-		adapter.info("Converting TF assignment to entire target bit range")
-		assignment.factor_to = factor_limit(assignment.n)
-		changed = True
+
+	if options.force_target_bits and assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+		factor_to = factor_limit(assignment.n)
+		if factor_to > assignment.factor_to:
+			adapter.info("Updating to factor to %s bits from %.0f bits", factor_to, assignment.factor_to)
+			assignment.factor_to = factor_to
+			changed = True
+
 	if options.tests_saved is not None and assignment.work_type in {
 		PRIMENET.WORK_TYPE_FIRST_LL,
 		PRIMENET.WORK_TYPE_DBLCHK,
@@ -6941,6 +6948,7 @@ def update_assignment(adapter, cpu_num, assignment, task):
 			elif assignment.work_type in {PRIMENET.WORK_TYPE_PRP, PRIMENET.WORK_TYPE_PFACTOR}:
 				assignment.tests_saved = options.tests_saved
 			changed = True
+
 	if options.pm1_bounds:
 		add_bounds = False
 		if options.mlucas and assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
@@ -6965,6 +6973,7 @@ def update_assignment(adapter, cpu_num, assignment, task):
 			assignment.B1 = B1
 			assignment.B2 = B2
 			changed = True
+
 	if changed:
 		adapter.debug("Original assignment: %r", task)
 		task = output_assignment(assignment)
@@ -8139,10 +8148,10 @@ parser.add_option("--min-bit", dest="min_bit", type="int", help="Minimum bit lev
 parser.add_option("--max-bit", dest="max_bit", type="int", help="Maximum bit level of TF assignments to get from PrimeNet or TF1G")
 
 parser.add_option(
-	"--force-target-bits", 
+	"--force-target-bits",
 	action="store_true",
 	dest="force_target_bits",
-	help="Forces a depth first search by registering TF assignments for the entire target bit range."
+	help="Perform a depth first factor search by forcing TF assignments to factor to the target bit level (as listed on mersenne.ca)",
 )
 
 parser.add_option("-m", "--mlucas", action="store_true", help="Get assignments for Mlucas.")
