@@ -76,6 +76,7 @@ import random
 import re
 import shutil
 import smtplib
+import ssl
 import struct
 import sys
 import tempfile
@@ -813,12 +814,13 @@ elif sys.platform == "darwin":
 							logging.debug("The results file %r was modified.", file)
 							results_queue.put((adir, results.index(file) if options.prpll else cpu_num))
 						elif event.ident == dir_fd:
-							for result in results:
+							for idx, result in enumerate(results):
 								if result not in result_fds.values() and os.path.isfile(result):
 									result_fd, aevent = add_watch(result, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
 									fds[result_fd] = result_fds[result_fd] = result, aevent
 									changelist.append(aevent)
 									logging.debug("Watching the file: %r.", result)
+									results_queue.put((adir, idx if options.prpll else cpu_num))
 						if event.ident == proof_fd:
 							logging.debug("A potential new proof file was detected in %r.", file)
 							proofs_queue.put((adir, cpu_num, None))
@@ -827,6 +829,7 @@ elif sys.platform == "darwin":
 							fds[proof_fd] = proof, aevent
 							changelist.append(aevent)
 							logging.debug("Watching the directory: %r.", proof)
+							proofs_queue.put((adir, cpu_num, None))
 		finally:
 			for fd in fds:
 				os.close(fd)
@@ -907,16 +910,19 @@ elif sys.platform.startswith("linux"):
 						proofs_queue.put((adir, cpu_num, file))
 					if event.mask & IN_CREATE:
 						if event.wd == dir_wd and name in results_files:
-							result = results[results_files.index(name)]
+							idx = results_files.index(name)
+							result = results[idx]
 							result_wd = add_watch(inotify_fd, result, IN_CLOSE_WRITE)
 							wds[result_wd] = result_wds[result_wd] = result
 							logging.debug("Watching the file: %r.", result)
+							results_queue.put((adir, idx if options.prpll else cpu_num))
 						elif event.wd == dir_wd and name == "proof":
 							# if not event.mask & IN_ISDIR:
 							# 	logging.error("The file is not a directory")
 							proof_wd = add_watch(inotify_fd, proof, IN_MOVED_TO)
 							wds[proof_wd] = proof
 							logging.debug("Watching the directory: %r.", proof)
+							proofs_queue.put((adir, cpu_num, None))
 					if event.mask & IN_IGNORED:
 						del wds[event.wd]
 						if event.wd in result_wds:
@@ -931,7 +937,7 @@ elif sys.platform.startswith("linux"):
 
 
 try:
-	# import certifi
+	import certifi
 	import requests
 	import urllib3
 	from requests.exceptions import HTTPError, RequestException
@@ -1024,7 +1030,7 @@ session.mount("https://", requests.adapters.HTTPAdapter(max_retries=urllib3.util
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=urllib3.util.Retry(3, backoff_factor=1)))
 atexit.register(session.close)
 # Python 2.7.9 and 3.4+
-# context = ssl.create_default_context(cafile=certifi.where())
+context = ssl.create_default_context(cafile=certifi.where()) if hasattr(ssl, "create_default_context") else None
 
 # Mlucas constants
 
@@ -1080,7 +1086,7 @@ class COLORS:
 BOLD = "\033[1m"
 # DIM = "\033[2m"
 # RESET = "\033[22m"
-RESET_All = "\033[m"
+RESET_ALL = "\033[m"
 
 
 class ColorFormatter(Formatter):
@@ -1667,6 +1673,10 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 		logging.debug("%s", e)
 		return None
 
+	if root.tag != "clientConfig":
+		logging.debug("Unexpected config root element tag %r", root.tag)
+		return None
+
 	replacements = {"EMAILADDRESS": email, "EMAILLOCALPART": local_part, "EMAILDOMAIN": email_domain}
 
 	def replacer(match):
@@ -1674,7 +1684,8 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 
 	for provider in root.findall("./emailProvider"):
 		display_name = provider.findtext("displayName")
-		display_name = PLACEHOLDER_RE.sub(replacer, display_name) if display_name else provider["id"]
+		display_name = PLACEHOLDER_RE.sub(replacer, display_name) if display_name else provider.get("id")
+		# domains = [domain.text for domain in provider.findall("domain")]
 
 		for server in provider.findall("./outgoingServer[@type='smtp']"):
 			hostname = server.findtext("hostname")
@@ -1734,7 +1745,40 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 		if smtp_config is not None:
 			# print("Configuration found in Mozilla ISP database")
 			return smtp_config
+	return None
 
+
+def get_dns_config(domain, aemail_domain):
+	"""Retrieve the hostname and port from DNS SRV records for a given domain."""
+	result = dns_lookup(domain, "SRV")
+	if result is not None and not result["Status"] and "Answer" in result:
+		records = []
+		(question,) = result["Question"]
+		for answer in result["Answer"]:
+			if question["type"] == answer["type"]:
+				fields = answer["data"].split()
+				if len(fields) == 4:
+					priority, weight, port, target = fields
+					records.append((int(priority), int(weight), int(port), target))
+				else:
+					logging.error("Error parsing DNS SRV Record for the %r domain: %r", domain, answer["data"])
+
+		for _, _, port, target in sorted(records, key=lambda x: (x[0], -x[1])):
+			if target != ".":
+				# print("Configuration found from DNS SRV Records")
+				hostname = target.rstrip(".")
+				if not result["AD"] and not hostname.endswith(aemail_domain):
+					logging.warning(
+						"The DNS SRV record used to lookup the configuration was not signed with DNS Security Extensions (DNSSEC)."
+					)
+				return hostname, port
+
+	return None
+
+
+NONE = "plain"
+STARTTLS = "STARTTLS"
+SSL = "SSL"
 
 EMAILRE = re.compile(
 	r'^(?=.{6,254}$)(?=.{1,64}@)((?:(?:[^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"(?:[^"\\]|\\.)+")(?:\.(?:(?:[^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"(?:[^"\\]|\\.)+"))*)@((?:(?:xn--)?[^\W_](?:[\w-]{0,61}[^\W_])?\.)+(?:xn--)?[^\W\d_]{2,63})$',
@@ -1760,13 +1804,15 @@ def email_autoconfig(email):
 	result = dns_lookup(aemail_domain, "MX")
 	if result is not None and not result["Status"] and "Answer" in result:
 		records = []
+		(question,) = result["Question"]
 		for answer in result["Answer"]:
-			fields = answer["data"].split()
-			if len(fields) == 2:
-				priority, target = fields
-				records.append((int(priority), target))
-			else:
-				logging.error("Error parsing DNS MX Record: %r", answer["data"])
+			if question["type"] == answer["type"]:
+				fields = answer["data"].split()
+				if len(fields) == 2:
+					priority, target = fields
+					records.append((int(priority), target))
+				else:
+					logging.error("Error parsing DNS MX Record for the %r domain: %r", email_domain, answer["data"])
 
 		for _, target in sorted(records, key=operator.itemgetter(0)):
 			mx_hostname = target.rstrip(".").lower()
@@ -1787,27 +1833,11 @@ def email_autoconfig(email):
 	# https://datatracker.ietf.org/doc/html/rfc6186
 	# https://datatracker.ietf.org/doc/html/rfc8314#section-5.1
 	print("Looking up DNS SRV Records for configuration…")
-	for label, security in (("_submissions._tcp.", "SSL"), ("_submission._tcp.", "STARTTLS")):
-		result = dns_lookup(label + aemail_domain, "SRV")
-		if result is not None and not result["Status"] and "Answer" in result:
-			records = []
-			for answer in result["Answer"]:
-				fields = answer["data"].split()
-				if len(fields) == 4:
-					priority, weight, port, target = fields
-					records.append((int(priority), int(weight), int(port), target))
-				else:
-					logging.error("Error parsing DNS SRV Record: %r", answer["data"])
-
-			for _, _, port, target in sorted(records, key=lambda x: (x[0], -x[1])):
-				if target != ".":
-					# print("Configuration found from DNS SRV Records")
-					hostname = target.rstrip(".")
-					if not result["AD"] and not hostname.endswith(aemail_domain):
-						logging.warning(
-							"The DNS SRV record used to lookup the configuration was not signed with DNS Security Extensions (DNSSEC)."
-						)
-					return hostname, hostname, port, security, None
+	for label, security in (("_submissions._tcp.", SSL), ("_submission._tcp.", STARTTLS)):
+		smtp_config = get_dns_config(label + aemail_domain, aemail_domain)
+		if smtp_config is not None:
+			hostname, port = smtp_config
+			return hostname, hostname, port, security, None
 
 	return None
 
@@ -1887,25 +1917,23 @@ def setup(config, options):
 	if options.cpu_hours != hours:
 		options.cpu_hours = hours
 		config.set(SEC.PrimeNet, "CPUHours", str(hours))
-		config.set(SEC.PrimeNet, "RollingAverage", str(1000))
-	if program == 1:
-		options.mlucas = True
-		config.set(SEC.PrimeNet, "mlucas", str(True))
-	elif program == 2:
-		options.gpuowl = True
-		config.set(SEC.PrimeNet, "gpuowl", str(True))
-	elif program == 3:
-		options.prpll = True
-		config.set(SEC.PrimeNet, "prpll", str(True))
-	elif program == 4:
-		options.cudalucas = True
-		config.set(SEC.PrimeNet, "cudalucas", str(True))
-	elif program == 5:
-		options.mfaktc = True
-		config.set(SEC.PrimeNet, "mfaktc", str(True))
-	elif program == 6:
-		options.mfakto = True
-		config.set(SEC.PrimeNet, "mfakto", str(True))
+		config.set(SEC.Internals, "RollingAverage", str(1000))
+
+	for i, option in enumerate(("mlucas", "gpuowl", "prpll", "cudalucas", "mfaktc", "mfakto"), 1):
+		if program == i:
+			if not getattr(options, option):
+				setattr(options, option, True)
+				config.set(SEC.PrimeNet, option, str(True))
+
+				for j in range(options.num_workers):
+					section = "Worker #{0}".format(j + 1) if options.num_workers > 1 else SEC.Internals
+					config.remove_option(section, "msec_per_iter")
+					config.remove_option(section, "exponent")
+				config.set(SEC.Internals, "RollingAverage", str(1000))
+		else:
+			setattr(options, option, None)
+			config.remove_option(SEC.PrimeNet, option)
+
 	if gpu:
 		name, freq, memory = gpus[gpu - 1]
 		options.cpu_brand = name
@@ -1957,7 +1985,7 @@ def setup(config, options):
 │ 104        ✔        ✔*       ✔       ✔                                   │
 │ 106                 ✔*       ✔                                           │
 │ 150        ✔        ✔        ✔                                           │
-│ 151        ✔        ✔        ✔                                           │
+│ 151**      ✔        ✔        ✔                                           │
 │ 152        ✔        ✔        ✔                                           │
 │ 153        ✔        ✔        ✔                                           │
 │ 154        ✔        ✔*                                                   │
@@ -1979,7 +2007,7 @@ def setup(config, options):
 | 104        X        X*       X       X                                   |
 | 106                 X*       X                                           |
 | 150        X        X        X                                           |
-| 151        X        X        X                                           |
+| 151**      X        X        X                                           |
 | 152        X        X        X                                           |
 | 153        X        X        X                                           |
 | 154        X        X*                                                   |
@@ -1988,7 +2016,9 @@ def setup(config, options):
 | 160        X                                                             |
 | 161        X                                                             |
 +--------------------------------------------------------------------------+""")
-	print("* Some previous versions of GpuOwl\n")
+	print("""* Some previous versions of GpuOwl
+** Frequently returns LL DC assignments instead of PRP DC
+""")
 
 	directories = []
 	work_pref = []
@@ -2132,14 +2162,14 @@ def setup(config, options):
 			smtp_server = "{0}:{1}".format(hostname, port)
 			security = None
 			if socket_type:
-				if socket_type == "SSL":
+				if socket_type == SSL:
 					tls = True
 					security = "SSL/TLS"
-				elif socket_type == "STARTTLS":
+				elif socket_type == STARTTLS:
 					starttls = True
 					security = "StartTLS"
-				elif socket_type == "plain":
-					security = "None"
+				elif socket_type == NONE:
+					security = "No Encryption"
 				else:
 					security = "Unknown ({0!r})".format(socket_type)
 			print(
@@ -3004,7 +3034,7 @@ def write_workfile(adir, workfile, assignments):
 def announce_prime_to_user(exponent, worktype):
 	"""Announces a prime or probable prime number to the user and prompts to send an email."""
 	color = BOLD + COLORS.RED if COLOR else ""
-	reset = RESET_All if COLOR else ""
+	reset = RESET_ALL if COLOR else ""
 	emails = ", ".join(starmap("{0} <{1}>".format, CCEMAILS))
 	while True:
 		if worktype == "LL":
@@ -3069,12 +3099,13 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 	# print(msg.as_string())
 	# print(msg)
 
+	args = {"context": context} if sys.version_info >= (3, 3) else {}
 	s = None
 	try:
 		if options.tls:
 			# Python 3.3+
 			# with smtplib.SMTP_SSL(options.smtp, context=context, timeout=30) as s:
-			s = smtplib.SMTP_SSL(options.smtp, timeout=30)
+			s = smtplib.SMTP_SSL(options.smtp, timeout=30, **args)
 			if options.debug > 1:
 				s.set_debuglevel(2)
 			if options.email_username:
@@ -3089,11 +3120,11 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 			if options.starttls:
 				# Python 3.3+
 				# s.starttls(context=context)
-				s.starttls()
+				s.starttls(**args)
 			if options.email_username:
 				s.login(options.email_username, options.email_password)
 			s.sendmail(from_addr, to_addrs, msg.as_string())
-	except (smtplib.SMTPException, IOError, OSError) as e:  # socket.error
+	except (IOError, OSError, ssl.CertificateError, smtplib.SMTPException) as e:
 		logging.exception("Failed to send e-mail: %s", e, exc_info=options.debug)
 		return False
 	finally:
@@ -4629,7 +4660,7 @@ def parse_stat_file(adapter, adir, p):
 					msec_per_iter *= 1000
 				list_msec_per_iter.append(msec_per_iter)
 			found += 1
-		elif s2 and s2_res:
+		elif s2 and iteration == s2 and s2_res:
 			s2 = int((iteration - int(s2_res.group(1))) / (percent / 100) / 20)
 			iteration = int(s2 * (percent / 100))
 		elif fft_res and not fftlen:
@@ -5422,11 +5453,17 @@ def upload_proofs(adapter, adir, cpu_num, queue=False):
 	"""Uploads proof files from a specified directory, optionally queuing them for later processing."""
 	proof = os.path.join(adir, "proof")
 	if not os.path.isdir(proof):
-		adapter.debug("Proof directory %r does not exist", proof)
+		if options.proofs:
+			adapter.info("Proof directory %r does not exist", proof)
+		else:
+			adapter.debug("Proof directory %r does not exist", proof)
 		return True
 	entries = glob.glob(os.path.join(proof, "*.proof"))
 	if not entries:
-		adapter.debug("No proof files in %r to upload.", proof)
+		if options.proofs:
+			adapter.info("No proof files in %r to upload.", proof)
+		else:
+			adapter.debug("No proof files in %r to upload.", proof)
 		return True
 	success = True
 	for entry in entries:
@@ -6255,7 +6292,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 	"""Submit results for exponents over 1,000,000,000 using https://www.mersenne.ca/submit-results.php."""
 	length = len(lines)
-	adapter.info("Submitting %s results to mersenne.ca", length)
+	adapter.info("Submitting %s results to mersenne.ca", format(length, "n"))
 	retry = rejected = False
 	try:
 		r = session.post(
@@ -6274,22 +6311,23 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 		adapter.info("mersenne.ca response:")
 		adapter.info(result["user_message"])
 		results = result["results"]
+		adapter.debug("Submitted %s result%s to mersenne.ca.", format(length, "n"), "s" if length != 1 else "")
 		if results["unknown"]:
-			adapter.error("Unknown %s result%s.", results["unknown"], "s" if results["unknown"] != 1 else "")
+			adapter.error("Unknown %s result%s.", format(results["unknown"], "n"), "s" if results["unknown"] != 1 else "")
 		if results["rejected"]:
 			rejected = result["lines"]["rejected"]
 			adapter.error(
 				"Rejected %s result%s: %s",
-				results["rejected"],
+				format(results["rejected"], "n"),
 				"s" if results["rejected"] != 1 else "",
 				", ".join(
-					"{0} ({1:n} result{2})".format(reason, len(lines), "s" if len(lines) != 1 else "")
+					"{0:n} result{1} {2}".format(len(lines), "s" if len(lines) != 1 else "", reason)
 					for reason, lines in rejected.items()
 				),
 			)
 		accepted = sum(results["accepted"].values())
 		if accepted > 1:
-			adapter.info("Submitted %s result%s to mersenne.ca.", accepted, "s" if accepted != 1 else "")
+			adapter.info("Accepted %s result%s.", format(accepted, "n"), "s" if accepted != 1 else "")
 			factors = results["factors"]["new"]
 			adapter.info(
 				"Total credit is %s GHz-days%s.",
@@ -6608,7 +6646,7 @@ Python version: {16}
 	return ar, message, assignment, result_type, no_report
 
 
-RESULT_PATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gpuowl|prpll|mfakt[co]|cofact")
+RESULT_PATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gpuowl|prpll|mfakt[co]|cofact|prmers")
 
 
 def submit_work(dirs, adapter, adir, cpu_num, tasks):
@@ -6628,10 +6666,13 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 		results_send = [line for line in results if RESULT_PATTERN.search(line) and line not in results_sent]
 
 	if not results_send:
-		adapter.debug("No new results in %r.", resultsfile)
+		if options.results or options.proofs or options.recover or options.recover_all or options.unreserve_all:
+			adapter.info("No new results in %r.", resultsfile)
+		else:
+			adapter.debug("No new results in %r.", resultsfile)
 		return True
 	length = len(results_send)
-	adapter.debug("Found %s new result%s to report in %r", length, "s" if length != 1 else "", resultsfile)
+	adapter.debug("Found %s new result%s to report in %r", format(length, "n"), "s" if length != 1 else "", resultsfile)
 
 	# Only for new results, to be appended to results_sent
 	mersenne_ca_result_send = []
@@ -6667,9 +6708,8 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 						ec, ghd = result
 						if not ec:
 							accepted += 1
-						elif ec not in error_code_ignore:
-							reason = "PrimeNet error {0} ({1})".format(ec, ERRORS.get(ec, "Unknown error code"))
-							rejected.setdefault(reason, []).append(sendline)
+						else:
+							rejected.setdefault(ec, []).append(sendline)
 						ghzdays.append(ghd)
 						is_sent = True
 					else:
@@ -6682,9 +6722,32 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 					else:
 						rolling_average_work_unit_complete(adapter, adir, cpu_num, tasks, assignment)
 
-		if accepted > 1:
-			adapter.info("Submitted %s result%s to mersenne.org.", accepted, "s" if accepted != 1 else "")
+		if length > 1:
+			adapter.info("Submitted %s result%s to mersenne.org.", format(length, "n"), "s" if length != 1 else "")
+			if failed:
+				length = len(failed)
+				adapter.error("Failed %s result%s.", format(length, "n"), "s" if length != 1 else "")
+			if rejected:
+				length = sum(map(len, rejected.values()))
+				adapter.error(
+					"Rejected %s result%s: %s",
+					format(length, "n"),
+					"s" if length != 1 else "",
+					", ".join(
+						"{0:n} result{1} error {2} ({3})".format(
+							len(lines), "s" if len(lines) != 1 else "", ec, ERRORS.get(ec, "Unknown error code")
+						)
+						for ec, lines in rejected.items()
+					),
+				)
+			adapter.info("Accepted %s result%s.", format(accepted, "n"), "s" if accepted != 1 else "")
 			adapter.info("Total credit is %s GHz-days.", format(sum(ghzdays), "n"))
+
+		rejected = {
+			"PrimeNet error {0} ({1})".format(ec, ERRORS.get(ec, "Unknown error code")): lines
+			for ec, lines in rejected.items()
+			if ec not in error_code_ignore
+		}
 
 		# send all mersenne.ca results at once, to minimize server overhead
 		if mersenne_ca_result_send:
@@ -6795,9 +6858,9 @@ def results_worker(dirs):
 			logging.info(
 				"Will retry reporting the results in %.0f minute%s", options.timeout / 60, "s" if options.timeout != 60 else ""
 			)
-			time.sleep(options.timeout - elapsed)
+			time.sleep(max(options.timeout - elapsed, 0))
 		else:
-			time.sleep(5 * 60 - elapsed)
+			time.sleep(max(5 * 60 - elapsed, 0))
 
 
 def tf1g_unreserve_all(adapter, cpu_num, retry_count=0):
@@ -8240,6 +8303,9 @@ parser.add_option(
 	help="Output a status report and any expected completion dates for all assignments and exit.",
 )
 parser.add_option(
+	"--report-results", action="store_true", dest="results", help="Report assignment results and exit. Requires PrimeNet User ID."
+)
+parser.add_option(
 	"--upload-proofs",
 	action="store_true",
 	dest="proofs",
@@ -8456,6 +8522,7 @@ if os.name == "nt":  # Windows
 		COLOR = False
 
 workdir = os.path.expanduser(os.path.normpath(options.workdir))
+# os.chdir(workdir)
 
 # load prime.ini and update options
 config = config_read()
@@ -8477,6 +8544,14 @@ if options.results_file is not None:
 	options.results_file = os.path.normpath(options.results_file)
 
 if not opts_no_defaults.__dict__ and not os.path.exists(os.path.join(workdir, options.localfile)):
+	file = sys.executable if is_pyinstaller() else os.path.abspath(__file__)
+	adir = os.getcwd()
+	if adir != os.path.dirname(file):
+		parser.error(
+			"No command line arguments provided or {0!r} file found in {1!r}. You are running {2!r} from outside its directory and would need to either use the --workdir or --setup options to continue.".format(
+				options.localfile, adir, file
+			)
+		)
 	logging.info(
 		"No command line arguments provided or %r file found, now running --setup to configure the program.", options.localfile
 	)
@@ -8645,13 +8720,16 @@ if options.status:
 	output_status(dirs)
 	sys.exit(0)
 
-if options.proofs:
+if options.results or options.proofs:
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
 		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
 			submit_work(dirs, adapter, adir, i, tasks)
+
+	if not options.proofs:
+		sys.exit(0)
 
 	if options.dirs:
 		for i, adir in enumerate(dirs):
@@ -8837,7 +8915,7 @@ for j in count():
 				(datetime.fromtimestamp(current_time) + timedelta(seconds=options.timeout)).strftime("%c"),
 			)
 		try:
-			time.sleep(options.timeout - elapsed)
+			time.sleep(max(options.timeout - elapsed, 0))
 		except KeyboardInterrupt:
 			break
 
