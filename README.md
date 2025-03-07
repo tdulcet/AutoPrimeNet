@@ -39,15 +39,16 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Full support
 		* Mlucas
 		* GpuOwl
+		* PRPLL
 		* CUDALucas
 		* mfaktc
 		* mfakto
 	* Partial support
-		* PRPLL
 		* CUDAPm1
 	* Report results only
 		* Prime95/MPrime
 		* cofact
+		* PrMers
 * Supported worktypes
 	* LL
 	* PRP
@@ -261,6 +262,8 @@ Options:
                         (1 hour). Use 0 to update once and exit.
   -s, --status          Output a status report and any expected completion
                         dates for all assignments and exit.
+  --report-results      Report assignment results and exit. Requires PrimeNet
+                        User ID.
   --upload-proofs       Report assignment results, upload all PRP proofs and
                         exit. Requires PrimeNet User ID.
   --recover             Report assignment results, recover all assignments and
