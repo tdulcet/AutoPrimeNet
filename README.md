@@ -358,6 +358,8 @@ Options:
 Pull requests welcome! Ideas for contributions:
 
 * Support more GIMPS programs.
+* Support FreeBSD and Android.
+	* ⭐ Help wanted
 * Support setting more of the program options.
 * Improve the error handling of PrimeNet API calls.
 * Hide any prompts that are not applicable when using the `--setup` option. (requested by James)
