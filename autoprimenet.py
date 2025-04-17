@@ -3333,7 +3333,7 @@ def get_cpu_model():
 		with open("/proc/cpuinfo") as f:
 			for line in f:
 				if line.startswith("model name"):
-					output = re.sub(r"^.*: *", "", line.rstrip(), 1)
+					output = re.sub(r"^.*: *", "", line.rstrip(), count=1)
 					break
 	return output
 
@@ -3404,7 +3404,7 @@ def get_cpu_frequency():
 			frequency = output // 1000 // 1000
 	elif sys.platform.startswith("linux"):
 		with open("/proc/cpuinfo") as f:
-			freqs = [float(re.sub(r"^.*: *", "", line.rstrip(), 1)) for line in f if line.startswith("cpu MHz")]
+			freqs = [float(re.sub(r"^.*: *", "", line.rstrip(), count=1)) for line in f if line.startswith("cpu MHz")]
 		if freqs:
 			freq = set(freqs)
 			if len(freq) == 1:
