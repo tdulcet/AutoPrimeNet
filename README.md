@@ -19,7 +19,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 * Command line interface and configuration file
 * Automatically registers the instance with PrimeNet
 * PrimeNet/mersenne.org
-	* Supports all applicable [PrimeNet v5 API](http://v5.mersenne.org/v5design/v5webAPI_0.97.html) functionality
+	* Supports all applicable [PrimeNet v5 API](https://v5.mersenne.org/v5design/v5webAPI_0.97.html) functionality
 		* Registers and updates instance
 		* Gets and sets program options
 		* Gets and recovers assignments
@@ -400,7 +400,7 @@ Pull requests welcome! Ideas for contributions:
 * Add an option to show debugging information
 * Support submitting P-1 results for Fermat numbers
 
-Thanks to [Daniel Connelly](https://github.com/Danc2050) for updating the PrimeNet Python script from Mlucas to eliminate the password requirement by getting assignments using the [PrimeNet API](http://v5.mersenne.org/v5design/v5webAPI_0.97.html) and to support reporting the assignment results and progress for CUDALucas using the PrimeNet API!
+Thanks to [Daniel Connelly](https://github.com/Danc2050) for updating the PrimeNet Python script from Mlucas to eliminate the password requirement by getting assignments using the [PrimeNet API](https://v5.mersenne.org/v5design/v5webAPI_0.97.html) and to support reporting the assignment results and progress for CUDALucas using the PrimeNet API!
 
 Thanks to Isaac Terrell for providing the needed PRP proof files to test the proof file uploading feature.
 

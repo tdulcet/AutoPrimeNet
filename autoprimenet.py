@@ -1001,7 +1001,7 @@ CCEMAILS = [
 	)
 ]
 
-primenet_v5_burl = "http://v5.mersenne.org/v5server/"
+primenet_v5_burl = "https://v5.mersenne.org/v5server/"
 TRANSACTION_API_VERSION = 0.95
 ERROR_RATE = 0.018  # Estimated LL error rate on clean run
 # Estimated PRP error rate (assumes Gerbicz error-checking)
@@ -1021,7 +1021,7 @@ elif sys.platform == "darwin":
 elif sys.platform.startswith("linux"):
 	PORT = 8 if is_64bit else 2
 
-session = requests.Session()  # session that maintains our cookies
+session = requests.Session()
 session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {0} ({1} {2}/{3})".format(
 	VERSION, session.headers["User-Agent"], platform.python_implementation(), platform.python_version()
 )
