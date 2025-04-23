@@ -4502,7 +4502,9 @@ def tf_ghd_credit(exp, bit_min, bit_max):
 
 
 # "%s%u %d %d %d %s: %d %d %s %llu %08X", NAME_NUMBERS, exp, bit_min, bit_max, NUM_CLASSES, MFAKTC_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
-MFAKTC_TF_RE = re.compile(br'^M(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*) (\d+) ([\dA-F]{8})$')
+MFAKTC_TF_RE = re.compile(
+	br'^M(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) ([\dA-F]{8})$'
+)
 
 
 def parse_work_unit_mfaktc(adapter, filename, p):
@@ -4850,9 +4852,18 @@ def parse_prpll_log_file(adapter, adir, p):
 	return iteration, avg_msec_per_iter, stage, pct_complete, fftlen, bits, buffs
 
 
-def parse_mfaktc_output_file(adapter, adir, p):
+def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
+	"""Get the mfaktc output filename based on the assignment and mfaktc version."""
+	filenames = glob.glob(os.path.join(adir, "M{0}_{1}-{2}_[0-9]*.ckp".format(p, int(sieve_depth), int(factor_to))))
+	if filenames:
+		return os.path.basename(filenames[0])
+	# default to <= 0.23 mfaktc filenames if new one not found
+	return "M{0}.ckp".format(p)
+
+
+def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
 	"""Parse the mfaktc output file for the progress of the assignment."""
-	savefile = os.path.join(adir, "M{0}.ckp".format(p))
+	savefile = os.path.join(adir, get_mfaktc_output_filename(adir, p, sieve_depth, factor_to))
 	iteration = 0
 	avg_msec_per_iter = None
 	stage = pct_complete = None
@@ -4893,7 +4904,7 @@ def get_progress_assignment(adapter, adir, assignment):
 	elif options.cudalucas:  # CUDALucas
 		result = parse_cuda_output_file(adapter, adir, assignment.n)
 	elif options.mfaktc:  # mfaktc
-		result = parse_mfaktc_output_file(adapter, adir, assignment.n)
+		result = parse_mfaktc_output_file(adapter, adir, assignment.n, assignment.sieve_depth, assignment.factor_to)
 	elif options.mfakto:  # mfakto
 		result = parse_mfakto_output_file(adapter, adir, assignment.n)
 	else:  # Mlucas
@@ -7752,8 +7763,10 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 	modified = True
 	file = os.path.join(
 		adir,
-		"M{0}.ckp".format(p)
-		if options.mfaktc or options.mfakto
+		get_mfaktc_output_filename(adir, p, assignment.sieve_depth, assignment.factor_to)
+		if options.mfaktc
+		else "M{0}.ckp".format(p)
+		if options.mfakto
 		else "c{0}".format(p)
 		if options.cudalucas
 		else "gpuowl.log"

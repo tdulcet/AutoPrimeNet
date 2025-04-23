@@ -256,7 +256,9 @@ TF_v2_RE = re.compile(br"^OWL TF (2) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 # mfaktc/mfakto headers
 
 # "%s%u %d %d %d %s: %d %d %s %llu %08X", NAME_NUMBERS, exp, bit_min, bit_max, NUM_CLASSES, MFAKTC_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
-MFAKTC_TF_RE = re.compile(br'^([MW])(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*) (\d+) )?([\dA-F]{8})$')
+MFAKTC_TF_RE = re.compile(
+	br'^([MW])(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) )?([\dA-F]{8})$'
+)
 
 # "%u %d %d %d %s: %d %d %s %llu %08X\n", exp, bit_min, bit_max, mystuff.num_classes, MFAKTO_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
 MFAKTO_TF_RE = re.compile(br'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*) (\d+) )?([\dA-F]{8})$')
@@ -284,7 +286,7 @@ GPUOWL_RE = re.compile(
 	+ r"(?:([0-9]+)(?:-([0-9]+)\.(?:ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|(-old)?\.(?:(?:ll|p[12])\.)?owl)|unverified\.prp(\.bak)?)|[0-9]+(-prev)?\.(?:tf\.)?owl)$"
 )
 PRPLL_RE = re.compile(r"(?:(?:ll-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp)|unverified\.prp))$")
-MFAKTC_RE = re.compile(r"^([MW][0-9]+)\.ckp$")
+MFAKTC_RE = re.compile(r"^([MW][0-9]+)(?:_[0-9]+-[0-9]+_[0-9]+)?\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
 
 
