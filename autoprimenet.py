@@ -1177,7 +1177,7 @@ class PRIMENET:
 	ERROR_INVALID_RESULT_TYPE = 45
 	ERROR_INVALID_WORK_TYPE = 46
 	ERROR_WORK_NO_LONGER_NEEDED = 47
-	# Undocumented and missing from Prime95/MPrime
+	# Undocumented
 	ERROR_ILLEGAL_RESIDUE = 48
 
 	# Valid work_preference values
@@ -1254,7 +1254,7 @@ ERRORS = {
 	PRIMENET.ERROR_INVALID_WORK_TYPE: "Invalid work type",
 	PRIMENET.ERROR_WORK_NO_LONGER_NEEDED: "Work no longer needed",
 	# Undocumented
-	PRIMENET.ERROR_ILLEGAL_RESIDUE: "Illegal residue",
+	PRIMENET.ERROR_ILLEGAL_RESIDUE: "Invalid residue",
 }
 
 
@@ -1685,7 +1685,7 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 	for provider in root.findall("./emailProvider"):
 		display_name = provider.findtext("displayName")
 		display_name = PLACEHOLDER_RE.sub(replacer, display_name) if display_name else provider.get("id")
-		# domains = [domain.text for domain in provider.findall("domain")]
+		# domains = [domain.text for domain in provider.findall("./domain")]
 
 		for server in provider.findall("./outgoingServer[@type='smtp']"):
 			hostname = server.findtext("hostname")
@@ -1890,6 +1890,11 @@ def setup(config, options):
 		1,
 		6,
 	)
+	if program == 3:
+		print(
+			"Warning: PRPLL support is experimental and for testing only. At the time of this release, PRPLL was not PrimeNet server compatible and thus was not (yet) fully supported."
+		)
+		ask_ok()
 	tf1g = False
 	if program in {5, 6}:  # mfaktc or mfakto
 		tf1g = ask_yn(
@@ -2530,6 +2535,11 @@ def check_options(parser, options):
 	if not 1 <= options.cert_cpu_limit <= 100:
 		parser.error("Proof certification work limit must be between 1 and 100%")
 
+	if options.prpll:
+		logging.warning(
+			"PRPLL support is experimental and for testing only. At the time of this release, PRPLL was not PrimeNet server compatible and thus was not (yet) fully supported."
+		)
+
 	if not (options.mlucas or options.cudalucas or options.gpuowl or options.prpll or options.mfaktc or options.mfakto):
 		parser.error("Must select at least one GIMPS program to get assignments for")
 
@@ -2941,6 +2951,9 @@ def read_workfile(adapter, workfile):
 		illegal_line = False
 		assignment = parse_assignment(task)
 		if assignment is not None:
+			if assignment.k < 1.0 or assignment.b < 2 or not assignment.c:
+				adapter.error("Illegal number in %r file, k < 1 or b < 2, or c = 0", workfile)
+				illegal_line = True
 			if (
 				assignment.k == 1.0
 				and assignment.b == 2
@@ -5047,7 +5060,7 @@ def adjust_rolling_average(dirs):
 		if (
 			start_time
 			and current_time > start_time
-			and timedelta(seconds=delta) <= timedelta(days=30)
+			and timedelta(seconds=delta) <= timedelta(30)
 			and complete_time > time_to_complete
 		):
 			arolling_average = (complete_time - time_to_complete) / options.num_workers / delta * rolling_average
@@ -5290,7 +5303,7 @@ PROOF_NUMBER_RE = re.compile(br"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\
 
 def upload_proof_file(adapter, filename):
 	"""Uploads a proof file to the server in chunks, resuming from the last uploaded position if interrupted."""
-	max_chunk_size = config.getfloat(SEC.PrimeNet, "UploadChunkSize") if config.has_option(SEC.PrimeNet, "UploadChunkSize") else 5
+	max_chunk_size = config.getfloat(SEC.PrimeNet, "UploadChunkSize") if config.has_option(SEC.PrimeNet, "UploadChunkSize") else 7
 	max_chunk_size = int(min(max(max_chunk_size, 1), 8) * 1024 * 1024)
 	starttime = timeit.default_timer()
 	try:
@@ -6037,8 +6050,11 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	"""Manages the retrieval and assignment of certification work based on configuration and resource limits."""
 	if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS"):
 		return
-	if not options.cert_work or options.days_of_work <= 0 or options.cpu_hours <= 12:
+	if not options.cert_work:
 		return
+	can_get_cert_work = True
+	if options.days_of_work <= 0 or options.cpu_hours <= 12:
+		can_get_cert_work = False
 	max_cert_assignments = 3 if options.cert_cpu_limit >= 50 else 1
 	cert_assignments = sum(
 		1 for assignment in tasks if isinstance(assignment, Assignment) and assignment.work_type == PRIMENET.WORK_TYPE_CERT
@@ -6048,7 +6064,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 		adapter.debug(
 			"%s ≥ %s CERT assignments already in %r, not getting new work", cert_assignments, max_cert_assignments, workfile
 		)
-		return
+		can_get_cert_work = False
 
 	section = "Worker #{0}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
 	cpu_limit_remaining = (
@@ -6067,7 +6083,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	config.set(section, "CertDailyCPURemaining", str(cpu_limit_remaining))
 	if cpu_limit_remaining <= 0:
 		adapter.debug("CERT daily work limit already used, not getting new work")
-		return
+		can_get_cert_work = False
 
 	assignment = next((assignment for assignment in tasks if isinstance(assignment, Assignment)), None)
 	percent = None
@@ -6077,10 +6093,14 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 		(assignment is not None and assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_PFACTOR})
 		or (percent is not None and percent > 0.85)
 	):
-		return
+		can_get_cert_work = False
 
 	if config.has_option(SEC.PrimeNet, "CertWorker") and config.getint(SEC.PrimeNet, "CertWorker") != cpu_num + 1:
-		return
+		can_get_cert_work = False
+	if not can_get_cert_work:
+		if not (config.has_option(SEC.PrimeNet, "ForceGetCertWork") and config.getboolean(SEC.PrimeNet, "ForceGetCertWork")):
+			return
+		adapter.debug("Force checking for CERT work")
 	min_exp = config.getint(SEC.PrimeNet, "CertMinExponent") if config.has_option(SEC.PrimeNet, "CertMinExponent") else 50000000
 	max_exp = config.getint(SEC.PrimeNet, "CertMaxExponent") if config.has_option(SEC.PrimeNet, "CertMaxExponent") else None
 	cert_quantity = config.getint(SEC.PrimeNet, "CertQuantity") if config.has_option(SEC.PrimeNet, "CertQuantity") else 1
@@ -6091,7 +6111,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 			if test is None:
 				break
 			if test.work_type != PRIMENET.WORK_TYPE_CERT:
-				adapter.error("Received unknown work type (expected 200): %s", test.work_type)
+				adapter.error("Received unknown worktype (expected 200): %s", test.work_type)
 				break
 			# tasks.append(test)  # appendleft
 			new_task = output_assignment(test)
@@ -6289,7 +6309,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 			return rc, ghd
 		elif rc == PRIMENET.ERROR_INVALID_PARAMETER:
 			adapter.error(
-				"INVALID PARAMETER: This may be a bug in the program, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues"
+				"Invalid Parameter: This may be a bug in the program, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues"
 			)
 			return None
 
@@ -7631,7 +7651,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		)
 
 	amax = config.getint(SEC.PrimeNet, "MaxExponents")
-	days_work = timedelta(days=options.days_of_work)
+	days_work = timedelta(options.days_of_work)
 	new_tasks = []
 	while True:
 		if num_cache <= num_existing and cur_time_left:
@@ -8232,7 +8252,11 @@ parser.add_option(
 
 parser.add_option("-m", "--mlucas", action="store_true", help="Get assignments for Mlucas.")
 parser.add_option("-g", "--gpuowl", action="store_true", help="Get assignments for GpuOwl.")
-parser.add_option("--prpll", action="store_true", help="Get assignments for PRPLL.")
+parser.add_option(
+	"--prpll",
+	action="store_true",
+	help="Get assignments for PRPLL. This is experimental and for testing only. PRPLL is not PrimeNet server compatible and thus is not yet fully supported.",
+)
 parser.add_option("--cudalucas", action="store_true", help="Get assignments for CUDALucas.")
 parser.add_option("--mfaktc", action="store_true", help="Get assignments for mfaktc.")
 parser.add_option("--mfakto", action="store_true", help="Get assignments for mfakto.")
@@ -8463,7 +8487,7 @@ parser.add_option_group(group)
 group = optparse.OptionGroup(
 	parser,
 	"Notification Options",
-	"Optionally configure this program to automatically send an e-mail/text message notification if there is an error, if the GIMPS program has stalled, if the available disk space is low, if it found a new Mersenne prime or if their is a new version of the GIMPS program. Send text messages by using your mobile providers e-mail to SMS or MMS gateway. Use the --test-email option to verify the configuration. When using the --setup option, it will automatically lookup the configuration.",
+	"Optionally configure this program to automatically send an e-mail/text message notification if there is an error, if the GIMPS program has stalled, if the available disk space is low, if it found a new Mersenne prime or if there is a new version of the GIMPS program. Send text messages by using your mobile providers e-mail to SMS or MMS gateway. Use the --test-email option to verify the configuration. When using the --setup option, it will automatically lookup the configuration.",
 )
 group.add_option(
 	"--to",
@@ -8815,7 +8839,7 @@ if options.timeout > 0 and (options.watch is None or options.watch):
 	results_thread = threading.Thread(target=results_worker, name="ReportResults", args=(dirs,))
 	results_thread.daemon = True
 	results_thread.start()
-	watcher_threads = watch(dirs)
+	watcher_threads = watch(dirs if options.dirs else (workdir,))
 else:
 	logging.info(
 		"Monitoring director%s: %s",

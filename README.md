@@ -5,7 +5,7 @@ The PrimeNet automated assignment handler program for GIMPS
 
 Copyright © 2024 Teal Dulcet
 
-Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl/PRPLL, CUDALucas, mfaktc and mfakto GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports both Python 2 and 3 and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
+Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, CUDALucas, mfaktc and mfakto GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports both Python 2 and 3 and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
 
 Adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
 
@@ -39,11 +39,11 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Full support
 		* Mlucas
 		* GpuOwl
-		* PRPLL
 		* CUDALucas
 		* mfaktc
 		* mfakto
 	* Partial support
+		* PRPLL
 		* CUDAPm1
 	* Report results only
 		* Prime95/MPrime
@@ -59,12 +59,13 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 * Supports multiple workers (CPU Cores or GPUs)
 	* Supports setting per worker options, including work preferences
 * Can be used anonymously
+* Supports submitting results and uploading proof files immediately, without polling the filesystem
 * Automatically reports assignment progress
 	* Monitor progress on [CPUs page](https://www.mersenne.org/cpus/)
 	* Allows getting much smaller [Category 0 and 1 exponents](https://www.mersenne.org/thresholds/)
 	* Supports using the save/checkpoint files to determine progress
 * Can specify minimum and maximum exponent for assignments
-	* Can specify minimum and maximum bit level for assignments from mersenne.ca
+	* Can specify minimum and maximum bit level for assignments
 * Automatically registers assignments without an assignment ID (AID)
 	* Interactively register specific exponents with a `--register-exponents` option
 		* Automatically gets existing parameters from mersenne.ca
@@ -84,6 +85,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Optional color output
 	* Automatically rotates log file
 * Monitors available and used disk space
+* Automatic AutoPrimeNet and GIMPS program version check
 * Optional e-mail and text message notifications
 	* There is an error
 		* Failed to get new assignments
@@ -97,6 +99,10 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 		* Disk space used is greater than % of configured limit
 		* Disk space available is less than % of total
 	* GIMPS program found a new Mersenne Prime!
+	* There is a new version of the GIMPS program
+		* New version of AutoPrimeNet is available
+		* New version of the GIMPS program is available
+* Automatically detects e-mail configuration when using `--setup` option
 * File locking of both work and results files
 * Optionally archives PRP proof files after upload
 * Saves submitted results to a `results_sent.txt` file
@@ -212,7 +218,9 @@ Options:
                         listed on mersenne.ca)
   -m, --mlucas          Get assignments for Mlucas.
   -g, --gpuowl          Get assignments for GpuOwl.
-  --prpll               Get assignments for PRPLL.
+  --prpll               Get assignments for PRPLL. This is experimental and
+                        for testing only. PRPLL is not PrimeNet server
+                        compatible and thus is not yet fully supported.
   --cudalucas           Get assignments for CUDALucas.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
@@ -350,7 +358,7 @@ Options:
     Optionally configure this program to automatically send an e-mail/text
     message notification if there is an error, if the GIMPS program has
     stalled, if the available disk space is low, if it found a new
-    Mersenne prime or if their is a new version of the GIMPS program. Send
+    Mersenne prime or if there is a new version of the GIMPS program. Send
     text messages by using your mobile providers e-mail to SMS or MMS
     gateway. Use the --test-email option to verify the configuration. When
     using the --setup option, it will automatically lookup the
@@ -386,13 +394,8 @@ Pull requests welcome! Ideas for contributions:
 	* ⭐ Help wanted
 * Support setting more of the program options.
 * Improve the error handling of PrimeNet API calls.
-* Hide any prompts that are not applicable when using the `--setup` option. (requested by James)
-* Check for new results to submit and proof files to upload when the results file is updated.
 * Improve the performance.
 * Support reporting interim residues.
-* Support downloading certification assignments.
-	* Waiting on support from one of more of the GIMPS programs.
-* Add automatic update check and notification.
 * Localize the program and translate the output into other languages (see [here](https://mersenneforum.org/showthread.php?t=27046)).
 * Adapt Loïc Le Loarer's [test suite](https://github.com/llloic11/primenet/tree/main/tests).
 * Add an optional GUI using [Tk](https://en.wikipedia.org/wiki/Tk_(software)) and the [tkinter library](https://docs.python.org/3/library/tkinter.html)

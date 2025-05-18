@@ -89,6 +89,7 @@ else:
 	import multiprocessing
 
 	executor = concurrent.futures.ThreadPoolExecutor(multiprocessing.cpu_count())
+	futures = []
 
 
 locale.setlocale(locale.LC_ALL, "")
@@ -692,9 +693,7 @@ def read_value_prime95(file, aformat, asum):
 	result = unpack(aformat, file)
 	if options.check:
 		for char, val in zip(aformat[1:], result):
-			if char == "i":
-				asum += val
-			elif char == "I":
+			if char in {"i", "I"}:
 				asum += val
 			elif char == "Q":
 				asum += (val >> 32) + val
@@ -784,7 +783,7 @@ def parse_work_unit_prime95(filename):
 					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
 				if options.jacobi:
 					if executor:
-						executor.submit(jacobi_test, wu, wu.n, residue, filename)
+						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 					else:
 						jacobi_test(wu, wu.n, residue, filename)
 			elif magicnum == PRP_MAGICNUM:
@@ -1160,9 +1159,7 @@ def parse_work_unit_prime95(filename):
 							else:
 								if wu.version > 7:
 									(_required_missing,), asum = read_value_prime95(f, "<i", asum)
-					elif wu.state == PM1_STATE_GCD:
-						(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
-					elif wu.state == PM1_STATE_DONE:
+					elif wu.state in {PM1_STATE_GCD, PM1_STATE_DONE}:
 						(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
 
 					if options.check:
@@ -1228,9 +1225,7 @@ def parse_work_unit_prime95(filename):
 						(pairmap_size,), asum = read_value_prime95(f, "<Q", asum)
 
 						_pairmap, asum = read_array_prime95(f, pairmap_size, asum)
-				elif wu.state == PP1_STATE_GCD:
-					(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
-				elif wu.state == PP1_STATE_DONE:
+				elif wu.state in {PP1_STATE_GCD, PP1_STATE_DONE}:
 					(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
 
 				if options.check:
@@ -1338,7 +1333,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 
 					if options.jacobi:
 						if executor:
-							executor.submit(jacobi_test, wu, p, residue1, filename)
+							futures.append(executor.submit(jacobi_test, wu, p, residue1, filename))
 						else:
 							jacobi_test(wu, p, residue1, filename)
 				elif m == MODULUS_TYPE_FERMAT:
@@ -1429,9 +1424,10 @@ def parse_work_unit_cudalucas(filename, p):
 				buffer = f.read(size)
 				if len(buffer) != size:
 					return None
+				view = memoryview(buffer)
 				if options.check:
 					chksum = checkpoint_checksum(buffer)
-				residue = from_bytes(buffer[: -9 * 4])
+				residue = from_bytes(view[: -9 * 4])
 
 			f.seek(end * 4)
 
@@ -1461,7 +1457,7 @@ def parse_work_unit_cudalucas(filename, p):
 				wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
 			if options.jacobi:
 				if executor:
-					executor.submit(jacobi_test, wu, q, residue, filename)
+					futures.append(executor.submit(jacobi_test, wu, q, residue, filename))
 				else:
 					jacobi_test(wu, q, residue, filename)
 
@@ -1605,7 +1601,7 @@ def parse_work_unit_gpuowl(filename):
 						logging.error("Hash error. Expected %X, actual %X.", ahash, aahash)
 				if options.jacobi:
 					if executor:
-						executor.submit(jacobi_test, wu, wu.n, residue, filename)
+						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 					else:
 						jacobi_test(wu, wu.n, residue, filename)
 			elif header.startswith(b"OWL PRP "):
@@ -1816,7 +1812,7 @@ def parse_work_unit_prpll(filename):
 
 				if options.jacobi:
 					if executor:
-						executor.submit(jacobi_test, wu, wu.n, residue, filename)
+						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 					else:
 						jacobi_test(wu, wu.n, residue, filename)
 			elif header.startswith(b"OWL PRP "):
@@ -1879,8 +1875,7 @@ def parse_work_unit_prpll(filename):
 
 
 def calculate_k(exp, bits):
-	"""
-	calculates biggest possible k in "2 * exp * k + 1 < 2^bits"
+	"""calculates biggest possible k in "2 * exp * k + 1 < 2^bits"
 
 	Because Python is not limited to 64-bit integers like C,
 	we simply use the "bits <= 64" block from the C code
@@ -1896,8 +1891,7 @@ def calculate_k(exp, bits):
 
 
 def class_needed(exp, k_min, c, more_classes, wagstaff):
-	"""
-	checks whether the class c must be processed or can be ignored at all because
+	"""checks whether the class c must be processed or can be ignored at all because
 	all factor candidates within the class c are a multiple of 3, 5, 7 or 11 (11
 	only if MORE_CLASSES is defined) or are 3 or 5 mod 8 (Mersenne) or are 5 or 7 mod 8 (Wagstaff)
 
@@ -1910,16 +1904,14 @@ def class_needed(exp, k_min, c, more_classes, wagstaff):
 		and ((2 * (exp % 3) * ((k_min + c) % 3)) % 3 != 2)
 		and ((2 * (exp % 5) * ((k_min + c) % 5)) % 5 != 4)
 		and ((2 * (exp % 7) * ((k_min + c) % 7)) % 7 != 6)
-	):
-		if not more_classes or (2 * (exp % 11) * ((k_min + c) % 11)) % 11 != 10:
-			return True
+	) and (not more_classes or (2 * (exp % 11) * ((k_min + c) % 11)) % 11 != 10):
+		return True
 
 	return False
 
 
 def pct_complete_mfakt(exp, bits, num_classes, cur_class, wagstaff=False):
-	"""
-	Calculate percentage completeness of an mfaktc/mfakto checkpoint file
+	"""Calculate percentage completeness of an mfaktc/mfakto checkpoint file
 	using the same logic used to display Pct in mfaktc/mfakto output
 
 	The code below is adapted from C code in mfaktc version 0.21 by user nclvrps@github
@@ -1965,7 +1957,7 @@ def parse_work_unit_mfaktc(filename):
 			if options.check and f.read():
 				return None
 	except (IOError, OSError):
-		logging.exception("Error reading %R file.", filename)
+		logging.exception("Error reading %r file.", filename)
 		return None
 
 	mfaktc_tf = MFAKTC_TF_RE.match(header)
@@ -2266,7 +2258,7 @@ def one_line_status(file, num, index, wu):
 		mtime = os.path.getmtime(file)
 		date = datetime.fromtimestamp(mtime)
 		size = os.path.getsize(file)
-		result += ("{0}B".format(outputunit(size)), "{0:%c}".format(date))
+		result.extend(("{0}B".format(outputunit(size)), "{0:%c}".format(date)))
 	result += [
 		work_type_str,
 		"{0}, {1}".format(stage, wu.stage) if stage else "Stage: {0}".format(wu.stage),
@@ -2578,6 +2570,9 @@ def main(dirs):
 
 	if executor:
 		executor.shutdown()
+
+		for future in futures:
+			future.result()
 
 	parsed = OrderedDict()
 
