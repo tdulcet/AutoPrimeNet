@@ -974,7 +974,7 @@ if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -5492,7 +5492,7 @@ def upload_proofs(adapter, adir, cpu_num, queue=False):
 	success = True
 	for entry in entries:
 		if queue:
-			proofs_queue.put((cpu_num, entry))
+			proofs_queue.put((adir, cpu_num, entry))
 		elif not upload_proof(adapter, cpu_num, entry):
 			success = False
 	return success
