@@ -76,6 +76,7 @@ import random
 import re
 import shutil
 import smtplib
+import socket
 import ssl
 import struct
 import sys
@@ -112,6 +113,12 @@ try:
 	from urllib.parse import urlencode
 except ImportError:
 	from urllib import urlencode
+
+try:
+	# Python 3+
+	from http.cookiejar import DefaultCookiePolicy
+except ImportError:
+	from cookielib import DefaultCookiePolicy
 
 try:
 	# Python 3+
@@ -227,6 +234,7 @@ if sys.platform == "win32":  # Windows
 		_fields_ = (("GroupMask", GROUP_AFFINITY), ("GroupMasks", GROUP_AFFINITY * 1))
 
 	class NUMA_NODE_RELATIONSHIP(ctypes.Structure):
+		_anonymous_ = ("union",)
 		_fields_ = (
 			("NodeNumber", wintypes.DWORD),
 			("Reserved", wintypes.BYTE * 18),
@@ -234,9 +242,8 @@ if sys.platform == "win32":  # Windows
 			("union", union),
 		)
 
-		_anonymous_ = ("union",)
-
 	class CACHE_RELATIONSHIP(ctypes.Structure):
+		_anonymous_ = ("union",)
 		_fields_ = (
 			("Level", wintypes.BYTE),
 			("Associativity", wintypes.BYTE),
@@ -247,8 +254,6 @@ if sys.platform == "win32":  # Windows
 			("GroupCount", wintypes.WORD),
 			("union", union),
 		)
-
-		_anonymous_ = ("union",)
 
 	class PROCESSOR_GROUP_INFO(ctypes.Structure):
 		_fields_ = (
@@ -275,9 +280,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX(ctypes.Structure):
-		_fields_ = (("Relationship", wintypes.DWORD), ("Size", wintypes.DWORD), ("union", union))
-
 		_anonymous_ = ("union",)
+		_fields_ = (("Relationship", wintypes.DWORD), ("Size", wintypes.DWORD), ("union", union))
 
 	class ProcessorCore(ctypes.Structure):
 		_fields_ = (("Flags", wintypes.BYTE),)
@@ -303,9 +307,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class SYSTEM_LOGICAL_PROCESSOR_INFORMATION(ctypes.Structure):
-		_fields_ = (("ProcessorMask", wintypes.WPARAM), ("Relationship", wintypes.DWORD), ("union", union))
-
 		_anonymous_ = ("union",)
+		_fields_ = (("ProcessorMask", wintypes.WPARAM), ("Relationship", wintypes.DWORD), ("union", union))
 
 	class MEMORYSTATUSEX(ctypes.Structure):
 		_fields_ = (
@@ -904,8 +907,10 @@ elif sys.platform.startswith("linux"):
 					file = wds[event.wd] + (os.sep + name if name else "")
 					if event.mask & IN_CLOSE_WRITE and event.wd in result_wds:
 						logging.debug("The results file %r was modified.", file)
-						filename = os.path.basename(result_wds[event.wd])
-						results_queue.put((adir, results_files.index(filename) if options.prpll else cpu_num))
+						results_queue.put((
+							adir,
+							results_files.index(os.path.basename(result_wds[event.wd])) if options.prpll else cpu_num,
+						))
 					if event.mask & IN_MOVED_TO and event.wd == proof_wd and name.endswith(".proof"):
 						logging.debug("A new proof file %r was detected.", file)
 						proofs_queue.put((adir, cpu_num, file))
@@ -954,6 +959,24 @@ Please run the below command to install the Requests library:
 Then, run AutoPrimeNet again.""".format(e, executable[:-4] if executable.endswith(".exe") else executable)
 	)
 	sys.exit(1)
+else:
+	# Adapted from: https://github.com/requests/toolbelt/blob/master/requests_toolbelt/adapters/host_header_ssl.py
+	class HostHeaderSSLAdapter(requests.adapters.HTTPAdapter):
+		__slots__ = ()
+
+		def send(self, request, **kwargs):
+			host_header = request.headers.get("host")
+			connection_pool_kwargs = self.poolmanager.connection_pool_kw
+
+			if host_header:
+				# connection_pool_kwargs["assert_hostname"] = host_header
+				connection_pool_kwargs["server_hostname"] = host_header
+			elif "server_hostname" in connection_pool_kwargs:
+				# connection_pool_kwargs.pop("assert_hostname", None)
+				connection_pool_kwargs.pop("server_hostname", None)
+
+			return super(HostHeaderSSLAdapter, self).send(request, **kwargs)
+
 
 try:
 	import idna
@@ -975,7 +998,7 @@ if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -1026,9 +1049,21 @@ session = requests.Session()
 session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {0} ({1} {2}/{3})".format(
 	VERSION, session.headers["User-Agent"], platform.python_implementation(), platform.python_version()
 )
+session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))  # Disable cookies
+MAX_RETRIES = 3
 # urllib3 1.26+: allowed_methods=None, method_whitelist=None
-session.mount("https://", requests.adapters.HTTPAdapter(max_retries=urllib3.util.Retry(3, backoff_factor=1)))
-session.mount("http://", requests.adapters.HTTPAdapter(max_retries=urllib3.util.Retry(3, backoff_factor=1)))
+retries = urllib3.util.Retry(
+	MAX_RETRIES,
+	backoff_factor=1,
+	respect_retry_after_header=False,
+	**(
+		{"allowed_methods": None}
+		if tuple(map(int, urllib3.__version__.split(".", 2)[:2])) >= (1, 26)
+		else {"method_whitelist": None}
+	)
+)  # fmt: skip
+session.mount("https://", HostHeaderSSLAdapter(max_retries=retries))
+session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
 atexit.register(session.close)
 # Python 2.7.9 and 3.4+
 context = ssl.create_default_context(cafile=certifi.where()) if hasattr(ssl, "create_default_context") else None
@@ -1045,6 +1080,8 @@ MODULUS_TYPE_FERMAT = 3
 
 class timedelta(timedelta):
 	"""Custom timedelta class with a formatted string representation."""
+
+	__slots__ = ()
 
 	def __str__(self):
 		"""Return a formatted string representation of the timedelta."""
@@ -1064,6 +1101,8 @@ class timedelta(timedelta):
 
 class Formatter(logging.Formatter):
 	"""Custom logging formatter to include worker information if available."""
+
+	__slots__ = ()
 
 	def format(self, record):
 		"""Format log record to include worker number if 'cpu_num' attribute is present."""
@@ -1092,6 +1131,8 @@ RESET_ALL = "\033[m"
 
 class ColorFormatter(Formatter):
 	"""Custom log formatter to add color based on log level."""
+
+	__slots__ = ()
 
 	FORMATS = {
 		logging.DEBUG: COLORS.GRAY,
@@ -1122,6 +1163,7 @@ class LockFile:
 
 	def __enter__(self):
 		"""Acquire the lock by creating the lock file."""
+		# logging.debug("Locking %r", self.filename)
 		for i in count():
 			try:
 				# Python 3.3+: with open(self.lockfile, "x") as f:
@@ -1143,6 +1185,7 @@ class LockFile:
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		"""Release the lock by removing the lock file."""
+		# logging.debug("Unlocking %r", self.filename)
 		os.remove(self.lockfile)
 
 
@@ -1377,7 +1420,7 @@ def assignment_to_str(assignment):
 	return "{0}/{1}".format("({0})".format(buf) if "^" in buf else buf, "/".join(map(str, assignment.known_factors)))
 
 
-def outputunit(number, scale=False):
+def output_unit(number, scale=False):
 	"""Converts a number to a human-readable string with appropriate scaling and suffix."""
 	scale_base = 1000 if scale else 1024
 
@@ -1411,7 +1454,7 @@ def outputunit(number, scale=False):
 INPUT_UNIT_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(?:\s*([" + "".join(suffix_power) + r"])i?)?$")
 
 
-def inputunit(astr, scale=False):
+def input_unit(astr, scale=False):
 	"""Converts a string with a unit suffix to an integer value."""
 	scale_base = 1000 if scale else 1024
 
@@ -1431,9 +1474,9 @@ def inputunit(astr, scale=False):
 def output_available(available, total):
 	"""Formats the available and total byte values into a human-readable string."""
 	return "{0}B / {1}B{2}".format(
-		outputunit(available),
-		outputunit(total),
-		" ({0}B / {1}B)".format(outputunit(available, True), outputunit(total, True)) if total >= 1000 else "",
+		output_unit(available),
+		output_unit(total),
+		" ({0}B / {1}B)".format(output_unit(available, True), output_unit(total, True)) if total >= 1000 else "",
 	)
 
 
@@ -1810,13 +1853,13 @@ def email_autoconfig(email):
 			if question["type"] == answer["type"]:
 				fields = answer["data"].split()
 				if len(fields) == 2:
-					priority, target = fields
-					records.append((int(priority), target))
+					preference, exchange = fields
+					records.append((int(preference), exchange))
 				else:
 					logging.error("Error parsing DNS MX Record for the %r domain: %r", email_domain, answer["data"])
 
-		for _, target in sorted(records, key=operator.itemgetter(0)):
-			mx_hostname = target.rstrip(".").lower()
+		for _, exchange in sorted(records, key=operator.itemgetter(0)):
+			mx_hostname = exchange.rstrip(".").lower()
 			print("Found mail domain {0!r}".format(mx_hostname))
 			# mx_base_domain # Needs the Public Suffix List (PSL)
 			mx_full_domain = ".".join(mx_hostname.split(".")[1:])
@@ -1911,7 +1954,7 @@ def setup(config, options):
 			for i, (name, freq, memory) in enumerate(gpus):
 				print("\n{0:n}. {1}".format(i + 1, name))
 				print("\tFrequency/Speed: {0:n} MHz".format(freq))
-				print("\tTotal Memory: {0:n} MiB ({1}B)".format(memory, outputunit(memory << 20)))
+				print("\tTotal Memory: {0:n} MiB ({1}B)".format(memory, output_unit(memory << 20)))
 			print()
 			gpu = ask_int("Which GPU are you using this GIMPS program with (0 to not report the GPU)", 0, 0, len(gpus))
 		else:
@@ -2138,7 +2181,7 @@ def setup(config, options):
 			print(
 				wrapper.fill(
 					"Setting disk space limit below {0}B ({1}B) may preclude getting first time prime tests from the PrimeNet server. Consider setting it to 0 instead to not send.".format(
-						outputunit(threshold), outputunit(threshold, True)
+						output_unit(threshold), output_unit(threshold, True)
 					)
 				)
 			)
@@ -2481,8 +2524,8 @@ def check_options(parser, options):
 		if res:
 			logging.warning("Computer name has invalid character: %r", res.group())
 
-	if not 8 <= len(options.cpu_brand) <= 64:
-		parser.error("CPU model must be between 8 and 64 characters")
+	if not 1 <= len(options.cpu_brand) <= 64:
+		parser.error("CPU model must be between 1 and 64 characters")
 	res = RE.search(options.cpu_brand)
 	if res:
 		logging.warning("CPU model has invalid character: %r", res.group())
@@ -3189,10 +3232,10 @@ def send_msg(subject, message="", attachments=None, to=None, cc=None, bcc=None, 
 			filename, file = attachment
 			size = len(file)
 			total += size
-			logging.debug("%r: %s", filename, outputunit(size))
+			logging.debug("%r: %s", filename, output_unit(size))
 			aattachments.append((size, attachment))
 
-		logging.debug("Total Size: %s", outputunit(total))
+		logging.debug("Total Size: %s", output_unit(total))
 
 		if total >= 25 * 1024 * 1024:
 			logging.warning("The total size of all attachments is greater than 25 MiB.")
@@ -3203,7 +3246,7 @@ def send_msg(subject, message="", attachments=None, to=None, cc=None, bcc=None, 
 				if total >= 25 * 1024 * 1024:
 					logging.info("Skipping attachment: %r", filename)
 					message += "(Unable to attach the {0!r} file ({1}), as the total message size would be too large.)\n".format(
-						filename, outputunit(size)
+						filename, output_unit(size)
 					)
 					attachments.remove(attachment)
 
@@ -3496,7 +3539,7 @@ def get_cpu_cache_sizes():
 		for path in glob.iglob("/sys/devices/system/cpu/cpu[0-9]*/cache"):
 			for file in glob.iglob(os.path.join(path, "index[0-9]*/size")):
 				with open(file) as f:
-					size = inputunit(f.read().rstrip())
+					size = input_unit(f.read().rstrip())
 				adir = os.path.dirname(file)
 				with open(os.path.join(adir, "level")) as f:
 					level = int(f.read().rstrip())
@@ -4829,7 +4872,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 		elif fft_res and not fftlen:
 			if int(fft_res.group(1)) != p:
 				break
-			fftlen = inputunit(fft_res.group(2))
+			fftlen = input_unit(fft_res.group(2))
 		if (buffs or (found == 20 and not p2 and (not p1 or bits))) and fftlen:
 			break
 	if not found:
@@ -4926,8 +4969,9 @@ def get_progress_assignment(adapter, adir, assignment):
 	return result
 
 
-def compute_progress(assignment, iteration, msec_per_iter, p, bits, s2):
+def compute_progress(assignment, msec_per_iter, p, progress):
 	"""Calculate the progress percentage and estimated time left for a given assignment."""
+	iteration, _, _, _, _, bits, s2 = progress
 	percent = iteration / (
 		s2
 		or bits
@@ -4943,8 +4987,10 @@ def compute_progress(assignment, iteration, msec_per_iter, p, bits, s2):
 	)
 	if msec_per_iter is None:
 		return percent, None, msec_per_iter
+
 	if assignment.n != p and assignment.work_type != PRIMENET.WORK_TYPE_FACTOR:
 		msec_per_iter *= assignment.n * log2(assignment.n) * log2(log2(assignment.n)) / (p * log2(p) * log2(log2(p)))
+
 	if bits:
 		time_left = msec_per_iter * (bits - iteration)
 		# 1.5 suggested by EWM for Mlucas v20.0 and 1.13-1.275 for v20.1
@@ -4973,6 +5019,7 @@ def compute_progress(assignment, iteration, msec_per_iter, p, bits, s2):
 			)
 			- iteration
 		)
+
 	rolling_average = config.getint(SEC.Internals, "RollingAverage") if config.has_option(SEC.Internals, "RollingAverage") else 1000
 	rolling_average = min(4000, max(10, rolling_average))
 	time_left *= (24 / options.cpu_hours) * (1000 / rolling_average)
@@ -4986,8 +5033,8 @@ def work_estimate(adapter, adir, cpu_num, assignment):
 	if config.has_option(section, "msec_per_iter") and config.has_option(section, "exponent"):
 		msec_per_iter = config.getfloat(section, "msec_per_iter")
 		p = config.getint(section, "exponent")
-	iteration, _, _, _, _, bits, s2 = get_progress_assignment(adapter, adir, assignment)
-	_, time_left, _ = compute_progress(assignment, iteration, msec_per_iter, p, bits, s2)
+	progress = get_progress_assignment(adapter, adir, assignment)
+	_, time_left, _ = compute_progress(assignment, msec_per_iter, p, progress)
 	return time_left
 
 
@@ -5037,9 +5084,9 @@ def adjust_rolling_average(dirs):
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
 		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
-		# with LockFile(workfile):
-		tasks = read_workfile(adapter, workfile)
-		assignment = next((assignment for assignment in tasks if isinstance(assignment, Assignment)), None)
+		with LockFile(workfile):
+			tasks = read_workfile(adapter, workfile)
+			assignment = next((assignment for assignment in tasks if isinstance(assignment, Assignment)), None)
 		if assignment is None:
 			continue
 		ahash += string_to_hash(exponent_to_str(assignment))
@@ -5223,8 +5270,8 @@ def check_disk_space(dirs):
 				"Greater than %s%% or %s of the configured disk space limit used (%sB / %sB)",
 				critical,
 				format(precent, "%"),
-				outputunit(total),
-				outputunit(disk_space),
+				output_unit(total),
+				output_unit(disk_space),
 			)
 			if not config.has_option(SEC.Internals, "storage_usage_critical"):
 				send_msg(
@@ -5237,12 +5284,12 @@ Disk space usage:
 Total limit usage: {7}
 """.format(
 						precent,
-						outputunit(total),
-						outputunit(disk_space),
-						outputunit(worker_disk_space),
+						output_unit(total),
+						output_unit(disk_space),
+						output_unit(worker_disk_space),
 						options.num_workers,
 						options.computer_id,
-						"\n".join("Worker #{0}, {1!r}: {2}".format(i + 1, dirs[i], outputunit(u)) for i, u in enumerate(usages)),
+						"\n".join("Worker #{0}, {1!r}: {2}".format(i + 1, dirs[i], output_unit(u)) for i, u in enumerate(usages)),
 						output_available(total, disk_space),
 					),
 					priority="2 (High)",
@@ -5263,8 +5310,8 @@ Total limit usage: {7}
 			"Less than %s%% or only %s of the total disk space available (%sB / %sB)",
 			critical,
 			format(precent, "%"),
-			outputunit(usage.free),
-			outputunit(usage.total),
+			output_unit(usage.free),
+			output_unit(usage.total),
 		)
 		if not config.has_option(SEC.Internals, "storage_available_critical"):
 			send_msg(
@@ -5276,8 +5323,8 @@ If the computer runs out of space, the program will likely be unable to generate
 Disk space available: {4}
 """.format(
 					precent,
-					outputunit(usage.free),
-					outputunit(usage.total),
+					output_unit(usage.free),
+					output_unit(usage.total),
 					options.computer_id,
 					output_available(usage.free, usage.total),
 				),
@@ -5346,16 +5393,16 @@ def upload_proof_file(adapter, filename):
 			adapter.info(
 				"Filesize of %r is %sB%s",
 				filename,
-				outputunit(filesize),
-				" ({0}B)".format(outputunit(filesize, True)) if filesize >= 1000 else "",
+				output_unit(filesize),
+				" ({0}B)".format(output_unit(filesize, True)) if filesize >= 1000 else "",
 			)
-			fileHash = checksum_md5(filename)
-			adapter.info("MD5 of %r is %s", filename, fileHash)
+			filehash = checksum_md5(filename)
+			adapter.info("MD5 of %r is %s", filename, filehash)
 
 			while True:
 				r = session.get(
 					primenet_baseurl + "proof_upload/",
-					params={"UserID": options.user_id, "Exponent": exponent, "FileSize": filesize, "FileMD5": fileHash},
+					params={"UserID": options.user_id, "Exponent": exponent, "FileSize": filesize, "FileMD5": filehash},
 					timeout=180,
 				)
 				result = r.json()
@@ -5377,8 +5424,8 @@ def upload_proof_file(adapter, filename):
 					adapter.error("%s", result)
 					return False
 
-				origUrl = result["URLToUse"]
-				baseUrl = "https" + origUrl[4:] if origUrl.startswith("http:") else origUrl
+				origurl = result["URLToUse"]
+				baseurl = "https" + origurl[4:] if origurl.startswith("http:") else origurl
 				pos, end = next((int(a), b) for a, b in result["need"].items())
 				if pos > end or end >= filesize:
 					adapter.error("For proof %r, need list entry bad:", filename)
@@ -5398,8 +5445,8 @@ def upload_proof_file(adapter, filename):
 					chunk = view[:size]
 					bytessent += size
 					response = session.post(
-						baseUrl,
-						params={"FileMD5": fileHash, "DataOffset": pos, "DataSize": size, "DataMD5": md5(chunk).hexdigest()},
+						baseurl,
+						params={"FileMD5": filehash, "DataOffset": pos, "DataSize": size, "DataMD5": md5(chunk).hexdigest()},
 						files={"Data": (None, chunk)},
 						timeout=180,
 					)
@@ -5415,10 +5462,10 @@ def upload_proof_file(adapter, filename):
 						totaltime = endtime - starttime
 						adapter.info(
 							"Uploaded %sB%s in %s, %sB/sec",
-							outputunit(bytessent),
-							" ({0}B)".format(outputunit(bytessent, True)) if bytessent >= 1000 else "",
+							output_unit(bytessent),
+							" ({0}B)".format(output_unit(bytessent, True)) if bytessent >= 1000 else "",
 							timedelta(seconds=totaltime),
-							outputunit(bytessent / totaltime),
+							output_unit(bytessent / totaltime),
 						)
 						return True
 					if "need" not in result:
@@ -5568,7 +5615,7 @@ def program_options(send=False, start=-1, retry_count=0):
 						logging.critical("Error while setting program options on mersenne.org")
 						sys.exit(1)
 			if retry:
-				if retry_count >= 2:
+				if retry_count >= MAX_RETRIES:
 					logging.info("Retry count exceeded.")
 					return None
 				time.sleep(1 << retry_count)
@@ -5750,7 +5797,7 @@ def assignment_unreserve(adapter, assignment, retry_count=0):
 			register_instance()
 			retry = True
 	if retry:
-		if retry_count >= 2:
+		if retry_count >= MAX_RETRIES:
 			adapter.info("Retry count exceeded.")
 			return False
 		time.sleep(1 << retry_count)
@@ -5793,7 +5840,7 @@ def get_proof_data(adapter, assignment_aid, file):
 		if config.has_option(SEC.PrimeNet, "DownloadChunkSize")
 		else None
 	)
-	starttime = timeit.default_timer()
+	start = timeit.default_timer()
 	try:
 		r = session.get(primenet_baseurl + "proof_get_data/", params={"aid": assignment_aid}, timeout=180, stream=True)
 		r.raise_for_status()
@@ -5807,14 +5854,14 @@ def get_proof_data(adapter, assignment_aid, file):
 	except RequestException as e:
 		adapter.exception("%s", e, exc_info=options.debug)
 		return None
-	endtime = timeit.default_timer()
-	totaltime = endtime - starttime
+	end = timeit.default_timer()
+	totaltime = end - start
 	adapter.info(
 		"Downloaded %sB%s in %s, %sB/sec",
-		outputunit(length),
-		" ({0}B)".format(outputunit(length, True)) if length >= 1000 else "",
+		output_unit(length),
+		" ({0}B)".format(output_unit(length, True)) if length >= 1000 else "",
 		timedelta(seconds=totaltime),
-		outputunit(length / totaltime),
+		output_unit(length / totaltime),
 	)
 	return amd5
 
@@ -5955,7 +6002,7 @@ def get_assignment(
 			if not retry:
 				return None
 	if retry:
-		if retry_count >= 2:
+		if retry_count >= MAX_RETRIES:
 			adapter.info("Retry count exceeded.")
 			return None
 		time.sleep(1 << retry_count)
@@ -6314,7 +6361,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 			)
 			return None
 
-	if retry_count >= 2:
+	if retry_count >= MAX_RETRIES:
 		adapter.info("Retry count exceeded.")
 		return None
 	time.sleep(1 << retry_count)
@@ -6336,6 +6383,18 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 		)
 		r.raise_for_status()
 		result = r.json()
+	except HTTPError as e:
+		adapter.exception("%s", e, exc_info=options.debug)
+		if retry_count < MAX_RETRIES and r.status_code in retries.RETRY_AFTER_STATUS_CODES:
+			try:
+				retry_after = retries.get_retry_after(r)
+			except urllib3.exceptions.InvalidHeader as e:
+				adapter.exception("%s", e, exc_info=options.debug)
+			else:
+				if retry_after is not None:
+					adapter.info("Retrying submission in %s", timedelta(seconds=retry_after))
+					time.sleep(retry_after)
+		retry = True
 	except RequestException as e:
 		adapter.exception("%s", e, exc_info=options.debug)
 		retry = True
@@ -6367,7 +6426,7 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 				", found {0:n} new factor{1}".format(factors, "s" if factors != 1 else "") if factors else "",
 			)
 	if retry:
-		if retry_count >= 2:
+		if retry_count >= MAX_RETRIES:
 			adapter.info("Retry count exceeded.")
 			return None
 		time.sleep(1 << retry_count)
@@ -6750,10 +6809,11 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 				if is_sent:
 					if result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_P1_FACTOR}:
 						config.set(SEC.Internals, "RollingStartTime", str(0))
-						adjust_rolling_average(dirs)
+						# adjust_rolling_average(dirs)
 					else:
 						rolling_average_work_unit_complete(adapter, adir, cpu_num, tasks, assignment)
 
+		length -= len(mersenne_ca_result_send)
 		if length > 1:
 			adapter.info("Submitted %s result%s to mersenne.org.", format(length, "n"), "s" if length != 1 else "")
 			if failed:
@@ -6876,8 +6936,8 @@ def results_worker(dirs):
 		for cpu_num, adir in sorted({cpu_num: adir for adir, cpu_num in results}.items()):
 			adapter = logging.LoggerAdapter(logger, {"cpu_num": cpu_num} if options.num_workers > 1 else None)
 			workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
-			# with LockFile(workfile):
-			tasks = list(read_workfile(adapter, workfile))
+			with LockFile(workfile):
+				tasks = list(read_workfile(adapter, workfile))
 			if not submit_work(dirs, adapter, adir, cpu_num, tasks):
 				results_queue.put((adir, cpu_num))
 				failed = True
@@ -6924,7 +6984,7 @@ def tf1g_unreserve_all(adapter, cpu_num, retry_count=0):
 		adapter.error("Error during TF1G unreserve-all, unexpected result:")
 		adapter.error("%s", result)
 	if retry:
-		if retry_count >= 2:
+		if retry_count >= MAX_RETRIES:
 			adapter.info("Retry count exceeded.")
 			return False
 		time.sleep(1 << retry_count)
@@ -7138,7 +7198,7 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 			register_instance(guid)
 			retry = True
 	if retry:
-		if retry_count >= 2:
+		if retry_count >= MAX_RETRIES:
 			adapter.info("Retry count exceeded.")
 			return None
 		time.sleep(1 << retry_count)
@@ -7411,7 +7471,7 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 			adapter.debug("Fetched %s TF1G assignment%s from mersenne.ca", len(tests), "s" if len(tests) != 1 else "")
 		return tests
 	if retry:
-		if retry_count >= 2:
+		if retry_count >= MAX_RETRIES:
 			adapter.info("Retry count exceeded.")
 			return []
 		time.sleep(1 << retry_count)
@@ -7540,7 +7600,7 @@ def send_progress(adapter, cpu_num, assignment, percent, stage, time_left, now, 
 		elif rc == PRIMENET.ERROR_SERVER_BUSY:
 			retry = True
 	if retry:
-		if retry_count >= 2:
+		if retry_count >= MAX_RETRIES:
 			adapter.info("Retry count exceeded.")
 			return None
 		time.sleep(1 << retry_count)
@@ -7553,7 +7613,7 @@ def update_progress(adapter, cpu_num, assignment, progress, msec_per_iter, p, no
 	if not assignment:
 		return None
 	iteration, _, stage, _pct_complete, fftlen, bits, s2 = progress
-	percent, time_left, msec_per_iter = compute_progress(assignment, iteration, msec_per_iter, p, bits, s2)
+	percent, time_left, msec_per_iter = compute_progress(assignment, msec_per_iter, p, progress)
 	adapter.debug(
 		"M%s is %s done (%s / %s)",
 		assignment.n,
@@ -7618,6 +7678,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		and config.has_option(section, "exponent")
 	):
 		# get speed from .ini in case of no assignments
+		cur_time_left = 0
 		msec_per_iter = config.getfloat(section, "msec_per_iter")
 		p = config.getint(section, "exponent")
 	num_cache = options.num_cache
@@ -7716,20 +7777,27 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		num_fetched = len(assignments)
 		if not assignments:
 			break
-		with io.open(workfile, "a", encoding="utf-8") as file:
-			for i, assignment in enumerate(assignments):
-				if isinstance(assignment, Assignment):
-					new_task = output_assignment(assignment)
-					assignment, new_task = update_assignment(adapter, cpu_num, assignment, new_task)
-					assignments[i] = assignment
-					result = get_progress_assignment(adapter, adir, assignment)
-					_percent, cur_time_left = update_progress(
-						adapter, cpu_num, assignment, result, msec_per_iter, p, now, cur_time_left
-					)
-				else:
-					new_task = assignment
-				new_tasks.append(new_task)
-				file.write(new_task + "\n")
+		anew_tasks = []
+		for i, assignment in enumerate(assignments):
+			if isinstance(assignment, Assignment):
+				new_task = output_assignment(assignment)
+				assignment, new_task = update_assignment(adapter, cpu_num, assignment, new_task)
+				assignments[i] = assignment
+			else:
+				new_task = assignment
+			anew_tasks.append(new_task)
+
+		with LockFile(workfile), io.open(workfile, "a", encoding="utf-8") as file:
+			file.writelines(new_task + "\n" for new_task in anew_tasks)
+
+		for assignment in assignments:
+			if isinstance(assignment, Assignment):
+				result = get_progress_assignment(adapter, adir, assignment)
+				_percent, cur_time_left = update_progress(
+					adapter, cpu_num, assignment, result, msec_per_iter, p, now, cur_time_left
+				)
+
+		new_tasks.extend(anew_tasks)
 		tasks.extend(assignments)
 		num_existing += num_fetched
 
@@ -7845,6 +7913,9 @@ It was stalled for {3}.
 			config.remove_option(section, "stalled")
 	checkin = checkin and modified
 	if msec_per_iter is not None:
+		if config.has_option(section, "msec_per_iter"):
+			amsec_per_iter = config.getfloat(section, "msec_per_iter")
+			msec_per_iter = amsec_per_iter + 0.15 * (msec_per_iter - amsec_per_iter)
 		config.set(section, "msec_per_iter", "{0:f}".format(msec_per_iter))
 		config.set(section, "exponent", str(p))
 	elif config.has_option(section, "msec_per_iter") and config.has_option(section, "exponent"):
@@ -7865,11 +7936,29 @@ It was stalled for {3}.
 
 def ping_server(ping_type=1):
 	"""Sends a ping to the PrimeNet server to check connectivity."""
+	logging.info("Contacting PrimeNet Server.")
+	if options.v6:
+		for family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
+			"mersenne.org", 80, urllib3.util.connection.allowed_gai_family(), socket.SOCK_STREAM
+		):
+			try:
+				r = session.post(
+					"http://{0}/pingServer.php".format(sockaddr[0] if family == socket.AF_INET else "[{0}]".format(sockaddr[0])),
+					json={"pingType": "simple echo"},
+					headers={"Host": "v6.mersenne.org"},
+				)
+				r.raise_for_status()
+				result = r.json()
+			except RequestException as e:
+				logging.exception("%s", e, exc_info=options.debug)
+			else:
+				return "\n".join(starmap("{0}: {1}".format, result.items()))
+		return None
+
 	guid = get_guid(config)
 	args = primenet_v5_bargs.copy()
 	args["t"] = "ps"
 	args["q"] = ping_type
-	logging.info("Contacting PrimeNet Server.")
 	adapter = logging.LoggerAdapter(logger, None)
 	result = send_request(adapter, guid, args)
 	if result is None:
@@ -8389,6 +8478,12 @@ parser.add_option(
 )
 parser.add_option("--ping", action="store_true", dest="ping", help="Ping the PrimeNet server, show version information and exit.")
 parser.add_option(
+	"--v6",
+	action="store_true",
+	dest="v6",
+	help="Use the experimental PrimeNet v6 API. Currently only works with the --ping option.",
+)
+parser.add_option(
 	"--no-version-check",
 	action="store_false",
 	dest="version_check",
@@ -8764,7 +8859,7 @@ if options.results or options.proofs:
 		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
-			submit_work(dirs, adapter, adir, i, tasks)
+		submit_work(dirs, adapter, adir, i, tasks)
 
 	if not options.proofs:
 		sys.exit(0)
@@ -8891,13 +8986,14 @@ for j in count():
 		with LockFile(workfile):
 			process_add_file(adapter, workfile)
 			tasks = list(read_workfile(adapter, workfile))  # deque
-			if watching:
-				submit_work(dirs, adapter, adir, i, tasks)
 			registered = register_assignments(adapter, adir, i, tasks)
-			progress = update_progress_all(adapter, adir, i, last_time, tasks, checkin or registered)
-			if cert_work:
-				get_cert_work(adapter, adir, i, current_time, progress, tasks)
-			get_assignments(adapter, adir, i, progress, tasks, checkin)
+
+		if watching:
+			submit_work(dirs, adapter, adir, i, tasks)
+		progress = update_progress_all(adapter, adir, i, last_time, tasks, checkin or registered)
+		if cert_work:
+			get_cert_work(adapter, adir, i, current_time, progress, tasks)
+		get_assignments(adapter, adir, i, progress, tasks, checkin)
 
 		download_certs(adapter, adir, i, tasks)
 

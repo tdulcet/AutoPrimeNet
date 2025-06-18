@@ -101,19 +101,19 @@ jobs:
         python -m pip install requests
     - name: Script
       run: |
-        wmic cpu get name
+        # wmic cpu get name
         Get-CimInstance Win32_Processor | Select Name
-        wmic cpu get NumberOfCores,NumberOfLogicalProcessors
+        # wmic cpu get NumberOfCores,NumberOfLogicalProcessors
         Get-CimInstance Win32_Processor | Select NumberOfCores,NumberOfLogicalProcessors
-        wmic cpu get MaxClockSpeed
+        # wmic cpu get MaxClockSpeed
         Get-CimInstance Win32_Processor | Select MaxClockSpeed
-        wmic memphysical get MaxCapacity
+        # wmic memphysical get MaxCapacity
         Get-CimInstance Win32_PhysicalMemoryArray | Select MaxCapacity
-        wmic ComputerSystem get TotalPhysicalMemory
+        # wmic ComputerSystem get TotalPhysicalMemory
         Get-CimInstance Win32_ComputerSystem | Select TotalPhysicalMemory
-        wmic cpu get L2CacheSize,L3CacheSize
+        # wmic cpu get L2CacheSize,L3CacheSize
         Get-CimInstance Win32_Processor | Select L2CacheSize,L3CacheSize
-        wmic path Win32_CacheMemory get CacheType,InstalledSize,Level
+        # wmic path Win32_CacheMemory get CacheType,InstalledSize,Level
         Get-CimInstance Win32_CacheMemory | Select CacheType,InstalledSize,Level
         python -X dev -c "import platform; print(platform.win32_ver())"
         python -X dev autoprimenet.py --help

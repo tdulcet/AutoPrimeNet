@@ -293,6 +293,8 @@ Options:
                         run the --no-more-work option and exit.
   --ping                Ping the PrimeNet server, show version information and
                         exit.
+  --v6                  Use the experimental PrimeNet v6 API. Currently only
+                        works with the --ping option.
   --no-version-check    Disable the automatic AutoPrimeNet and GIMPS program
                         version check
   --version-check
