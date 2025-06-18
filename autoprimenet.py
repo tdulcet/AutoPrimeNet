@@ -115,6 +115,12 @@ except ImportError:
 
 try:
 	# Python 3+
+	from http.cookiejar import DefaultCookiePolicy
+except ImportError:
+	from cookielib import DefaultCookiePolicy
+
+try:
+	# Python 3+
 	from configparser import ConfigParser
 	from configparser import Error as ConfigParserError
 except ImportError:
@@ -227,6 +233,7 @@ if sys.platform == "win32":  # Windows
 		_fields_ = (("GroupMask", GROUP_AFFINITY), ("GroupMasks", GROUP_AFFINITY * 1))
 
 	class NUMA_NODE_RELATIONSHIP(ctypes.Structure):
+		_anonymous_ = ("union",)
 		_fields_ = (
 			("NodeNumber", wintypes.DWORD),
 			("Reserved", wintypes.BYTE * 18),
@@ -234,9 +241,8 @@ if sys.platform == "win32":  # Windows
 			("union", union),
 		)
 
-		_anonymous_ = ("union",)
-
 	class CACHE_RELATIONSHIP(ctypes.Structure):
+		_anonymous_ = ("union",)
 		_fields_ = (
 			("Level", wintypes.BYTE),
 			("Associativity", wintypes.BYTE),
@@ -247,8 +253,6 @@ if sys.platform == "win32":  # Windows
 			("GroupCount", wintypes.WORD),
 			("union", union),
 		)
-
-		_anonymous_ = ("union",)
 
 	class PROCESSOR_GROUP_INFO(ctypes.Structure):
 		_fields_ = (
@@ -275,9 +279,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX(ctypes.Structure):
-		_fields_ = (("Relationship", wintypes.DWORD), ("Size", wintypes.DWORD), ("union", union))
-
 		_anonymous_ = ("union",)
+		_fields_ = (("Relationship", wintypes.DWORD), ("Size", wintypes.DWORD), ("union", union))
 
 	class ProcessorCore(ctypes.Structure):
 		_fields_ = (("Flags", wintypes.BYTE),)
@@ -303,9 +306,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class SYSTEM_LOGICAL_PROCESSOR_INFORMATION(ctypes.Structure):
-		_fields_ = (("ProcessorMask", wintypes.WPARAM), ("Relationship", wintypes.DWORD), ("union", union))
-
 		_anonymous_ = ("union",)
+		_fields_ = (("ProcessorMask", wintypes.WPARAM), ("Relationship", wintypes.DWORD), ("union", union))
 
 	class MEMORYSTATUSEX(ctypes.Structure):
 		_fields_ = (
@@ -974,7 +976,7 @@ if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -1025,6 +1027,7 @@ session = requests.Session()
 session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {0} ({1} {2}/{3})".format(
 	VERSION, session.headers["User-Agent"], platform.python_implementation(), platform.python_version()
 )
+session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))  # Disable cookies
 # urllib3 1.26+: allowed_methods=None, method_whitelist=None
 session.mount("https://", requests.adapters.HTTPAdapter(max_retries=urllib3.util.Retry(3, backoff_factor=1)))
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=urllib3.util.Retry(3, backoff_factor=1)))
@@ -1376,7 +1379,7 @@ def assignment_to_str(assignment):
 	return "{0}/{1}".format("({0})".format(buf) if "^" in buf else buf, "/".join(map(str, assignment.known_factors)))
 
 
-def outputunit(number, scale=False):
+def output_unit(number, scale=False):
 	"""Converts a number to a human-readable string with appropriate scaling and suffix."""
 	scale_base = 1000 if scale else 1024
 
@@ -1410,7 +1413,7 @@ def outputunit(number, scale=False):
 INPUT_UNIT_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(?:\s*([" + "".join(suffix_power) + r"])i?)?$")
 
 
-def inputunit(astr, scale=False):
+def input_unit(astr, scale=False):
 	"""Converts a string with a unit suffix to an integer value."""
 	scale_base = 1000 if scale else 1024
 
@@ -1430,9 +1433,9 @@ def inputunit(astr, scale=False):
 def output_available(available, total):
 	"""Formats the available and total byte values into a human-readable string."""
 	return "{0}B / {1}B{2}".format(
-		outputunit(available),
-		outputunit(total),
-		" ({0}B / {1}B)".format(outputunit(available, True), outputunit(total, True)) if total >= 1000 else "",
+		output_unit(available),
+		output_unit(total),
+		" ({0}B / {1}B)".format(output_unit(available, True), output_unit(total, True)) if total >= 1000 else "",
 	)
 
 
@@ -1809,13 +1812,13 @@ def email_autoconfig(email):
 			if question["type"] == answer["type"]:
 				fields = answer["data"].split()
 				if len(fields) == 2:
-					priority, target = fields
-					records.append((int(priority), target))
+					preference, exchange = fields
+					records.append((int(preference), exchange))
 				else:
 					logging.error("Error parsing DNS MX Record for the %r domain: %r", email_domain, answer["data"])
 
-		for _, target in sorted(records, key=operator.itemgetter(0)):
-			mx_hostname = target.rstrip(".").lower()
+		for _, exchange in sorted(records, key=operator.itemgetter(0)):
+			mx_hostname = exchange.rstrip(".").lower()
 			print("Found mail domain {0!r}".format(mx_hostname))
 			# mx_base_domain # Needs the Public Suffix List (PSL)
 			mx_full_domain = ".".join(mx_hostname.split(".")[1:])
@@ -1910,7 +1913,7 @@ def setup(config, options):
 			for i, (name, freq, memory) in enumerate(gpus):
 				print("\n{0:n}. {1}".format(i + 1, name))
 				print("\tFrequency/Speed: {0:n} MHz".format(freq))
-				print("\tTotal Memory: {0:n} MiB ({1}B)".format(memory, outputunit(memory << 20)))
+				print("\tTotal Memory: {0:n} MiB ({1}B)".format(memory, output_unit(memory << 20)))
 			print()
 			gpu = ask_int("Which GPU are you using this GIMPS program with (0 to not report the GPU)", 0, 0, len(gpus))
 		else:
@@ -2137,7 +2140,7 @@ def setup(config, options):
 			print(
 				wrapper.fill(
 					"Setting disk space limit below {0}B ({1}B) may preclude getting first time prime tests from the PrimeNet server. Consider setting it to 0 instead to not send.".format(
-						outputunit(threshold), outputunit(threshold, True)
+						output_unit(threshold), output_unit(threshold, True)
 					)
 				)
 			)
@@ -3188,10 +3191,10 @@ def send_msg(subject, message="", attachments=None, to=None, cc=None, bcc=None, 
 			filename, file = attachment
 			size = len(file)
 			total += size
-			logging.debug("%r: %s", filename, outputunit(size))
+			logging.debug("%r: %s", filename, output_unit(size))
 			aattachments.append((size, attachment))
 
-		logging.debug("Total Size: %s", outputunit(total))
+		logging.debug("Total Size: %s", output_unit(total))
 
 		if total >= 25 * 1024 * 1024:
 			logging.warning("The total size of all attachments is greater than 25 MiB.")
@@ -3202,7 +3205,7 @@ def send_msg(subject, message="", attachments=None, to=None, cc=None, bcc=None, 
 				if total >= 25 * 1024 * 1024:
 					logging.info("Skipping attachment: %r", filename)
 					message += "(Unable to attach the {0!r} file ({1}), as the total message size would be too large.)\n".format(
-						filename, outputunit(size)
+						filename, output_unit(size)
 					)
 					attachments.remove(attachment)
 
@@ -3495,7 +3498,7 @@ def get_cpu_cache_sizes():
 		for path in glob.iglob("/sys/devices/system/cpu/cpu[0-9]*/cache"):
 			for file in glob.iglob(os.path.join(path, "index[0-9]*/size")):
 				with open(file) as f:
-					size = inputunit(f.read().rstrip())
+					size = input_unit(f.read().rstrip())
 				adir = os.path.dirname(file)
 				with open(os.path.join(adir, "level")) as f:
 					level = int(f.read().rstrip())
@@ -4828,7 +4831,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 		elif fft_res and not fftlen:
 			if int(fft_res.group(1)) != p:
 				break
-			fftlen = inputunit(fft_res.group(2))
+			fftlen = input_unit(fft_res.group(2))
 		if (buffs or (found == 20 and not p2 and (not p1 or bits))) and fftlen:
 			break
 	if not found:
@@ -5222,8 +5225,8 @@ def check_disk_space(dirs):
 				"Greater than %s%% or %s of the configured disk space limit used (%sB / %sB)",
 				critical,
 				format(precent, "%"),
-				outputunit(total),
-				outputunit(disk_space),
+				output_unit(total),
+				output_unit(disk_space),
 			)
 			if not config.has_option(SEC.Internals, "storage_usage_critical"):
 				send_msg(
@@ -5236,12 +5239,12 @@ Disk space usage:
 Total limit usage: {7}
 """.format(
 						precent,
-						outputunit(total),
-						outputunit(disk_space),
-						outputunit(worker_disk_space),
+						output_unit(total),
+						output_unit(disk_space),
+						output_unit(worker_disk_space),
 						options.num_workers,
 						options.computer_id,
-						"\n".join("Worker #{0}, {1!r}: {2}".format(i + 1, dirs[i], outputunit(u)) for i, u in enumerate(usages)),
+						"\n".join("Worker #{0}, {1!r}: {2}".format(i + 1, dirs[i], output_unit(u)) for i, u in enumerate(usages)),
 						output_available(total, disk_space),
 					),
 					priority="2 (High)",
@@ -5262,8 +5265,8 @@ Total limit usage: {7}
 			"Less than %s%% or only %s of the total disk space available (%sB / %sB)",
 			critical,
 			format(precent, "%"),
-			outputunit(usage.free),
-			outputunit(usage.total),
+			output_unit(usage.free),
+			output_unit(usage.total),
 		)
 		if not config.has_option(SEC.Internals, "storage_available_critical"):
 			send_msg(
@@ -5275,8 +5278,8 @@ If the computer runs out of space, the program will likely be unable to generate
 Disk space available: {4}
 """.format(
 					precent,
-					outputunit(usage.free),
-					outputunit(usage.total),
+					output_unit(usage.free),
+					output_unit(usage.total),
 					options.computer_id,
 					output_available(usage.free, usage.total),
 				),
@@ -5345,8 +5348,8 @@ def upload_proof_file(adapter, filename):
 			adapter.info(
 				"Filesize of %r is %sB%s",
 				filename,
-				outputunit(filesize),
-				" ({0}B)".format(outputunit(filesize, True)) if filesize >= 1000 else "",
+				output_unit(filesize),
+				" ({0}B)".format(output_unit(filesize, True)) if filesize >= 1000 else "",
 			)
 			fileHash = checksum_md5(filename)
 			adapter.info("MD5 of %r is %s", filename, fileHash)
@@ -5414,10 +5417,10 @@ def upload_proof_file(adapter, filename):
 						totaltime = endtime - starttime
 						adapter.info(
 							"Uploaded %sB%s in %s, %sB/sec",
-							outputunit(bytessent),
-							" ({0}B)".format(outputunit(bytessent, True)) if bytessent >= 1000 else "",
+							output_unit(bytessent),
+							" ({0}B)".format(output_unit(bytessent, True)) if bytessent >= 1000 else "",
 							timedelta(seconds=totaltime),
-							outputunit(bytessent / totaltime),
+							output_unit(bytessent / totaltime),
 						)
 						return True
 					if "need" not in result:
@@ -5810,10 +5813,10 @@ def get_proof_data(adapter, assignment_aid, file):
 	totaltime = endtime - starttime
 	adapter.info(
 		"Downloaded %sB%s in %s, %sB/sec",
-		outputunit(length),
-		" ({0}B)".format(outputunit(length, True)) if length >= 1000 else "",
+		output_unit(length),
+		" ({0}B)".format(output_unit(length, True)) if length >= 1000 else "",
 		timedelta(seconds=totaltime),
-		outputunit(length / totaltime),
+		output_unit(length / totaltime),
 	)
 	return amd5
 
