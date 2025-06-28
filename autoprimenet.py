@@ -904,7 +904,8 @@ elif sys.platform.startswith("linux"):
 					file = wds[event.wd] + (os.sep + name if name else "")
 					if event.mask & IN_CLOSE_WRITE and event.wd in result_wds:
 						logging.debug("The results file %r was modified.", file)
-						results_queue.put((adir, results_files.index(name) if options.prpll else cpu_num))
+						filename = os.path.basename(result_wds[event.wd])
+						results_queue.put((adir, results_files.index(filename) if options.prpll else cpu_num))
 					if event.mask & IN_MOVED_TO and event.wd == proof_wd and name.endswith(".proof"):
 						logging.debug("A new proof file %r was detected.", file)
 						proofs_queue.put((adir, cpu_num, file))
