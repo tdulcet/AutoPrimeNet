@@ -91,7 +91,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-2019, windows-latest, windows-11-arm]
+        os: [windows-latest, windows-11-arm]
       fail-fast: false
     steps:
     - uses: actions/checkout@v4
