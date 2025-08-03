@@ -486,11 +486,11 @@ def checkpoint_checksum(buffer):
 def exponent_to_str(assignment):
 	"""Converts an assignment's exponent details into a formatted string representation."""
 	if not assignment.n:
-		buf = "{0:.0f}".format(assignment.k + assignment.c)
+		buf = "{:.0f}".format(assignment.k + assignment.c)
 	elif assignment.k != 1.0:
 		buf = "{0.k:.0f}*{0.b}^{0.n}{0.c:+}".format(assignment)
 	elif assignment.b == 2 and assignment.c == -1:
-		buf = "M{0.n}".format(assignment)
+		buf = "M{.n}".format(assignment)
 	else:
 		cnt = 0
 		temp_n = assignment.n
@@ -498,7 +498,7 @@ def exponent_to_str(assignment):
 			temp_n >>= 1
 			cnt += 1
 		if assignment.b == 2 and temp_n == 1 and assignment.c == 1:
-			buf = "F{0}".format(cnt)
+			buf = "F{}".format(cnt)
 		else:
 			buf = "{0.b}^{0.n}{0.c:+}".format(assignment)
 	return buf
@@ -509,7 +509,7 @@ def assignment_to_str(assignment):
 	buf = exponent_to_str(assignment)
 	if not assignment.known_factors:
 		return buf
-	return "{0}/{1}".format("({0})".format(buf) if "^" in buf else buf, "/".join(map(str, assignment.known_factors)))
+	return "{}/{}".format("({})".format(buf) if "^" in buf else buf, "/".join(map(str, assignment.known_factors)))
 
 
 def strcol(astr):
@@ -529,7 +529,7 @@ def output_table(rows):
 	lens = [max(map(strcol, col)) for col in zip(*rows)]
 	print(
 		"\n".join(
-			"  ".join("{{{0}:<{1}}}".format(i, alen - (strcol(v) - len(v))) for i, (alen, v) in enumerate(zip(lens, row))).format(
+			"  ".join("{{{}:<{}}}".format(i, alen - (strcol(v) - len(v))) for i, (alen, v) in enumerate(zip(lens, row))).format(
 				*row
 			)
 			for row in rows
@@ -538,7 +538,7 @@ def output_table(rows):
 
 
 # Adapted from: https://github.com/tdulcet/Table-and-Graph-Libs/blob/master/python/graphs.py
-def outputunit(number, ascale=scale.IEC_I):
+def output_unit(number, ascale=scale.IEC_I):
 	"""Converts a number to a human-readable string with appropriate unit suffix based on the given scale."""
 	if ascale in {scale.IEC, scale.IEC_I}:
 		scale_base = 1024
@@ -561,7 +561,7 @@ def outputunit(number, ascale=scale.IEC_I):
 			prec = 3 if anumber < 10 else 2 if anumber < 100 else 1
 			strm = "{0:.{prec}f}".format(number, prec=prec)
 	else:
-		strm = "{0:.0f}".format(number)
+		strm = "{:.0f}".format(number)
 
 	# "k" if power == 1 and ascale == scale.SI else
 	strm += " " + (suffix_power_char[power] if power < len(suffix_power_char) else "(error)")
@@ -716,7 +716,7 @@ def read_residue_prime95(file, asum):
 	"""Read a residue from a Prime95 work unit file and update the checksum."""
 	(alen,), asum = read_value_prime95(file, "<I", asum)
 
-	aformat = "<{0}I".format(alen)
+	aformat = "<{}I".format(alen)
 	size = struct.calcsize(aformat)
 	buffer = file.read(size)
 	if len(buffer) != size:
@@ -757,8 +757,8 @@ def parse_work_unit_prime95(filename):
 				if options.check:
 					residue, asum = read_residue_prime95(f, asum)
 					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
-					wu.res64 = "{0:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
-					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 			elif magicnum == FACTOR_MAGICNUM:
 				if wu.version != FACTOR_VERSION:
 					logging.error("Factor with unsupported version = %s", wu.version)
@@ -779,8 +779,8 @@ def parse_work_unit_prime95(filename):
 				if options.check or options.jacobi:
 					residue, asum = read_residue_prime95(f, asum)
 					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
-					wu.res64 = "{0:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
-					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 				if options.jacobi:
 					if executor:
 						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
@@ -846,14 +846,14 @@ def parse_work_unit_prime95(filename):
 						if res64 != ares64:
 							logging.error("Res64 error. Expected %X, actual %X.", res64, ares64)
 					else:
-						wu.res64 = "{0:016X}".format(ares64)
+						wu.res64 = "{:016X}".format(ares64)
 					ares2048 = residue & (1 << 2048) - 1
 					if wu.res2048:
 						res2048 = int(res2048, 16)
 						if res2048 != ares2048:
 							logging.error("Res2048 error. Expected %X, actual %X.", res2048, ares2048)
 					else:
-						wu.res2048 = "{0:0512X}".format(ares2048)
+						wu.res2048 = "{:0512X}".format(ares2048)
 
 					if wu.version == 3 and wu.state == PRP_STATE_GERB_START_BLOCK:
 						_alt_shift_count = wu.shift_count
@@ -1345,7 +1345,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.pct_complete = nsquares / (p - 1)
 
 				if options.check or (options.jacobi and m == MODULUS_TYPE_MERSENNE):
-					wu.res2048 = "{0:0512X}".format(residue1 & (1 << 2048) - 1)
+					wu.res2048 = "{:0512X}".format(residue1 & (1 << 2048) - 1)
 			elif t == TEST_TYPE_PRP:
 				wu.work_type = WORK_PRP
 
@@ -1365,7 +1365,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 				wu.pct_complete = nsquares / p
 
 				if options.check:
-					wu.res2048 = "{0:0512X}".format(residue1 & (1 << 2048) - 1)
+					wu.res2048 = "{:0512X}".format(residue1 & (1 << 2048) - 1)
 			elif t == TEST_TYPE_PM1:
 				wu.work_type = WORK_PMINUS1
 
@@ -1377,7 +1377,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.interim_C = from_bytes(tmp[:-1])
 					_psmall = from_bytes(tmp[-1:])
 
-				wu.stage = "S{0}".format(stage)
+				wu.stage = "S{}".format(stage)
 				wu.pct_complete = None  # ?
 			else:
 				logging.error("savefile with unknown TEST_TYPE = %s", t)
@@ -1392,7 +1392,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 				logging.error("savefile with unknown MODULUS_TYPE = %s", m)
 				return None
 
-			wu.res64 = "{0:016X}".format(res64)
+			wu.res64 = "{:016X}".format(res64)
 			wu.res35m1 = res35m1
 			wu.res36m1 = res36m1
 			if kblocks is not None:
@@ -1453,8 +1453,8 @@ def parse_work_unit_cudalucas(filename, p):
 
 			if options.check or options.jacobi:
 				residue = rotr(residue, offset, q, (1 << q) - 1)
-				wu.res64 = "{0:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
-				wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+				wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+				wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 			if options.jacobi:
 				if executor:
 					futures.append(executor.submit(jacobi_test, wu, q, residue, filename))
@@ -1584,8 +1584,8 @@ def parse_work_unit_gpuowl(filename):
 					if len(buffer) != size:
 						return None
 					residue = from_bytes(buffer)
-					wu.res64 = "{0:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
-					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 
 				wu.stage = "LL"
 				wu.pct_complete = wu.counter / (wu.n - 2)
@@ -1645,7 +1645,7 @@ def parse_work_unit_gpuowl(filename):
 					# ares64 = residue & 0xFFFFFFFFFFFFFFFF
 					# if res64 != ares64:
 					# logging.error("Res64 error. Expected %X, actual %X.", res64, ares64)
-					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 
 				wu.stage = "PRP"
 				wu.pct_complete = wu.counter / wu.n
@@ -1742,7 +1742,7 @@ def parse_work_unit_gpuowl(filename):
 				wu.bits = int(bitLo)
 				wu.test_bits = int(bitHi)
 
-				wu.stage = "TF{0}".format(wu.bits)
+				wu.stage = "TF{}".format(wu.bits)
 				wu.pct_complete = int(classDone) / int(classTotal)
 			else:
 				logging.error("Unknown save/checkpoint file header: %s", header)
@@ -1804,8 +1804,8 @@ def parse_work_unit_prpll(filename):
 					if len(buffer) != size:
 						return None
 					residue = from_bytes(buffer)
-					wu.res64 = "{0:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
-					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 
 				wu.stage = "LL"
 				wu.pct_complete = wu.counter / (wu.n - 2)
@@ -1848,7 +1848,7 @@ def parse_work_unit_prpll(filename):
 					# ares64 = residue & 0xFFFFFFFFFFFFFFFF
 					# if res64 != ares64:
 					# logging.error("Res64 error. Expected %X, actual %X.", res64, ares64)
-					wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 
 				wu.stage = "PRP"
 				wu.pct_complete = wu.counter / wu.n
@@ -1988,7 +1988,7 @@ def parse_work_unit_mfaktc(filename):
 		# wu.known_factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
 		wu.total_time = int(bit_level_time) * 1000
 
-	wu.stage = "TF{0}".format(wu.bits)
+	wu.stage = "TF{}".format(wu.bits)
 	wu.pct_complete = pct_complete_mfakt(wu.n, wu.bits, int(num_classes), int(cur_class), wagstaff)
 
 	wu.version = version.decode()
@@ -2030,7 +2030,7 @@ def parse_work_unit_mfakto(filename):
 		# wu.known_factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
 		wu.total_time = int(bit_level_time) * 1000
 
-	wu.stage = "TF{0}".format(wu.bits)
+	wu.stage = "TF{}".format(wu.bits)
 	wu.pct_complete = pct_complete_mfakt(wu.n, wu.bits, int(num_classes), int(cur_class))
 
 	wu.version = version.decode()
@@ -2123,8 +2123,8 @@ def parse_proof(filename):
 					# Much slower: pow(wu.prp_base, wu.c - 1, modulus)
 					inverse = pow(pow(wu.prp_base, 1 - wu.c, modulus), -1, modulus)
 					residue = (residue * inverse) % modulus
-				wu.res64 = "{0:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
-				wu.res2048 = "{0:0512X}".format(residue & (1 << 2048) - 1)
+				wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+				wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 	except (IOError, OSError):
 		logging.exception("Error reading %r file.", filename)
 		return None
@@ -2139,53 +2139,53 @@ def one_line_status(file, num, index, wu):
 	stage = None
 	if wu.work_type == WORK_CERT:
 		work_type_str = "Certify"
-		temp = ["Iter: {0:n}".format(wu.counter)]
+		temp = ["Iter: {:n}".format(wu.counter)]
 		if wu.shift_count is not None:
-			temp.append("Shift: {0:n}".format(wu.shift_count))
+			temp.append("Shift: {:n}".format(wu.shift_count))
 	elif wu.work_type == WORK_FACTOR:
 		work_type_str = "Factor"
-		temp = ["Bits: {0}{1}".format(wu.bits, " to {0}".format(wu.test_bits) if wu.test_bits else "")]
+		temp = ["Bits: {}{}".format(wu.bits, " to {}".format(wu.test_bits) if wu.test_bits else "")]
 		if wu.factor_found:
 			temp.append("Factor found!")
 		if wu.num_factors:
-			temp.append("{0:n} factor{1} found!".format(wu.num_factors, "s" if wu.num_factors > 1 else ""))
+			temp.append("{:n} factor{} found!".format(wu.num_factors, "s" if wu.num_factors > 1 else ""))
 	elif wu.work_type == WORK_TEST:
 		# work_type_str = "Lucas-Lehmer"
 		work_type_str = "LL"
 		# temp = ["Iter: {0:n} / {1:n}".format(wu.counter, wu.n - 2)]
-		temp = ["Iter: {0:n}".format(wu.counter), "", ""]
+		temp = ["Iter: {:n}".format(wu.counter), "", ""]
 		if wu.shift_count is not None:
-			temp.append("Shift: {0:n}".format(wu.shift_count))
+			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
-			temp.append("FFT: {0}".format(outputunit(wu.fftlen, scale.IEC)))
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
 		if options.jacobi:
-			temp.append("Jacobi: {0:n} ({1})".format(wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed"))
+			temp.append("Jacobi: {:n} ({})".format(wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed"))
 	elif wu.work_type == WORK_PRP:
 		work_type_str = "PRP"
 		# temp = ["Iter: {0:n} / {1:n}".format(wu.counter, wu.n)]
-		temp = ["Iter: {0:n}".format(wu.counter) if wu.counter is not None else "", "", ""]
+		temp = ["Iter: {:n}".format(wu.counter) if wu.counter is not None else "", "", ""]
 		if wu.shift_count is not None:
-			temp.append("Shift: {0:n}".format(wu.shift_count))
+			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
-			temp.append("FFT: {0}".format(outputunit(wu.fftlen, scale.IEC)))
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
 		if wu.L:
-			temp.append("Block Size: {0:n}".format(wu.L))
+			temp.append("Block Size: {:n}".format(wu.L))
 		if wu.prp_base and wu.prp_base != 3:
-			temp.append("Base: {0}".format(wu.prp_base))
+			temp.append("Base: {}".format(wu.prp_base))
 		if wu.residue_type and wu.residue_type != 1:
-			temp.append("Residue Type: {0}".format(wu.residue_type))
+			temp.append("Residue Type: {}".format(wu.residue_type))
 		if wu.proof_power:
 			temp.append(
-				"Proof Power: {0}{1}".format(wu.proof_power, "x{0}".format(wu.proof_power_mult) if wu.proof_power_mult > 1 else "")
+				"Proof Power: {}{}".format(wu.proof_power, "x{}".format(wu.proof_power_mult) if wu.proof_power_mult > 1 else "")
 			)
 	elif wu.work_type == WORK_ECM:
 		work_type_str = "ECM"
 		stage = ECM_STATES[wu.state]
-		temp = ["{0} Curve #{01:n}, s={2:.0f}".format(ECM_SIGMA_TYPES[wu.sigma_type], wu.curve, wu.sigma), "B1={0}".format(wu.B)]
+		temp = ["{} Curve #{:n}, s={:.0f}".format(ECM_SIGMA_TYPES[wu.sigma_type], wu.curve, wu.sigma), "B1={}".format(wu.B)]
 		if wu.C:
-			temp.append("B2={0}".format(wu.C))
+			temp.append("B2={}".format(wu.C))
 		if wu.B2_start:
-			temp.append("B2_start={0}".format(wu.B2_start))
+			temp.append("B2_start={}".format(wu.B2_start))
 	elif wu.work_type == WORK_PMINUS1:
 		work_type_str = "P-1"
 		stage = PM1_STATES[wu.state]
@@ -2193,76 +2193,75 @@ def one_line_status(file, num, index, wu):
 		B2 = wu.interim_C or wu.C_done
 		# if B2 and B2 > B1:
 		temp = [
-			"E={0}{1}".format(wu.E, ", Iter: {0:n}".format(wu.counter) if wu.counter else "")
+			"E={}{}".format(wu.E, ", Iter: {:n}".format(wu.counter) if wu.counter else "")
 			if wu.E is not None and wu.E >= 2
-			else "Iter: {0:n}".format(wu.counter)
+			else "Iter: {:n}".format(wu.counter)
 			if wu.counter
 			else "",
-			"B1={0}".format(B1) if B1 else "",
-			"B2={0}".format(B2) if B2 else "",
+			"B1={}".format(B1) if B1 else "",
+			"B2={}".format(B2) if B2 else "",
 		]
 		if wu.B2_start:
-			temp.append("B2_start={0}".format(wu.B2_start))
+			temp.append("B2_start={}".format(wu.B2_start))
 		if wu.shift_count is not None:
-			temp.append("Shift: {0:n}".format(wu.shift_count))
+			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
-			temp.append("FFT: {0}".format(outputunit(wu.fftlen, scale.IEC)))
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
 	elif wu.work_type == WORK_PPLUS1:
 		work_type_str = "P+1"
 		stage = PP1_STATES[wu.state]
 		B1 = wu.interim_B or wu.B_done
-		temp = ["Start={0}/{1}".format(wu.numerator, wu.denominator), "B1={0}".format(B1)]
+		temp = ["Start={}/{}".format(wu.numerator, wu.denominator), "B1={}".format(B1)]
 		B2 = wu.interim_C or wu.C_done
 		# if B2 and B2 > B1:
 		if B2:
-			temp.append("B2={0}".format(B2))
+			temp.append("B2={}".format(B2))
 		if wu.B2_start:
-			temp.append("B2_start={0}".format(wu.B2_start))
+			temp.append("B2_start={}".format(wu.B2_start))
 
 	if wu.res64:
 		if options.long and (wu.res35m1 is not None or wu.res36m1 is not None):
 			temp.extend((
-				"Res64: {0}".format(wu.res64),
-				"Res35m1: {0}".format(wu.res35m1) if wu.res35m1 is not None else "",
-				"Res36m1: {0}".format(wu.res36m1) if wu.res36m1 is not None else "",
+				"Res64: {}".format(wu.res64),
+				"Res35m1: {}".format(wu.res35m1) if wu.res35m1 is not None else "",
+				"Res36m1: {}".format(wu.res36m1) if wu.res36m1 is not None else "",
 			))
 		else:
-			temp.append("Residue: {0}".format(wu.res64))
+			temp.append("Residue: {}".format(wu.res64))
 	if wu.total_time:
 		temp.append(
-			"Time: {0}{1}".format(
+			"Time: {}{}".format(
 				timedelta(microseconds=wu.total_time),
-				", {0:n} ms/iter".format((wu.total_time / wu.counter) / 1000) if wu.counter else "",
+				", {:n} ms/iter".format((wu.total_time / wu.counter) / 1000) if wu.counter else "",
 			)
 		)
 	if wu.error_count:
 		error_count = wu.error_count
 		temp.append(
-			"Errors: {0:08X}{1}{2}{3}".format(
+			"Errors: {:08X}{}{}{}".format(
 				error_count,
-				", Roundoff: {0:n}".format((error_count >> 8) & 0x3F) if error_count & 0x3F00 else "",
-				", Jacobi: {0:n}".format((error_count >> 4) & 0xF) if error_count & 0xF0 else "",
-				", Gerbicz: {0:n}".format((error_count >> 20) & 0xF) if error_count & 0xF00000 else "",
+				", Roundoff: {:n}".format((error_count >> 8) & 0x3F) if error_count & 0x3F00 else "",
+				", Jacobi: {:n}".format((error_count >> 4) & 0xF) if error_count & 0xF0 else "",
+				", Gerbicz: {:n}".format((error_count >> 20) & 0xF) if error_count & 0xF00000 else "",
 			)
 		)
 	if wu.nerr_roe:
-		temp.append("Roundoff errors: {0:n}".format(wu.nerr_roe))
+		temp.append("Roundoff errors: {:n}".format(wu.nerr_roe))
 	if wu.nerr_gcheck:
-		temp.append("Gerbicz errors: {0:n}".format(wu.nerr_gcheck))
+		temp.append("Gerbicz errors: {:n}".format(wu.nerr_gcheck))
 
 	result = [
 		assignment_to_str(wu) if not index else "",
-		"{0:n}. {1}".format(num + 1, os.path.basename(file)) if num >= 0 else os.path.basename(file),
+		"{:n}. {}".format(num + 1, os.path.basename(file)) if num >= 0 else os.path.basename(file),
 	]
 	if options.long:
-		mtime = os.path.getmtime(file)
-		date = datetime.fromtimestamp(mtime)
+		date = datetime.fromtimestamp(os.path.getmtime(file))
 		size = os.path.getsize(file)
-		result.extend(("{0}B".format(outputunit(size)), "{0:%c}".format(date)))
+		result.extend(("{}B".format(output_unit(size)), "{:%c}".format(date)))
 	result += [
 		work_type_str,
-		"{0}, {1}".format(stage, wu.stage) if stage else "Stage: {0}".format(wu.stage),
-		"?%" if wu.pct_complete is None else "{0:.4%}".format(wu.pct_complete),
+		"{}, {}".format(stage, wu.stage) if stage else "Stage: {}".format(wu.stage),
+		"?%" if wu.pct_complete is None else "{:.4%}".format(wu.pct_complete),
 	] + temp
 
 	return result
@@ -2579,10 +2578,10 @@ def main(dirs):
 	for i, (adir, aresults) in enumerate(results.items()):
 		if i:
 			print()
-		print("{0}:".format(adir))
+		print("{}:".format(adir))
 		for program, aaresults in aresults.items():
 			if len(aresults) > 1:
-				print("\t{0}:".format(program))
+				print("\t{}:".format(program))
 			rows = []
 			for j, num, file, result in aaresults:
 				rows.append(one_line_status(file, num, j, result))
@@ -2591,7 +2590,7 @@ def main(dirs):
 			if rows:
 				output_table(rows)
 			else:
-				print("\tNo save/checkpoint files found for {0}.".format(program))
+				print("\tNo save/checkpoint files found for {}.".format(program))
 
 	if options.json:
 		with open(options.json, "w") as f:
@@ -2636,7 +2635,7 @@ if __name__ == "__main__":
 
 	for adir in dirs:
 		if not os.path.isdir(adir):
-			parser.error("Directory {0!r} does not exist".format(adir))
+			parser.error("Directory {!r} does not exist".format(adir))
 
 	if not (
 		options.prime95
@@ -2652,7 +2651,7 @@ if __name__ == "__main__":
 		parser.error("Must select at least one GIMPS program to look for save/checkpoint files for")
 
 	if options.json and os.path.exists(options.json):
-		parser.error("File {0!r} already exists".format(options.json))
+		parser.error("File {!r} already exists".format(options.json))
 
 	logging.basicConfig(level=logging.DEBUG, format="%(filename)s: [%(asctime)s]  %(levelname)s: %(message)s")
 
