@@ -23,7 +23,7 @@ except BaseException as e:
 		raise
 	print(
 		"""
-An error occurred: {0}
+An error occurred: {}
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
 """.format(e)
 	)
