@@ -591,7 +591,7 @@ if sys.platform == "win32":
 		if handle == -1:
 			raise ctypes.WinError(ctypes.get_last_error())
 		results_files = (
-			["results-{0}.txt".format(i) for i in range(options.num_workers)] if options.prpll else [options.results_file]
+			["results-{}.txt".format(i) for i in range(options.num_workers)] if options.prpll else [options.results_file]
 		)
 		logging.info("Watching the directory: %r.", os.path.abspath(adir))
 
@@ -698,7 +698,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 			paths.append((item.dir.decode("utf-8"), item.cpu_num))
 		((adir, cpu_num),) = paths
 		results = (
-			[os.path.join(adir, "results-{0}.txt".format(i)) for i in range(options.num_workers)]
+			[os.path.join(adir, "results-{}.txt".format(i)) for i in range(options.num_workers)]
 			if options.prpll
 			else [os.path.join(adir, options.results_file)]
 		)
@@ -769,7 +769,7 @@ elif sys.platform == "darwin":
 	def watch_files(adir, cpu_num):
 		"""Monitors a directory and its files for changes, handling file events."""
 		results = (
-			[os.path.join(adir, "results-{0}.txt".format(i)) for i in range(options.num_workers)]
+			[os.path.join(adir, "results-{}.txt".format(i)) for i in range(options.num_workers)]
 			if options.prpll
 			else [os.path.join(adir, options.results_file)]
 		)
@@ -862,13 +862,13 @@ elif sys.platform.startswith("linux"):
 		"""Add a watch to the inotify instance for the specified path with the given mask."""
 		wd = libc.inotify_add_watch(fd, path.encode("utf-8"), mask)
 		if wd < 0:
-			raise OSError(ctypes.get_errno(), "Error adding watch to {0!r}".format(path))
+			raise OSError(ctypes.get_errno(), "Error adding watch to {!r}".format(path))
 		return wd
 
 	def watch_files(adir, cpu_num):
 		"""Monitors specified directory and files for changes and handles events accordingly."""
 		results_files = (
-			["results-{0}.txt".format(i) for i in range(options.num_workers)] if options.prpll else [options.results_file]
+			["results-{}.txt".format(i) for i in range(options.num_workers)] if options.prpll else [options.results_file]
 		)
 		results = [os.path.join(adir, file) for file in results_files]
 		wds = {}
@@ -950,11 +950,11 @@ try:
 except ImportError as e:
 	executable = os.path.basename(sys.executable) if sys.executable else "python3"
 	print(
-		"""{0}
+		"""{}
 
 Please run the below command to install the Requests library:
 
-	{1} -m pip install requests
+	{} -m pip install requests
 
 Then, run AutoPrimeNet again.""".format(e, executable[:-4] if executable.endswith(".exe") else executable)
 	)
@@ -1046,7 +1046,7 @@ elif sys.platform.startswith("linux"):
 	PORT = 8 if is_64bit else 2
 
 session = requests.Session()
-session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {0} ({1} {2}/{3})".format(
+session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {} ({} {}/{})".format(
 	VERSION, session.headers["User-Agent"], platform.python_implementation(), platform.python_version()
 )
 session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))  # Disable cookies
@@ -1089,11 +1089,11 @@ class timedelta(timedelta):
 		h, m = divmod(m, 60)
 		d = self.days
 		# ms, us = divmod(self.microseconds, 1000)
-		return "{0}{1}{2}{3}".format(
-			"{0:n}d".format(d) if d else "",
-			" {0:2n}h".format(h) if d else "{0:n}h".format(h) if h else "",
-			" {0:2n}m".format(m) if h or d else "{0:n}m".format(m) if m else "",
-			" {0:2n}s".format(s) if m or h or d else "{0:n}s".format(s),  # if s else "",
+		return "{}{}{}{}".format(
+			"{:n}d".format(d) if d else "",
+			" {:2n}h".format(h) if d else "{:n}h".format(h) if h else "",
+			" {:2n}m".format(m) if h or d else "{:n}m".format(m) if m else "",
+			" {:2n}s".format(s) if m or h or d else "{:n}s".format(s),  # if s else "",
 			# " {0:3n}ms".format(ms) if s or m or h or d else "{0:n}ms".format(ms) if ms else "",
 			# " {0:3n}µs".format(us) if ms or s or m or h or d else "{0:n}µs".format(us),
 		)
@@ -1106,7 +1106,7 @@ class Formatter(logging.Formatter):
 
 	def format(self, record):
 		"""Format log record to include worker number if 'cpu_num' attribute is present."""
-		record.worker = ", Worker #{0:n}".format(record.cpu_num + 1) if hasattr(record, "cpu_num") else ""
+		record.worker = ", Worker #{:n}".format(record.cpu_num + 1) if hasattr(record, "cpu_num") else ""
 		return super(Formatter, self).format(record)
 
 
@@ -1375,11 +1375,11 @@ if hasattr(__builtins__, "xrange"):
 def exponent_to_str(assignment):
 	"""Converts an assignment's exponent to a formatted string representation."""
 	if not assignment.n:
-		buf = "{0:.0f}".format(assignment.k + assignment.c)
+		buf = "{:.0f}".format(assignment.k + assignment.c)
 	elif assignment.k != 1.0:
 		buf = "{0.k:.0f}*{0.b}^{0.n}{0.c:+}".format(assignment)
 	elif assignment.b == 2 and assignment.c == -1:
-		buf = "M{0.n}".format(assignment)
+		buf = "M{.n}".format(assignment)
 		if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
 			buf += " (TF:{0.sieve_depth:.0f}-{0.factor_to:.0f})".format(assignment)
 	else:
@@ -1389,7 +1389,7 @@ def exponent_to_str(assignment):
 			temp_n >>= 1
 			cnt += 1
 		if assignment.b == 2 and temp_n == 1 and assignment.c == 1:
-			buf = "F{0}".format(cnt)
+			buf = "F{}".format(cnt)
 		else:
 			buf = "{0.b}^{0.n}{0.c:+}".format(assignment)
 	return buf
@@ -1409,7 +1409,7 @@ def exponent_to_text(assignment):
 		work_type_str = "P-1"
 	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 		work_type_str = "CERT"
-	return "{0} {1}".format(work_type_str, exponent_to_str(assignment))
+	return "{} {}".format(work_type_str, exponent_to_str(assignment))
 
 
 def assignment_to_str(assignment):
@@ -1417,7 +1417,7 @@ def assignment_to_str(assignment):
 	buf = exponent_to_str(assignment)
 	if not assignment.known_factors:
 		return buf
-	return "{0}/{1}".format("({0})".format(buf) if "^" in buf else buf, "/".join(map(str, assignment.known_factors)))
+	return "{}/{}".format("({})".format(buf) if "^" in buf else buf, "/".join(map(str, assignment.known_factors)))
 
 
 def output_unit(number, scale=False):
@@ -1440,7 +1440,7 @@ def output_unit(number, scale=False):
 			prec = 3 if anumber < 10 else 2 if anumber < 100 else 1
 			strm = "{0:.{prec}f}".format(number, prec=prec)
 	else:
-		strm = "{0:.0f}".format(number)
+		strm = "{:.0f}".format(number)
 
 	# "k" if power == 1 and scale else
 	strm += " " + (suffix_power_char[power] if power < len(suffix_power_char) else "(error)")
@@ -1460,7 +1460,7 @@ def input_unit(astr, scale=False):
 
 	input_unit = INPUT_UNIT_RE.match(astr)
 	if not input_unit:
-		msg = "Invalid number or suffix: {0!r}".format(astr)
+		msg = "Invalid number or suffix: {!r}".format(astr)
 		raise ValueError(msg)
 
 	number, unit = input_unit.groups()
@@ -1473,17 +1473,17 @@ def input_unit(astr, scale=False):
 
 def output_available(available, total):
 	"""Formats the available and total byte values into a human-readable string."""
-	return "{0}B / {1}B{2}".format(
+	return "{}B / {}B{}".format(
 		output_unit(available),
 		output_unit(total),
-		" ({0}B / {1}B)".format(output_unit(available, True), output_unit(total, True)) if total >= 1000 else "",
+		" ({}B / {}B)".format(output_unit(available, True), output_unit(total, True)) if total >= 1000 else "",
 	)
 
 
 def ask_yn(astr, val):
 	"""Prompt the user with a yes/no question and return the response as a boolean."""
 	while True:
-		temp = input("{0} ({1}): ".format(astr, "Y" if val else "N")).strip()
+		temp = input("{} ({}): ".format(astr, "Y" if val else "N")).strip()
 		if not temp:
 			return val
 		yes_res = YES_RE.match(temp)
@@ -1495,7 +1495,7 @@ def ask_yn(astr, val):
 def ask_int(astr, val, amin=None, amax=None, base=0):
 	"""Prompt the user for an integer input with optional default value, range, and base."""
 	while True:
-		temp = input("{0}{1}: ".format(astr, " ({0!r})".format(val) if val is not None else ""))
+		temp = input("{}{}: ".format(astr, " ({!r})".format(val) if val is not None else ""))
 		if not temp:
 			return val
 		try:
@@ -1506,17 +1506,17 @@ def ask_int(astr, val, amin=None, amax=None, base=0):
 		if (amin is None or newval >= amin) and (amax is None or newval <= amax):
 			return newval
 		if amin is not None and amax is not None:
-			print("Please enter a number between {0:n} and {1:n}.".format(amin, amax))
+			print("Please enter a number between {:n} and {:n}.".format(amin, amax))
 		elif amin is not None:
-			print("Please enter a number greater than or equal to {0:n}.".format(amin))
+			print("Please enter a number greater than or equal to {:n}.".format(amin))
 		elif amax is not None:
-			print("Please enter a number less than or equal to {0:n}.".format(amax))
+			print("Please enter a number less than or equal to {:n}.".format(amax))
 
 
 def ask_float(astr, val, amin=None, amax=None):
 	"""Prompt the user for a float input with optional default value and range."""
 	while True:
-		temp = input("{0}{1}: ".format(astr, " ({0!r})".format(val) if val is not None else ""))
+		temp = input("{}{}: ".format(astr, " ({!r})".format(val) if val is not None else ""))
 		if not temp:
 			return val
 		try:
@@ -1527,28 +1527,28 @@ def ask_float(astr, val, amin=None, amax=None):
 		if (amin is None or newval >= amin) and (amax is None or newval <= amax):
 			return newval
 		if amin is not None and amax is not None:
-			print("Please enter a number between {0:n} and {1:n}.".format(amin, amax))
+			print("Please enter a number between {:n} and {:n}.".format(amin, amax))
 		elif amin is not None:
-			print("Please enter a number greater than or equal to {0:n}.".format(amin))
+			print("Please enter a number greater than or equal to {:n}.".format(amin))
 		elif amax is not None:
-			print("Please enter a number less than or equal to {0:n}.".format(amax))
+			print("Please enter a number less than or equal to {:n}.".format(amax))
 
 
 def ask_str(astr, val, maxlen=0):
 	"""Prompt the user for a string input with optional default value and maximum length."""
 	while True:
-		temp = input("{0}{1}: ".format(astr, " ({0!r})".format(val) if val else "")).strip()
+		temp = input("{}{}: ".format(astr, " ({!r})".format(val) if val else "")).strip()
 		if not temp:
 			return val
 		if not maxlen or len(temp) <= maxlen:
 			return temp
-		print("Maximum string length is {0:n} characters.".format(maxlen))
+		print("Maximum string length is {:n} characters.".format(maxlen))
 		val = temp[:maxlen]
 
 
 def ask_pass(astr, val):
 	"""Prompt the user for a password, displaying asterisks for existing input if provided."""
-	return getpass.getpass("{0}{1}: ".format(astr, " ({0})".format("*" * len(val)) if val else "")) or val
+	return getpass.getpass("{}{}: ".format(astr, " ({})".format("*" * len(val)) if val else "")) or val
 
 
 def ask_ok():
@@ -1754,10 +1754,10 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 def get_email_config(domain, email, local_part, email_domain, https_only=False, use_optional_url=True):
 	"""Retrieve email configuration settings from the specified domain or Mozilla ISP database."""
 	adomain = punycode(domain)
-	print("Looking up configuration at e-mail provider {0!r}…".format(domain))
+	print("Looking up configuration at e-mail provider {!r}…".format(domain))
 	for scheme in ("https://",) + (() if https_only else ("http://",)):
-		for url, args in (("autoconfig.{0}/mail/config-v1.1.xml".format(domain), {"emailaddress": email}),) + (
-			(("{0}/.well-known/autoconfig/mail/config-v1.1.xml".format(domain), None),) if use_optional_url else ()
+		for url, args in (("autoconfig.{}/mail/config-v1.1.xml".format(domain), {"emailaddress": email}),) + (
+			(("{}/.well-known/autoconfig/mail/config-v1.1.xml".format(domain), None),) if use_optional_url else ()
 		):
 			try:
 				r = requests.get(scheme + url, params=args, timeout=5)
@@ -1777,9 +1777,9 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 					return smtp_config
 
 	# https://github.com/thunderbird/autoconfig
-	print("Looking up configuration for {0!r} in the Mozilla ISP database…".format(domain))
+	print("Looking up configuration for {!r} in the Mozilla ISP database…".format(domain))
 	try:
-		r = requests.get("https://autoconfig.thunderbird.net/v1.1/{0}".format(adomain), timeout=5)
+		r = requests.get("https://autoconfig.thunderbird.net/v1.1/{}".format(adomain), timeout=5)
 		r.raise_for_status()
 		result = r.content
 	except RequestException as e:
@@ -1860,7 +1860,7 @@ def email_autoconfig(email):
 
 		for _, exchange in sorted(records, key=operator.itemgetter(0)):
 			mx_hostname = exchange.rstrip(".").lower()
-			print("Found mail domain {0!r}".format(mx_hostname))
+			print("Found mail domain {!r}".format(mx_hostname))
 			# mx_base_domain # Needs the Public Suffix List (PSL)
 			mx_full_domain = ".".join(mx_hostname.split(".")[1:])
 			if aemail_domain not in {mx_hostname, mx_full_domain}:
@@ -1952,9 +1952,9 @@ def setup(config, options):
 		if gpus:
 			print("Detected GPUs (some may be repeated):")
 			for i, (name, freq, memory) in enumerate(gpus):
-				print("\n{0:n}. {1}".format(i + 1, name))
-				print("\tFrequency/Speed: {0:n} MHz".format(freq))
-				print("\tTotal Memory: {0:n} MiB ({1}B)".format(memory, output_unit(memory << 20)))
+				print("\n{:n}. {}".format(i + 1, name))
+				print("\tFrequency/Speed: {:n} MHz".format(freq))
+				print("\tTotal Memory: {:n} MiB ({}B)".format(memory, output_unit(memory << 20)))
 			print()
 			gpu = ask_int("Which GPU are you using this GIMPS program with (0 to not report the GPU)", 0, 0, len(gpus))
 		else:
@@ -1975,7 +1975,7 @@ def setup(config, options):
 				config.set(SEC.PrimeNet, option, str(True))
 
 				for j in range(options.num_workers):
-					section = "Worker #{0}".format(j + 1) if options.num_workers > 1 else SEC.Internals
+					section = "Worker #{}".format(j + 1) if options.num_workers > 1 else SEC.Internals
 					config.remove_option(section, "msec_per_iter")
 					config.remove_option(section, "exponent")
 				config.set(SEC.Internals, "RollingAverage", str(1000))
@@ -2074,7 +2074,7 @@ def setup(config, options):
 
 	for i in range(num_thread):
 		if num_thread > 1:
-			print("\nOptions for worker #{0}\n".format(i + 1))
+			print("\nOptions for worker #{}\n".format(i + 1))
 
 			if not options.prpll:
 				while True:
@@ -2180,7 +2180,7 @@ def setup(config, options):
 		if (not options.worker_disk_space or options.worker_disk_space >= athreshold) and disk and disk < athreshold:
 			print(
 				wrapper.fill(
-					"Setting disk space limit below {0}B ({1}B) may preclude getting first time prime tests from the PrimeNet server. Consider setting it to 0 instead to not send.".format(
+					"Setting disk space limit below {}B ({}B) may preclude getting first time prime tests from the PrimeNet server. Consider setting it to 0 instead to not send.".format(
 						output_unit(threshold), output_unit(threshold, True)
 					)
 				)
@@ -2208,7 +2208,7 @@ def setup(config, options):
 		smtp_config = email_autoconfig(fromaddress or fromemail)
 		if smtp_config is not None:
 			display_name, hostname, port, socket_type, username = smtp_config
-			smtp_server = "{0}:{1}".format(hostname, port)
+			smtp_server = "{}:{}".format(hostname, port)
 			security = None
 			if socket_type:
 				if socket_type == SSL:
@@ -2220,13 +2220,13 @@ def setup(config, options):
 				elif socket_type == NONE:
 					security = "No Encryption"
 				else:
-					security = "Unknown ({0!r})".format(socket_type)
+					security = "Unknown ({!r})".format(socket_type)
 			print(
-				"""Outgoing (SMTP) server configuration found for {0!r}:
-	Hostname: {1!r}
-	Port: {2}
-	Connection security: {3}
-	Username: {4}
+				"""Outgoing (SMTP) server configuration found for {!r}:
+	Hostname: {!r}
+	Port: {}
+	Connection security: {}
+	Username: {}
 """.format(display_name, hostname, port, security, repr(username) if username else "Unknown")
 			)
 		else:
@@ -2244,10 +2244,10 @@ def setup(config, options):
 		toemails = []
 		for i in count():
 			toemail = (
-				ask_str("To e-mail address #{0:n}, e.g., 'User <user@example.com>'".format(i + 1), options.toemails[i])
+				ask_str("To e-mail address #{:n}, e.g., 'User <user@example.com>'".format(i + 1), options.toemails[i])
 				if options.toemails and i < len(options.toemails)
 				else ask_str(
-					"To e-mail address #{0:n}, e.g., 'User <user@example.com>' (leave blank {1})".format(
+					"To e-mail address #{:n}, e.g., 'User <user@example.com>' (leave blank {})".format(
 						i + 1, "to use the From e-mail address" if not i else "to continue"
 					),
 					"",
@@ -2450,7 +2450,7 @@ def merge_config_and_options(config, options):
 				setattr(options, attr, new_val)
 
 	for i in range(options.num_workers):
-		section = "Worker #{0}".format(i + 1) if options.num_workers > 1 else SEC.PrimeNet
+		section = "Worker #{}".format(i + 1) if options.num_workers > 1 else SEC.PrimeNet
 		for attr, option in worker_attr_to_copy.items():
 			if not hasattr(opts_no_defaults, attr) and config.has_option(section, option):
 				new_val = getattr(options, attr)
@@ -2486,7 +2486,7 @@ def merge_options_and_config(config, options):
 					updated = True
 
 	for i in range(options.num_workers):
-		section = "Worker #{0}".format(i + 1) if options.num_workers > 1 else SEC.PrimeNet
+		section = "Worker #{}".format(i + 1) if options.num_workers > 1 else SEC.PrimeNet
 		for attr, option in worker_attr_to_copy.items():
 			attr_val = getattr(options, attr)
 			if attr_val is not None:
@@ -2541,13 +2541,13 @@ def check_options(parser, options):
 		if work_preference in worktypes:
 			options.work_preference[i] = work_preference = str(worktypes[work_preference])
 		if not work_preference.isdigit():
-			parser.error("Unrecognized work preference = {0}".format(work_preference))
+			parser.error("Unrecognized work preference = {}".format(work_preference))
 		if int(work_preference) not in SUPPORTED:
-			parser.error("Unsupported work preference = {0} for {1}".format(work_preference, PROGRAM["name"]))
+			parser.error("Unsupported work preference = {} for {}".format(work_preference, PROGRAM["name"]))
 
 	if len(options.work_preference) not in {1, options.num_workers}:
 		parser.error(
-			"The number of work preferences ({0:n}) must be 1 or equal to the number of workers ({1:n})".format(
+			"The number of work preferences ({:n}) must be 1 or equal to the number of workers ({:n})".format(
 				len(options.work_preference), options.num_workers
 			)
 		)
@@ -2563,7 +2563,7 @@ def check_options(parser, options):
 
 	if not options.prpll and (len(options.dirs) != options.num_workers if options.dirs else options.num_workers != 1):
 		parser.error(
-			"The number of directories ({0:n}) must be equal to the number of workers ({1:n})".format(
+			"The number of directories ({:n}) must be equal to the number of workers ({:n})".format(
 				len(options.dirs) if options.dirs else 1, options.num_workers
 			)
 		)
@@ -2571,7 +2571,7 @@ def check_options(parser, options):
 	if options.archive_dir:
 		archive = os.path.join(workdir, options.archive_dir)
 		if not os.path.isdir(archive):
-			parser.error("Proof file archive directory {0!r} does not exist".format(archive))
+			parser.error("Proof file archive directory {!r} does not exist".format(archive))
 
 	if options.cert_work and not options.prpll:
 		parser.error("Proof certification work is currently only supported by PRPLL")
@@ -2595,14 +2595,14 @@ def check_options(parser, options):
 
 	if options.day_night_memory > options.memory:
 		parser.error(
-			"Max memory ({0:n} MiB) must be less than or equal to the total physical memory ({1:n} MiB)".format(
+			"Max memory ({:n} MiB) must be less than or equal to the total physical memory ({:n} MiB)".format(
 				options.day_night_memory, options.memory
 			)
 		)
 
 	if options.min_exp and options.max_exp and options.min_exp < MAX_PRIMENET_EXP <= options.max_exp:
 		parser.error(
-			"Minimum exponent ({0}) and maximum exponent ({1}) must both be less than or greater than 1,000,000,000 (for TF1G)".format(
+			"Minimum exponent ({}) and maximum exponent ({}) must both be less than or greater than 1,000,000,000 (for TF1G)".format(
 				options.min_exp, options.max_exp
 			)
 		)
@@ -2636,12 +2636,12 @@ def check_options(parser, options):
 				_, toaddress = parseaddr(toemail)
 				temp = toaddress or toemail
 				if not EMAILRE.match(temp):
-					parser.error("{0!r} is not a valid e-mail address.".format(temp))
+					parser.error("{!r} is not a valid e-mail address.".format(temp))
 
 		_, fromaddress = parseaddr(options.fromemail)
 		temp = fromaddress or options.fromemail
 		if not EMAILRE.match(temp):
-			parser.error("{0!r} is not a valid e-mail address.".format(temp))
+			parser.error("{!r} is not a valid e-mail address.".format(temp))
 
 	if options.tls and options.starttls:
 		parser.error("Cannot use both SSL/TLS and StartTLS.")
@@ -2816,7 +2816,7 @@ if sys.version_info >= (3, 3):
 					"The exponent %s has %s decimal digits: %s",
 					exponent,
 					format(adigits, "n"),
-					"{0}…{1}".format(num[:20], num[-20:]) if adigits > 50 else num,
+					"{}…{}".format(num[:20], num[-20:]) if adigits > 50 else num,
 				)
 		else:
 			logging.info(
@@ -3032,12 +3032,12 @@ def output_assignment(assignment):
 		test = "Test" if assignment.work_type == PRIMENET.WORK_TYPE_FIRST_LL else "DoubleCheck"
 		temp.append(assignment.n)
 		if assignment.sieve_depth != 99.0 or assignment.pminus1ed != 1:
-			temp.extend(("{0:.0f}".format(assignment.sieve_depth), assignment.pminus1ed))
+			temp.extend(("{:.0f}".format(assignment.sieve_depth), assignment.pminus1ed))
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
 		test = "PRP" + ("DC" if assignment.prp_dblchk else "")
-		temp.extend(("{0:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c))
+		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c))
 		if assignment.sieve_depth != 99.0 or assignment.tests_saved > 0.0 or assignment.prp_base or assignment.prp_residue_type:
-			temp.extend(("{0:g}".format(assignment.sieve_depth), "{0:g}".format(assignment.tests_saved)))
+			temp.extend(("{:g}".format(assignment.sieve_depth), "{:g}".format(assignment.tests_saved)))
 			if assignment.prp_base or assignment.prp_residue_type:
 				temp.extend((assignment.prp_base, assignment.prp_residue_type))
 		if assignment.known_factors:
@@ -3045,36 +3045,36 @@ def output_assignment(assignment):
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
 		test = "Pfactor"
 		temp.extend((
-			"{0:.0f}".format(assignment.k),
+			"{:.0f}".format(assignment.k),
 			assignment.b,
 			assignment.n,
 			assignment.c,
-			"{0:g}".format(assignment.sieve_depth),
-			"{0:g}".format(assignment.tests_saved),
+			"{:g}".format(assignment.sieve_depth),
+			"{:g}".format(assignment.tests_saved),
 		))
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
 	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
 		test = "Factor"
-		temp.extend((assignment.n, "{0:.0f}".format(assignment.sieve_depth), "{0:.0f}".format(assignment.factor_to)))
+		temp.extend((assignment.n, "{:.0f}".format(assignment.sieve_depth), "{:.0f}".format(assignment.factor_to)))
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
 		test = "Pminus1"
-		temp.extend(("{0:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1, assignment.B2))
+		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1, assignment.B2))
 		if assignment.sieve_depth > 0.0:
-			temp.append("{0:.0f}".format(assignment.sieve_depth))
+			temp.append("{:.0f}".format(assignment.sieve_depth))
 		if assignment.B2_start > assignment.B1:
 			temp.append(assignment.B2_start)
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
 	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 		test = "Cert"
-		temp.extend(("{0:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.cert_squarings))
+		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.cert_squarings))
 
 	if assignment.work_type != PRIMENET.WORK_TYPE_PMINUS1:
 		if assignment.B1:
-			test = "B1={0}{1};".format(assignment.B1, ",B2={0}".format(assignment.B2) if assignment.B2 else "") + test
+			test = "B1={}{};".format(assignment.B1, ",B2={}".format(assignment.B2) if assignment.B2 else "") + test
 		elif assignment.B2:
-			test = "B2={0};".format(assignment.B2) + test
+			test = "B2={};".format(assignment.B2) + test
 	return test + "=" + ",".join(map(str, temp))
 
 
@@ -3092,13 +3092,13 @@ def announce_prime_to_user(exponent, worktype):
 	"""Announces a prime or probable prime number to the user and prompts to send an email."""
 	color = BOLD + COLORS.RED if COLOR else ""
 	reset = RESET_ALL if COLOR else ""
-	emails = ", ".join(starmap("{0} <{1}>".format, CCEMAILS))
+	emails = ", ".join(starmap("{} <{}>".format, CCEMAILS))
 	while True:
 		if worktype == "LL":
-			print("{0}New Mersenne Prime!!!! M{1} is prime!{2}".format(color, exponent, reset))
+			print("{}New Mersenne Prime!!!! M{} is prime!{}".format(color, exponent, reset))
 		else:
-			print("{0}New Probable Prime!!!! {1} is a probable prime!{2}".format(color, exponent, reset))
-		print("Please send e-mail to {0}.".format(emails))
+			print("{}New Probable Prime!!!! {} is a probable prime!{}".format(color, exponent, reset))
+		print("Please send e-mail to {}.".format(emails))
 		beep()
 		time.sleep(1)
 
@@ -3135,7 +3135,7 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 		msg = msg_text
 
 	COMMASPACE = ", "
-	msg["User-Agent"] = "AutoPrimeNet assignment handler version {0}".format(VERSION)
+	msg["User-Agent"] = "AutoPrimeNet assignment handler version {}".format(VERSION)
 	name, from_addr = FROMEMAIL
 	msg["From"] = formataddr((Header(name, "utf-8").encode(), from_addr))
 	to = TOEMAILS + to if to else TOEMAILS
@@ -3203,7 +3203,7 @@ def send_msg(subject, message="", attachments=None, to=None, cc=None, bcc=None, 
 		for attachment in attachments:
 			if not isinstance(attachment, (tuple, list)) and not os.path.isfile(attachment):
 				logging.info("Skipping attachment: cannot read %r file.", attachment)
-				message += "(Unable to attach the {0!r} file, as it does not exist.)\n".format(attachment)
+				message += "(Unable to attach the {!r} file, as it does not exist.)\n".format(attachment)
 			else:
 				aattachments.append(attachment)
 		attachments = aattachments
@@ -3245,7 +3245,7 @@ def send_msg(subject, message="", attachments=None, to=None, cc=None, bcc=None, 
 				total += size
 				if total >= 25 * 1024 * 1024:
 					logging.info("Skipping attachment: %r", filename)
-					message += "(Unable to attach the {0!r} file ({1}), as the total message size would be too large.)\n".format(
+					message += "(Unable to attach the {!r} file ({}), as the total message size would be too large.)\n".format(
 						filename, output_unit(size)
 					)
 					attachments.remove(attachment)
@@ -3257,17 +3257,17 @@ def test_msg(guid):
 	"""Sends a test email to verify AutoPrimeNet email configuration."""
 	if not send_msg(
 		"👋 Test from AutoPrimeNet",
-		"""Hello {0},
+		"""Hello {},
 
 This is the requested test message from AutoPrimeNet! You have successfully configured the program to send e-mail notifications.
 
-Version: {1}
-Requests/urllib3 library version: {2} / {3}
-Python version: {4}
+Version: {}
+Requests/urllib3 library version: {} / {}
+Python version: {}
 
-PrimeNet User ID: {5}
-Computer name: {6}
-GUID: {7}
+PrimeNet User ID: {}
+Computer name: {}
+GUID: {}
 """.format(
 			config.get(SEC.PrimeNet, "user_name") if config.has_option(SEC.PrimeNet, "user_name") else options.user_id,
 			VERSION,
@@ -3324,7 +3324,7 @@ def generate_application_str():
 			(name,) = aprogram
 	# return "{0},{1},v{2};Python {3},{4}".format(
 	# 	 aplatform, name, version, platform.python_version(), parser.get_version())
-	return "{0},{1},v{2}{3}".format(aplatform, name, version, ",build {0}".format(build) if build else "")
+	return "{},{},v{}{}".format(aplatform, name, version, ",build {}".format(build) if build else "")
 
 
 def get_os():
@@ -3640,7 +3640,7 @@ def get_exponent(adapter, n):
 	"""Fetches and returns the JSON data for a given Mersenne exponent."""
 	try:
 		# r = session.get(primenet_baseurl + "report_exponent_simple/", params={"exp_lo": n, "faclim": 1, "json": 1}, timeout=180)
-		r = session.get(mersenne_ca_baseurl + "exponent/{0}/json".format(n), timeout=180)
+		r = session.get(mersenne_ca_baseurl + "exponent/{}/json".format(n), timeout=180)
 		r.raise_for_status()
 		result = r.json()
 	except RequestException as e:
@@ -4235,7 +4235,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 				# elif astage == 2:
 				# 	interim_C = from_bytes(tmp[:-1])
 				# 	_psmall = from_bytes(tmp[-1:])
-				stage = "S{0}".format(astage)
+				stage = "S{}".format(astage)
 			else:
 				adapter.debug("savefile with unknown TEST_TYPE = %s", t)
 				return None
@@ -4666,7 +4666,7 @@ def parse_stat_file(adapter, adir, p):
 	"""Parse the Mlucas stat file for the progress of the assignment."""
 	# Mlucas
 	savefiles = []
-	for entry in glob.iglob(os.path.join(adir, "p{0}*".format(p))):
+	for entry in glob.iglob(os.path.join(adir, "p{}*".format(p))):
 		match = MLUCAS_RE.match(os.path.basename(entry))
 		if match:
 			astage = match.group(2) and int(match.group(2))
@@ -4682,7 +4682,7 @@ def parse_stat_file(adapter, adir, p):
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
-	statfile = os.path.join(adir, "p{0}.stat".format(p))
+	statfile = os.path.join(adir, "p{}.stat".format(p))
 	if not os.path.isfile(statfile):
 		adapter.debug("stat file %r does not exist", statfile)
 		return iteration, None, stage, pct_complete, fftlen, 0, 0
@@ -4737,7 +4737,7 @@ def parse_stat_file(adapter, adir, p):
 def parse_cuda_output_file(adapter, adir, p):
 	"""Parse the CUDALucas output file for the progress of the assignment."""
 	# CUDALucas
-	savefile = os.path.join(adir, "c{0}".format(p))
+	savefile = os.path.join(adir, "c{}".format(p))
 	iteration = 0
 	avg_msec_per_iter = None
 	stage = pct_complete = None
@@ -4759,7 +4759,7 @@ GPUOWL_RE = re.compile(r"^(?:(?:[0-9]+)(?:-([0-9]+)\.(ll|prp|p1final|p2)|(?:-[0-
 def parse_gpuowl_log_file(adapter, adir, p):
 	"""Parse the GpuOwl log file for the progress of the assignment."""
 	savefiles = []
-	for entry in glob.iglob(os.path.join(adir, "*{0}".format(p), "{0}*.*".format(p))):
+	for entry in glob.iglob(os.path.join(adir, "*{}".format(p), "{}*.*".format(p))):
 		match = GPUOWL_RE.match(os.path.basename(entry))
 		if match:
 			savefiles.append((
@@ -4889,7 +4889,7 @@ PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(?:ll|prp)$")
 def parse_prpll_log_file(adapter, adir, p):
 	"""Parse the PRPLL log file for the progress of the assignment."""
 	savefiles = []
-	for entry in glob.iglob(os.path.join(adir, "*{0}".format(p), "{0}-[0-9]*.*".format(p))):
+	for entry in glob.iglob(os.path.join(adir, "*{}".format(p), "{}-[0-9]*.*".format(p))):
 		match = PRPLL_RE.match(os.path.basename(entry))
 		if match:
 			savefiles.append((tuple(map(int, os.path.splitext(os.path.basename(entry))[0].split("-"))), entry))
@@ -4911,11 +4911,11 @@ def parse_prpll_log_file(adapter, adir, p):
 
 def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
 	"""Get the mfaktc output filename based on the assignment and mfaktc version."""
-	filenames = glob.glob(os.path.join(adir, "M{0}_{1}-{2}_[0-9]*.ckp".format(p, int(sieve_depth), int(factor_to))))
+	filenames = glob.glob(os.path.join(adir, "M{}_{}-{}_[0-9]*.ckp".format(p, int(sieve_depth), int(factor_to))))
 	if filenames:
 		return os.path.basename(filenames[0])
 	# default to <= 0.23 mfaktc filenames if new one not found
-	return "M{0}.ckp".format(p)
+	return "M{}.ckp".format(p)
 
 
 def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
@@ -4936,7 +4936,7 @@ def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
 
 def parse_mfakto_output_file(adapter, adir, p):
 	"""Parse the mfakto output file for the progress of the assignment."""
-	savefile = os.path.join(adir, "M{0}.ckp".format(p))
+	savefile = os.path.join(adir, "M{}.ckp".format(p))
 	iteration = 0
 	avg_msec_per_iter = None
 	stage = pct_complete = None
@@ -5028,7 +5028,7 @@ def compute_progress(assignment, msec_per_iter, p, progress):
 
 def work_estimate(adapter, adir, cpu_num, assignment):
 	"""Estimate the remaining work time for a given assignment."""
-	section = "Worker #{0}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
+	section = "Worker #{}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
 	msec_per_iter = p = None
 	if config.has_option(section, "msec_per_iter") and config.has_option(section, "exponent"):
 		msec_per_iter = config.getfloat(section, "msec_per_iter")
@@ -5083,7 +5083,7 @@ def adjust_rolling_average(dirs):
 	time_to_complete = 0
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if options.prpll else options.worktodo_file)
 		with LockFile(workfile):
 			tasks = read_workfile(adapter, workfile)
 			assignment = next((assignment for assignment in tasks if isinstance(assignment, Assignment)), None)
@@ -5143,7 +5143,7 @@ def output_status(dirs, cpu_num=None):
 		if options.status and options.num_workers > 1:
 			logging.info("[Worker #%s]", i + 1)
 		workfile = os.path.join(
-			adir, "worktodo-{0}.txt".format(i if cpu_num is None else cpu_num) if options.prpll else options.worktodo_file
+			adir, "worktodo-{}.txt".format(i if cpu_num is None else cpu_num) if options.prpll else options.worktodo_file
 		)
 		tasks = read_workfile(adapter, workfile)
 		assignments = OrderedDict(
@@ -5199,9 +5199,9 @@ def output_status(dirs, cpu_num=None):
 						/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
 					)
 			elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
-				work_type_str = "factor from 2^{0:.0f} to 2^{1:.0f}".format(assignment.sieve_depth, assignment.factor_to)
+				work_type_str = "factor from 2^{:.0f} to 2^{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
 			elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
-				work_type_str = "P-1 B1={0}".format(assignment.B1)
+				work_type_str = "P-1 B1={}".format(assignment.B1)
 			elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
 				work_type_str = "P-1"
 			elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
@@ -5275,13 +5275,13 @@ def check_disk_space(dirs):
 			)
 			if not config.has_option(SEC.Internals, "storage_usage_critical"):
 				send_msg(
-					"⚠️🗃️ {0:.1%} of the disk space limit used on {1}".format(precent, options.computer_id),
-					"""{0:%} or {1}B of the configured {2}B ({3}B × {4}) disk space limit is used on your {5!r} computer.
+					"⚠️🗃️ {:.1%} of the disk space limit used on {}".format(precent, options.computer_id),
+					"""{:%} or {}B of the configured {}B ({}B × {}) disk space limit is used on your {!r} computer.
 
 Disk space usage:
-{6}
+{}
 
-Total limit usage: {7}
+Total limit usage: {}
 """.format(
 						precent,
 						output_unit(total),
@@ -5289,7 +5289,7 @@ Total limit usage: {7}
 						output_unit(worker_disk_space),
 						options.num_workers,
 						options.computer_id,
-						"\n".join("Worker #{0}, {1!r}: {2}".format(i + 1, dirs[i], output_unit(u)) for i, u in enumerate(usages)),
+						"\n".join("Worker #{}, {!r}: {}".format(i + 1, dirs[i], output_unit(u)) for i, u in enumerate(usages)),
 						output_available(total, disk_space),
 					),
 					priority="2 (High)",
@@ -5315,12 +5315,12 @@ Total limit usage: {7}
 		)
 		if not config.has_option(SEC.Internals, "storage_available_critical"):
 			send_msg(
-				"🚨🗃️ Only {0:.1%} of the disk space available on {1}".format(precent, options.computer_id),
-				"""Only {0:%} or {1}B of the total {2}B disk space is available on your {3!r} computer.
+				"🚨🗃️ Only {:.1%} of the disk space available on {}".format(precent, options.computer_id),
+				"""Only {:%} or {}B of the total {}B disk space is available on your {!r} computer.
 
 If the computer runs out of space, the program will likely be unable to generate the PRP proof files.
 
-Disk space available: {4}
+Disk space available: {}
 """.format(
 					precent,
 					output_unit(usage.free),
@@ -5394,7 +5394,7 @@ def upload_proof_file(adapter, filename):
 				"Filesize of %r is %sB%s",
 				filename,
 				output_unit(filesize),
-				" ({0}B)".format(output_unit(filesize, True)) if filesize >= 1000 else "",
+				" ({}B)".format(output_unit(filesize, True)) if filesize >= 1000 else "",
 			)
 			filehash = checksum_md5(filename)
 			adapter.info("MD5 of %r is %s", filename, filehash)
@@ -5463,7 +5463,7 @@ def upload_proof_file(adapter, filename):
 						adapter.info(
 							"Uploaded %sB%s in %s, %sB/sec",
 							output_unit(bytessent),
-							" ({0}B)".format(output_unit(bytessent, True)) if bytessent >= 1000 else "",
+							" ({}B)".format(output_unit(bytessent, True)) if bytessent >= 1000 else "",
 							timedelta(seconds=totaltime),
 							output_unit(bytessent / totaltime),
 						)
@@ -5507,12 +5507,12 @@ def upload_proof(adapter, cpu_num, file):
 		return True
 
 	send_msg(
-		"❌📜 Failed to upload the {0} proof file on {1}".format(filename, options.computer_id),
-		"""Failed to upload the {0!r} PRP proof file on your {1!r} computer (worker #{2}).
+		"❌📜 Failed to upload the {} proof file on {}".format(filename, options.computer_id),
+		"""Failed to upload the {!r} PRP proof file on your {!r} computer (worker #{}).
 
-Below is the last up to 10 lines of the {3!r} log file for AutoPrimeNet:
+Below is the last up to 10 lines of the {!r} log file for AutoPrimeNet:
 
-{4}
+{}
 
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
 """.format(file, options.computer_id, cpu_num + 1, logfile, tail(logfile, 10)),
@@ -5637,12 +5637,12 @@ def program_options(send=False, start=-1, retry_count=0):
 					for i in range(options.num_workers):
 						work_preference[i] = w
 						options.work_preference[i] = str(aw)
-						section = "Worker #{0}".format(i + 1) if options.num_workers > 1 else SEC.PrimeNet
+						section = "Worker #{}".format(i + 1) if options.num_workers > 1 else SEC.PrimeNet
 						config.set(section, "WorkPreference", str(aw))
 				else:
 					work_preference[tnum] = w
 					options.work_preference[tnum] = str(aw)
-					section = "Worker #{0}".format(tnum + 1) if options.num_workers > 1 else SEC.PrimeNet
+					section = "Worker #{}".format(tnum + 1) if options.num_workers > 1 else SEC.PrimeNet
 					config.set(section, "WorkPreference", str(aw))
 			if "nw" in result:
 				options.num_workers = int(result["nw"])
@@ -5809,7 +5809,7 @@ def unreserve(dirs, p):
 	"""Unreserve a specific exponent from the workfile."""
 	adapter = logging.LoggerAdapter(logger, None)
 	for i, adir in enumerate(dirs):
-		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if options.prpll else options.worktodo_file)
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
 			found = changed = False
@@ -5859,7 +5859,7 @@ def get_proof_data(adapter, assignment_aid, file):
 	adapter.info(
 		"Downloaded %sB%s in %s, %sB/sec",
 		output_unit(length),
-		" ({0}B)".format(output_unit(length, True)) if length >= 1000 else "",
+		" ({}B)".format(output_unit(length, True)) if length >= 1000 else "",
 		timedelta(seconds=totaltime),
 		output_unit(length / totaltime),
 	)
@@ -5891,11 +5891,11 @@ def download_cert(adapter, adir, filename, assignment):
 
 def download_certs(adapter, adir, cpu_num, tasks):
 	"""Downloads certification files for given assignments if they do not already exist."""
-	certwork_file = os.path.join(adir, "certwork-{0}.txt".format(cpu_num) if options.prpll else "certwork.txt")
+	certwork_file = os.path.join(adir, "certwork-{}.txt".format(cpu_num) if options.prpll else "certwork.txt")
 	if not os.path.isfile(certwork_file):
 		adapter.debug("CERT work file %r does not exist", certwork_file)
 		return
-	workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
 	changed = False
 	with LockFile(certwork_file):
 		certwork = list(read_workfile(adapter, certwork_file))
@@ -5907,7 +5907,7 @@ def download_certs(adapter, adir, cpu_num, tasks):
 			downloaded = failed = False
 			if isinstance(assignment, Assignment):
 				if assignment.work_type == PRIMENET.WORK_TYPE_CERT:
-					filename = os.path.join(adir, "{0}.cert".format(exponent_to_str(assignment)))
+					filename = os.path.join(adir, "{}.cert".format(exponent_to_str(assignment)))
 					if not os.path.exists(filename):
 						if download_cert(adapter, adir, filename, assignment):
 							downloaded = True
@@ -5962,7 +5962,7 @@ def get_assignment(
 		if get_cert_work:
 			args["cert"] = get_cert_work
 		if options.worker_disk_space:
-			args["disk"] = "{0:f}".format(options.worker_disk_space)
+			args["disk"] = "{:f}".format(options.worker_disk_space)
 		if min_exp:
 			args["min"] = min_exp
 		if max_exp:
@@ -6107,14 +6107,14 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	cert_assignments = sum(
 		1 for assignment in tasks if isinstance(assignment, Assignment) and assignment.work_type == PRIMENET.WORK_TYPE_CERT
 	)
-	workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
 	if cert_assignments >= max_cert_assignments:
 		adapter.debug(
 			"%s ≥ %s CERT assignments already in %r, not getting new work", cert_assignments, max_cert_assignments, workfile
 		)
 		can_get_cert_work = False
 
-	section = "Worker #{0}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
+	section = "Worker #{}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
 	cpu_limit_remaining = (
 		config.getfloat(section, "CertDailyCPURemaining")
 		if config.has_option(section, "CertDailyCPURemaining")
@@ -6152,7 +6152,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	min_exp = config.getint(SEC.PrimeNet, "CertMinExponent") if config.has_option(SEC.PrimeNet, "CertMinExponent") else 50000000
 	max_exp = config.getint(SEC.PrimeNet, "CertMaxExponent") if config.has_option(SEC.PrimeNet, "CertMaxExponent") else None
 	cert_quantity = config.getint(SEC.PrimeNet, "CertQuantity") if config.has_option(SEC.PrimeNet, "CertQuantity") else 1
-	certwork_file = os.path.join(adir, "certwork-{0}.txt".format(cpu_num) if options.prpll else "certwork.txt")
+	certwork_file = os.path.join(adir, "certwork-{}.txt".format(cpu_num) if options.prpll else "certwork.txt")
 	with LockFile(certwork_file), io.open(certwork_file, "a", encoding="utf-8") as file:  # changed = False
 		for num_certs in range(1, 5 + 1):
 			test = get_assignment(adapter, cpu_num, get_cert_work=max(1, options.cert_cpu_limit), min_exp=min_exp, max_exp=max_exp)
@@ -6267,7 +6267,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 		args["ec"] = ar.get("error-code", "0" * 8)
 	elif result_type in {PRIMENET.AR_PRP_RESULT, PRIMENET.AR_PRP_PRIME}:
 		args["d"] = 1
-		args.update((("A", "{0:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		args.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
 		if result_type == PRIMENET.AR_PRP_RESULT:
 			args["rd"] = ar["res64"].strip().zfill(16)
 			args["rt"] = ar["residue-type"]
@@ -6310,7 +6310,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 			)
 			else 0
 		)
-		args.update((("A", "{0:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		args.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
 		args["B1"] = ar["B1"] if "B1" in ar else ar["b1"]
 		if "b2" in ar or "B2" in ar:
 			args["B2"] = ar["B2"] if "B2" in ar else ar["b2"]
@@ -6318,7 +6318,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 			args["f"] = ",".join(ar["factors"])
 	elif result_type == PRIMENET.AR_CERT:
 		args["d"] = 1
-		args.update((("A", "{0:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		args.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
 		args["s3"] = ar["sha3-hash"]
 		args["ec"] = ar.get("error-code", "0" * 8)
 		if "shift-count" in ar:
@@ -6412,7 +6412,7 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 				format(results["rejected"], "n"),
 				"s" if results["rejected"] != 1 else "",
 				", ".join(
-					"{0:n} result{1} {2}".format(len(lines), "s" if len(lines) != 1 else "", reason)
+					"{:n} result{} {}".format(len(lines), "s" if len(lines) != 1 else "", reason)
 					for reason, lines in rejected.items()
 				),
 			)
@@ -6423,7 +6423,7 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 			adapter.info(
 				"Total credit is %s GHz-days%s.",
 				format(sum(results["ghd"].values()), "n"),
-				", found {0:n} new factor{1}".format(factors, "s" if factors != 1 else "") if factors else "",
+				", found {:n} new factor{}".format(factors, "s" if factors != 1 else "") if factors else "",
 			)
 	if retry:
 		if retry_count >= MAX_RETRIES:
@@ -6462,9 +6462,9 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			return None
 
 	program = ar["program"]
-	aprogram = "{0}{1}".format(
+	aprogram = "{}{}".format(
 		program["name"],
-		" {0}{1}".format(program["version"], " {0}".format(program["build"]) if "build" in program else "")
+		" {}{}".format(program["version"], " {}".format(program["build"]) if "build" in program else "")
 		if program["version"]
 		else "",
 	)
@@ -6507,37 +6507,37 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 		adapter.error("Unsupported worktype %s", worktype)
 		return None
 
-	buf = "" if not user else "UID: {0}, ".format(user) if not computer else "UID: {0}/{1}, ".format(user, computer)
+	buf = "" if not user else "UID: {}, ".format(user) if not computer else "UID: {}/{}, ".format(user, computer)
 	if result_type in {PRIMENET.AR_LL_RESULT, PRIMENET.AR_LL_PRIME}:
 		if result_type == PRIMENET.AR_LL_RESULT:
-			buf += "M{0} is not prime. Res64: {1}. {2},{3},{4}".format(
+			buf += "M{} is not prime. Res64: {}. {},{},{}".format(
 				assignment.n, ar["res64"], ar.get("security-code", "-"), ar["shift-count"], ar.get("error-code", "0" * 8)
 			)
 		else:
-			buf += "M{0} is prime! {1},{2}".format(assignment.n, ar.get("security-code", "-"), ar.get("error-code", "0" * 8))
+			buf += "M{} is prime! {},{}".format(assignment.n, ar.get("security-code", "-"), ar.get("error-code", "0" * 8))
 	elif result_type in {PRIMENET.AR_PRP_RESULT, PRIMENET.AR_PRP_PRIME}:
 		prp_base = int(worktype[4:])
 		if result_type == PRIMENET.AR_PRP_RESULT:
 			residue_type = ar["residue-type"]
-			buf += "{0} is not prime.  {1}{2}RES64: {3}.".format(
+			buf += "{} is not prime.  {}{}RES64: {}.".format(
 				assignment_to_str(assignment),
-				"Base-{0} ".format(prp_base) if prp_base != 3 else "",
-				"Type-{0} ".format(residue_type) if residue_type != 1 else "",
+				"Base-{} ".format(prp_base) if prp_base != 3 else "",
+				"Type-{} ".format(residue_type) if residue_type != 1 else "",
 				ar["res64"],
 			)
 		else:
-			buf += "{0} is a probable prime{1}!".format(
-				assignment_to_str(assignment), " ({0}-PRP)".format(prp_base) if prp_base != 3 else ""
+			buf += "{} is a probable prime{}!".format(
+				assignment_to_str(assignment), " ({}-PRP)".format(prp_base) if prp_base != 3 else ""
 			)
-		buf += " {0},{1}{2}".format(
+		buf += " {},{}{}".format(
 			ar.get("security-code", "-"),
-			"{0},".format(ar["shift-count"]) if "shift-count" in ar else "",
+			"{},".format(ar["shift-count"]) if "shift-count" in ar else "",
 			ar.get("error-code", "0" * 8),
 		)
 	elif result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_TF_NOFACTOR}:
 		if result_type == PRIMENET.AR_TF_FACTOR:
 			factors = ar["factors"]
-			buf += "M{0} has {1}factor{2}: {3} (TF:{4}-{5})".format(
+			buf += "M{} has {}factor{}: {} (TF:{}-{})".format(
 				assignment.n,
 				"a " if len(factors) == 1 else "",
 				"s" if len(factors) != 1 else "",
@@ -6546,8 +6546,8 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				ar["bithi"],
 			)
 		else:
-			buf += "M{0} no factors from 2^{1} to 2^{2}{3}".format(
-				assignment.n, ar["bitlo"], ar["bithi"], ", {0}".format(ar["security-code"]) if "security-code" in ar else ""
+			buf += "M{} no factors from 2^{} to 2^{}{}".format(
+				assignment.n, ar["bitlo"], ar["bithi"], ", {}".format(ar["security-code"]) if "security-code" in ar else ""
 			)
 	elif result_type in {PRIMENET.AR_P1_FACTOR, PRIMENET.AR_P1_NOFACTOR}:
 		b1 = ar["B1"] if "B1" in ar else ar["b1"]
@@ -6556,35 +6556,35 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			b2 = ar["B2"] if "B2" in ar else ar["b2"]
 		if result_type == PRIMENET.AR_P1_FACTOR:
 			factors = ar["factors"]
-			buf += "{0} has {1}factor{2}: {3} (P-1, B1={4}{5})".format(
+			buf += "{} has {}factor{}: {} (P-1, B1={}{})".format(
 				exponent_to_str(assignment),
 				"a " if len(factors) == 1 else "",
 				"s" if len(factors) != 1 else "",
 				", ".join(factors),
 				b1,
-				", B2={0}{1}".format(b2, ", E={0}".format(ar["brent-suyama"]) if "brent-suyama" in ar else "")
+				", B2={}{}".format(b2, ", E={}".format(ar["brent-suyama"]) if "brent-suyama" in ar else "")
 				if b2 is not None
 				else "",
 			)
 		else:
-			buf += "{0} completed P-1, B1={1}{2}, {3}".format(
+			buf += "{} completed P-1, B1={}{}, {}".format(
 				exponent_to_str(assignment),
 				b1,
-				", B2={0}{1}".format(b2, ", E={0}".format(ar["brent-suyama"]) if "brent-suyama" in ar else "")
+				", B2={}{}".format(b2, ", E={}".format(ar["brent-suyama"]) if "brent-suyama" in ar else "")
 				if b2 is not None
 				else "",
 				ar.get("security-code", "-"),
 			)
 	elif result_type == PRIMENET.AR_CERT:
-		buf += "{0} certification hash value {1}. {2},{3}{4}".format(
+		buf += "{} certification hash value {}. {},{}{}".format(
 			exponent_to_str(assignment),
 			ar["sha3-hash"],
 			ar.get("security-code", "-"),
-			"{0},".format(ar["shift-count"]) if "shift-count" in ar else "",
+			"{},".format(ar["shift-count"]) if "shift-count" in ar else "",
 			ar.get("error-code", "0" * 8),
 		)
 	if assignment.uid:
-		buf += ", AID: {0}".format(assignment.uid)
+		buf += ", AID: {}".format(assignment.uid)
 
 	no_report = False
 	if result_type in {PRIMENET.AR_LL_PRIME, PRIMENET.AR_PRP_PRIME}:
@@ -6611,16 +6611,16 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			else:
 				adapter.debug("Backup notification: %s", text)
 			if result_type == PRIMENET.AR_LL_PRIME:
-				subject = "‼️ New Mersenne Prime!!! {0} is prime!".format(string_rep)
+				subject = "‼️ New Mersenne Prime!!! {} is prime!".format(string_rep)
 				temp = "Mersenne"
 			else:
-				subject = "❗ New Probable Prime!!! {0} is a probable prime!".format(string_rep)
+				subject = "❗ New Probable Prime!!! {} is a probable prime!".format(string_rep)
 				temp = "probable"
 			if options.gpuowl:  # GpuOwl
 				file = os.path.join(adir, "gpuowl.log")
-				exp = os.path.join(adir, "*{0}".format(assignment.n))
+				exp = os.path.join(adir, "*{}".format(assignment.n))
 				entries = glob.glob(
-					os.path.join(exp, "{0}-[0-9]*.{1}".format(assignment.n, "ll" if result_type == PRIMENET.AR_LL_PRIME else "prp"))
+					os.path.join(exp, "{}-[0-9]*.{}".format(assignment.n, "ll" if result_type == PRIMENET.AR_LL_PRIME else "prp"))
 				)
 				if entries:
 					savefile = next(
@@ -6635,15 +6635,15 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 					)
 				else:
 					savefile = os.path.join(
-						exp, "{0}.{1}owl".format(assignment.n, "ll." if result_type == PRIMENET.AR_LL_PRIME else "")
+						exp, "{}.{}owl".format(assignment.n, "ll." if result_type == PRIMENET.AR_LL_PRIME else "")
 					)
 			elif options.prpll:  # PRPLL
-				file = os.path.join(adir, "gpuowl-{0}.log".format(cpu_num))
+				file = os.path.join(adir, "gpuowl-{}.log".format(cpu_num))
 				entries = glob.glob(
 					os.path.join(
 						adir,
-						"{0}{1}".format("ll-" if result_type == PRIMENET.AR_LL_PRIME else "", assignment.n),
-						"{0}-[0-9]*.{1}".format(assignment.n, "ll" if result_type == PRIMENET.AR_LL_PRIME else "prp"),
+						"{}{}".format("ll-" if result_type == PRIMENET.AR_LL_PRIME else "", assignment.n),
+						"{}-[0-9]*.{}".format(assignment.n, "ll" if result_type == PRIMENET.AR_LL_PRIME else "prp"),
 					)
 				)
 				savefile = ""
@@ -6659,10 +6659,10 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 						)
 					)
 			elif options.cudalucas:  # CUDALucas
-				file = savefile = os.path.join(adir, "c{0}".format(assignment.n))
+				file = savefile = os.path.join(adir, "c{}".format(assignment.n))
 			else:  # Mlucas
-				file = os.path.join(adir, "p{0}.stat".format(assignment.n))
-				savefile = os.path.join(adir, "p{0}".format(assignment.n))
+				file = os.path.join(adir, "p{}.stat".format(assignment.n))
+				savefile = os.path.join(adir, "p{}".format(assignment.n))
 			send_msg(
 				subject,
 				"""This is an automated message sent by AutoPrimeNet.
@@ -6743,12 +6743,12 @@ RESULT_PATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gp
 def submit_work(dirs, adapter, adir, cpu_num, tasks):
 	"""Submits the results file to the PrimeNet server."""
 	# A cumulative backup
-	sentfile = os.path.join(adir, "results_sent-{0}.txt".format(cpu_num) if options.prpll else "results_sent.txt")
+	sentfile = os.path.join(adir, "results_sent-{}.txt".format(cpu_num) if options.prpll else "results_sent.txt")
 	results_sent = frozenset(readonly_list_file(sentfile))
 
 	# Only submit completed work, i.e. the exponent must not exist in worktodo file any more
 	# appended line by line, no lock needed
-	resultsfile = os.path.join(adir, "results-{0}.txt".format(cpu_num) if options.prpll else options.results_file)
+	resultsfile = os.path.join(adir, "results-{}.txt".format(cpu_num) if options.prpll else options.results_file)
 	with LockFile(resultsfile):
 		results = readonly_list_file(resultsfile)
 		# EWM: Note that readonly_list_file does not need the file(s) to exist - nonexistent files simply yield 0-length rs-array entries.
@@ -6826,7 +6826,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 					format(length, "n"),
 					"s" if length != 1 else "",
 					", ".join(
-						"{0:n} result{1} error {2} ({3})".format(
+						"{:n} result{} error {} ({})".format(
 							len(lines), "s" if len(lines) != 1 else "", ec, ERRORS.get(ec, "Unknown error code")
 						)
 						for ec, lines in rejected.items()
@@ -6836,7 +6836,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 			adapter.info("Total credit is %s GHz-days.", format(sum(ghzdays), "n"))
 
 		rejected = {
-			"PrimeNet error {0} ({1})".format(ec, ERRORS.get(ec, "Unknown error code")): lines
+			"PrimeNet error {} ({})".format(ec, ERRORS.get(ec, "Unknown error code")): lines
 			for ec, lines in rejected.items()
 			if ec not in error_code_ignore
 		}
@@ -6855,14 +6855,14 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 	if rejected:
 		length = sum(map(len, rejected.values()))
 		send_msg(
-			"🚫📤 Assignment result{0} rejected on {1}".format("s" if length != 1 else "", options.computer_id),
-			"""{0:n} assignment result{1} rejected from the {2!r} file on your {3!r} computer (worker #{4}):
+			"🚫📤 Assignment result{} rejected on {}".format("s" if length != 1 else "", options.computer_id),
+			"""{:n} assignment result{} rejected from the {!r} file on your {!r} computer (worker #{}):
 
-{5}
+{}
 
-Below is the last up to 10 lines of the {6!r} log file for AutoPrimeNet:
+Below is the last up to 10 lines of the {!r} log file for AutoPrimeNet:
 
-{7}
+{}
 
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
 """.format(
@@ -6872,11 +6872,11 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 				options.computer_id,
 				cpu_num + 1,
 				"\n".join(
-					"> {0}:\n".format(reason) + "\n".join("> \t" + line for line in lines) for reason, lines in rejected.items()
+					"> {}:\n".format(reason) + "\n".join("> \t" + line for line in lines) for reason, lines in rejected.items()
 				)
 				if length <= 10
 				else "\n".join(
-					"> {0}: {1:n} result{2}".format(reason, len(lines), "s" if len(lines) != 1 else "")
+					"> {}: {:n} result{}".format(reason, len(lines), "s" if len(lines) != 1 else "")
 					for reason, lines in rejected.items()
 				)
 				+ "\n> (See results attached)",
@@ -6892,14 +6892,14 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 	if failed:
 		length = len(failed)
 		send_msg(
-			"❌📤 Failed to report assignment result{0} on {1}".format("s" if length != 1 else "", options.computer_id),
-			"""Failed to report {0:n} assignment result{1} from the {2!r} file on your {3!r} computer (worker #{4}):
+			"❌📤 Failed to report assignment result{} on {}".format("s" if length != 1 else "", options.computer_id),
+			"""Failed to report {:n} assignment result{} from the {!r} file on your {!r} computer (worker #{}):
 
-{5}
+{}
 
-Below is the last up to 10 lines of the {6!r} log file for AutoPrimeNet:
+Below is the last up to 10 lines of the {!r} log file for AutoPrimeNet:
 
-{7}
+{}
 
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
 """.format(
@@ -6935,7 +6935,7 @@ def results_worker(dirs):
 
 		for cpu_num, adir in sorted({cpu_num: adir for adir, cpu_num in results}.items()):
 			adapter = logging.LoggerAdapter(logger, {"cpu_num": cpu_num} if options.num_workers > 1 else None)
-			workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
+			workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
 			with LockFile(workfile):
 				tasks = list(read_workfile(adapter, workfile))
 			if not submit_work(dirs, adapter, adir, cpu_num, tasks):
@@ -6997,7 +6997,7 @@ def unreserve_all(dirs):
 	logging.info("Unreserving all assignments.")
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if options.prpll else options.worktodo_file)
 		any_tf1g = tf1g_unreserved = False
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
@@ -7155,7 +7155,7 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 		args["sf"] = assignment.sieve_depth
 		args["p1"] = assignment.pminus1ed
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
-		args["A"] = "{0:.0f}".format(assignment.k)
+		args["A"] = "{:.0f}".format(assignment.k)
 		args["b"] = assignment.b
 		args["C"] = assignment.c
 		args["sf"] = assignment.sieve_depth
@@ -7165,13 +7165,13 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 		if assignment.factor_to:
 			args["ef"] = assignment.factor_to
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
-		args["A"] = "{0:.0f}".format(assignment.k)
+		args["A"] = "{:.0f}".format(assignment.k)
 		args["b"] = assignment.b
 		args["C"] = assignment.c
 		args["sf"] = assignment.sieve_depth
 		args["saved"] = assignment.tests_saved
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
-		args["A"] = "{0:.0f}".format(assignment.k)
+		args["A"] = "{:.0f}".format(assignment.k)
 		args["b"] = assignment.b
 		args["C"] = assignment.c
 		args["B1"] = assignment.B1
@@ -7223,7 +7223,7 @@ def register_assignments(adapter, adir, cpu_num, tasks):
 			tasks[i] = assignment
 			changed = True
 	if changed:
-		workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
 		write_workfile(adir, workfile, tasks)
 	return registered_assignment
 
@@ -7240,7 +7240,7 @@ def register_exponents(dirs):
 
 	cpu_num = ask_int("Worker number", 1, 1, options.num_workers) - 1 if options.num_workers > 1 else 0
 	adir = dirs[cpu_num]
-	workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
 	adapter = logging.LoggerAdapter(logger, None)
 
 	with LockFile(workfile), io.open(workfile, "a", encoding="utf-8") as file:
@@ -7286,11 +7286,11 @@ def register_exponents(dirs):
 				pminus1ed = bool(bound1) and bool(bound2)
 				if "factors_prime" in json:
 					known_factors = [int(factor["factor"]) for factor in json["factors_prime"]]
-				print("\nThis exponent has been Trial Factored (TFed) to {0:n} bits".format(sieve_depth))
+				print("\nThis exponent has been Trial Factored (TFed) to {:n} bits".format(sieve_depth))
 				if pminus1ed:
-					print("Existing P-1 bounds are B1={0:n}, B2={1:n}\n".format(bound1, bound2))
+					print("Existing P-1 bounds are B1={:n}, B2={:n}\n".format(bound1, bound2))
 				else:
-					print("It has not yet been P-1 factored: B1={0}, B2={1}\n".format(bound1, bound2))
+					print("It has not yet been P-1 factored: B1={}, B2={}\n".format(bound1, bound2))
 			if sieve_depth is None:
 				print(
 					"\n"
@@ -7329,8 +7329,8 @@ https://www.mersenne.ca/M{0}
 				_, (midB1, midB2), _ = bounds = walk(p, sieve_depth)
 				for (B1, B2), label in zip(bounds, ("MIN", "MID", "MAX")):
 					p1, p2 = pm1(p, sieve_depth, B1, B2)
-					print("\t{0}: B1={1:n}, B2={2:n}, Probability {3:%} ({4:.3%} + {5:.3%})".format(label, B1, B2, p1 + p2, p1, p2))
-				print("For more information, see: {0}prob.php?exponent={1}\n".format(mersenne_ca_baseurl, p))
+					print("\t{}: B1={:n}, B2={:n}, Probability {:%} ({:.3%} + {:.3%})".format(label, B1, B2, p1 + p2, p1, p2))
+				print("For more information, see: {}prob.php?exponent={}\n".format(mersenne_ca_baseurl, p))
 
 				B1 = ask_int("P-1 Bound #1", 0 if options.gpuowl else midB1, 100)
 				B2 = ask_int("P-1 Bound #2", 0 if options.gpuowl else midB2, 0)
@@ -7345,12 +7345,10 @@ https://www.mersenne.ca/M{0}
 				for i in count():
 					while True:
 						factor = (
-							ask_int("Known factor #{0:n}".format(i + 1), known_factors[i], 2)
+							ask_int("Known factor #{:n}".format(i + 1), known_factors[i], 2)
 							if i < len(known_factors)
 							else ask_int(
-								"Known factor #{0:n} (leave blank {1})".format(i + 1, "if none" if not i else "to continue"),
-								None,
-								2,
+								"Known factor #{:n} (leave blank {})".format(i + 1, "if none" if not i else "to continue"), None, 2
 							)
 						)
 						if factor is None:
@@ -7358,7 +7356,7 @@ https://www.mersenne.ca/M{0}
 						if not is_prime(factor):
 							print("Factor is not prime")
 						elif pow(2, p, product * factor) - 1:
-							print("Bad factor for M{0}".format(p))
+							print("Bad factor for M{}".format(p))
 						else:
 							product *= factor
 							break
@@ -7408,7 +7406,7 @@ https://www.mersenne.ca/M{0}
 				assignment.known_factors = factors
 
 			task = output_assignment(assignment)
-			print("\nAdding assignment {0!r} to the {1!r} file\n".format(task, workfile))
+			print("\nAdding assignment {!r} to the {!r} file\n".format(task, workfile))
 			file.write(task + "\n")
 
 			if not ask_yn("Do you want to register another exponent?", False):
@@ -7487,7 +7485,7 @@ def recover_assignments(dirs, recover_all=False):
 		return
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if options.prpll else options.worktodo_file)
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
 			submit_work(dirs, adapter, adir, i, tasks)
@@ -7561,7 +7559,7 @@ def send_progress(adapter, cpu_num, assignment, percent, stage, time_left, now, 
 	# k= the assignment ID (32 chars, follows '=' in Primenet-generated workfile entries)
 	args["k"] = assignment.uid
 	# p= progress in %-done, 4-char format = xy.z
-	args["p"] = "{0:.4f}".format(percent * 100)
+	args["p"] = "{:.4f}".format(percent * 100)
 	# d= when the client is expected to check in again (in seconds ... )
 	args["d"] = options.hours_between_checkins * 60 * 60
 	# e= the ETA of completion in seconds, if unknown, just put 1 week
@@ -7641,9 +7639,9 @@ def update_progress(adapter, cpu_num, assignment, progress, msec_per_iter, p, no
 			stage = "PRP"
 		elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
 			if int(assignment.factor_to) == int(assignment.sieve_depth) + 1:
-				stage = "TF{0:.0f}".format(assignment.sieve_depth)
+				stage = "TF{:.0f}".format(assignment.sieve_depth)
 			else:
-				stage = "TF{0:.0f}-{1:.0f}".format(assignment.sieve_depth, assignment.factor_to)
+				stage = "TF{:.0f}-{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
 		elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 			stage = "CERT"
 	if time_left is None:
@@ -7663,14 +7661,14 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 	if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS"):
 		return
 	now = datetime.now()
-	workfile = os.path.join(adir, "worktodo-{0}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if options.prpll else options.worktodo_file)
 	assignments = OrderedDict(
 		((assignment.uid, assignment.n), assignment) for assignment in tasks if isinstance(assignment, Assignment)
 	).values()
 	_percent = cur_time_left = msec_per_iter = p = None
 	if progress is not None:
 		_percent, cur_time_left, msec_per_iter, p = progress  # unpack update_progress output
-	section = "Worker #{0}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
+	section = "Worker #{}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
 	if (
 		msec_per_iter is None
 		and p is None
@@ -7810,12 +7808,12 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 			"Failed to get requested number of new assignments, %s requested, %s successfully retrieved", num_to_get, num_fetched
 		)
 		send_msg(
-			"❌📥 Failed to get new assignments on {0}".format(options.computer_id),
-			"""Failed to get new assignments for the {0!r} file on your {1!r} computer (worker #{2}).
+			"❌📥 Failed to get new assignments on {}".format(options.computer_id),
+			"""Failed to get new assignments for the {!r} file on your {!r} computer (worker #{}).
 
-Below is the last up to 10 lines of the {3!r} log file for AutoPrimeNet:
+Below is the last up to 10 lines of the {!r} log file for AutoPrimeNet:
 
-{4}
+{}
 
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
 """.format(workfile, options.computer_id, cpu_num + 1, logfile, tail(logfile, 10)),
@@ -7848,21 +7846,21 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 	result = get_progress_assignment(adapter, adir, assignment)
 	msec_per_iter = result[1]
 	p = assignment.n
-	section = "Worker #{0}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
+	section = "Worker #{}".format(cpu_num + 1) if options.num_workers > 1 else SEC.Internals
 	modified = True
 	file = os.path.join(
 		adir,
 		get_mfaktc_output_filename(adir, p, assignment.sieve_depth, assignment.factor_to)
 		if options.mfaktc
-		else "M{0}.ckp".format(p)
+		else "M{}.ckp".format(p)
 		if options.mfakto
-		else "c{0}".format(p)
+		else "c{}".format(p)
 		if options.cudalucas
 		else "gpuowl.log"
 		if options.gpuowl
-		else "gpuowl-{0}.log".format(cpu_num)
+		else "gpuowl-{}.log".format(cpu_num)
 		if options.prpll
-		else "p{0}.stat".format(p),
+		else "p{}.stat".format(p),
 	)
 	if os.path.exists(file) and last_time is not None:
 		mtime = os.path.getmtime(file)
@@ -7880,12 +7878,12 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 					else file
 				)
 				send_msg(
-					"⚠️ {0} on {1} has stalled".format(PROGRAM["name"], options.computer_id),
-					"""The {0} program on your {1!r} computer (worker #{2}) has not made any progress for {3} ({4:%c}).
+					"⚠️ {} on {} has stalled".format(PROGRAM["name"], options.computer_id),
+					"""The {} program on your {!r} computer (worker #{}) has not made any progress for {} ({:%c}).
 
-Below is the last up to 100 lines of the {5!r} log file:
+Below is the last up to 100 lines of the {!r} log file:
 
-{6}
+{}
 
 This program will alert you when it has resumed.
 """.format(
@@ -7904,10 +7902,10 @@ This program will alert you when it has resumed.
 		elif config.has_option(section, "stalled"):
 			stalled = datetime.fromtimestamp(config.getfloat(section, "stalled"))
 			send_msg(
-				"✔️ {0} on {1} has resumed".format(PROGRAM["name"], options.computer_id),
-				"""The {0} program on your {1!r} computer (worker #{2}) has resumed making progress.
+				"✔️ {} on {} has resumed".format(PROGRAM["name"], options.computer_id),
+				"""The {} program on your {!r} computer (worker #{}) has resumed making progress.
 
-It was stalled for {3}.
+It was stalled for {}.
 """.format(PROGRAM["name"], options.computer_id, cpu_num + 1, date - stalled),
 			)
 			config.remove_option(section, "stalled")
@@ -7916,7 +7914,7 @@ It was stalled for {3}.
 		if config.has_option(section, "msec_per_iter"):
 			amsec_per_iter = config.getfloat(section, "msec_per_iter")
 			msec_per_iter = amsec_per_iter + 0.15 * (msec_per_iter - amsec_per_iter)
-		config.set(section, "msec_per_iter", "{0:f}".format(msec_per_iter))
+		config.set(section, "msec_per_iter", "{:f}".format(msec_per_iter))
 		config.set(section, "exponent", str(p))
 	elif config.has_option(section, "msec_per_iter") and config.has_option(section, "exponent"):
 		# If not speed available, get it from the prime.ini file
@@ -7943,7 +7941,7 @@ def ping_server(ping_type=1):
 		):
 			try:
 				r = session.post(
-					"http://{0}/pingServer.php".format(sockaddr[0] if family == socket.AF_INET else "[{0}]".format(sockaddr[0])),
+					"http://{}/pingServer.php".format(sockaddr[0] if family == socket.AF_INET else "[{}]".format(sockaddr[0])),
 					json={"pingType": "simple echo"},
 					headers={"Host": "v6.mersenne.org"},
 				)
@@ -7952,7 +7950,7 @@ def ping_server(ping_type=1):
 			except RequestException as e:
 				logging.exception("%s", e, exc_info=options.debug)
 			else:
-				return "\n".join(starmap("{0}: {1}".format, result.items()))
+				return "\n".join(starmap("{}: {}".format, result.items()))
 		return None
 
 	guid = get_guid(config)
@@ -7998,7 +7996,7 @@ def autoprimenet_version_check():
 	"""Check for the latest version of AutoPrimeNet and notify if an update is available."""
 	try:
 		r = session.get(
-			mersenne_ca_baseurl + "versioncheck/autoprimenet/source/{0}".format(options.version_check_channel or "stable"),
+			mersenne_ca_baseurl + "versioncheck/autoprimenet/source/{}".format(options.version_check_channel or "stable"),
 			timeout=30,
 		)
 		r.raise_for_status()
@@ -8024,7 +8022,7 @@ def autoprimenet_version_check():
 		)
 		if new_version is None or latest_version > parse_version(new_version):
 			send_msg(
-				"🆕 New version {0} of AutoPrimeNet is available for {1}".format(version, options.computer_id),
+				"🆕 New version {} of AutoPrimeNet is available for {}".format(version, options.computer_id),
 				"""A new version {0} of AutoPrimeNet is available for your {1} computer as of {2:%Y-%m-%d}.
 
 Information: {3[url_info]}
@@ -8106,7 +8104,7 @@ def program_version_check():
 	try:
 		r = session.get(
 			mersenne_ca_baseurl
-			+ "versioncheck/{0}/{1}_{2}_{3}/{4}".format(
+			+ "versioncheck/{}/{}_{}_{}/{}".format(
 				aname, aos, arch or "", os_version or "", options.version_check_channel or "stable"
 			),
 			timeout=30,
@@ -8133,10 +8131,10 @@ def program_version_check():
 	if not current_version:
 		logging.error("Unable to parse current version number %r for %s", version, name)
 		return
-	option_version = "{0}_new_version".format(aname)
-	option_date = "{0}_new_date".format(aname)
+	option_version = "{}_new_version".format(aname)
+	option_date = "{}_new_date".format(aname)
 	if latest_version > current_version:
-		version_str = aversion + (" build {0}".format(abuild) if abuild else "")
+		version_str = aversion + (" build {}".format(abuild) if abuild else "")
 		logging.warning(
 			"New version %s of the GIMPS program %s is available as of %s", version_str, name, date.strftime("%Y-%m-%d")
 		)
@@ -8157,7 +8155,7 @@ def program_version_check():
 		)
 		if new_version is None or latest_version > new_version or new_date is None or date > new_date:
 			send_msg(
-				"🆕 New version {0} of {1} is available for {2}".format(version_str, name, options.computer_id),
+				"🆕 New version {} of {} is available for {}".format(version_str, name, options.computer_id),
 				"""A new version {0} of the {1} GIMPS program is available for your {2} computer as of {3:%Y-%m-%d}.
 
 Information: {4[url_info]}
@@ -8166,9 +8164,9 @@ Download: {4[url_download]}
 
 Current version: {5}
 Latest version: {0}
-""".format(version_str, name, options.computer_id, date, release, version + (" build {0}".format(build) if build else "")),
+""".format(version_str, name, options.computer_id, date, release, version + (" build {}".format(build) if build else "")),
 			)
-			config.set(SEC.Internals, option_version, aversion + (" {0}".format(abuild) if abuild else ""))
+			config.set(SEC.Internals, option_version, aversion + (" {}".format(abuild) if abuild else ""))
 			config.set(SEC.Internals, option_date, date_release)
 	else:
 		logging.debug("The GIMPS program %s is up to date", name)
@@ -8199,7 +8197,7 @@ def watch(dirs):
 	threads = []
 	for i, adir in enumerate(dirs):
 		thread = threading.Thread(
-			target=watch_files, name="Watcher #{0:n}".format(i + 1) if options.dirs else "Watcher", args=(adir, i)
+			target=watch_files, name="Watcher #{:n}".format(i + 1) if options.dirs else "Watcher", args=(adir, i)
 		)
 		thread.daemon = True
 		thread.start()
@@ -8286,7 +8284,7 @@ parser.add_option(
 	action="append",
 	dest="work_preference",
 	default=[],
-	help="""Work preference, Default: {0}. Supported work preferences:
+	help="""Work preference, Default: {}. Supported work preferences:
 2 (Trial factoring),
 4 (P-1 factoring),
 12 (Trial factoring GPU),
@@ -8610,7 +8608,7 @@ parser.add_option_group(group)
 opts_no_defaults = optparse.Values()
 _, args = parser.parse_args(values=opts_no_defaults)
 if args:
-	parser.error("Unexpected argument: {0!r}".format(args[0]))
+	parser.error("Unexpected argument: {!r}".format(args[0]))
 options = optparse.Values(parser.get_default_values().__dict__)
 options._update_careful(opts_no_defaults.__dict__)
 
@@ -8681,7 +8679,7 @@ if not opts_no_defaults.__dict__ and not os.path.exists(os.path.join(workdir, op
 	adir = os.getcwd()
 	if adir != os.path.dirname(file):
 		parser.error(
-			"No command line arguments provided or {0!r} file found in {1!r}. You are running {2!r} from outside its directory and would need to either use the --workdir or --setup options to continue.".format(
+			"No command line arguments provided or {!r} file found in {!r}. You are running {!r} from outside its directory and would need to either use the --workdir or --setup options to continue.".format(
 				options.localfile, adir, file
 			)
 		)
@@ -8783,7 +8781,7 @@ dirs = [os.path.join(workdir, adir) for adir in options.dirs] if options.dirs el
 
 for adir in dirs:
 	if not os.path.isdir(adir):
-		parser.error("Directory {0!r} does not exist".format(adir))
+		parser.error("Directory {!r} does not exist".format(adir))
 
 if not options.dirs and options.num_workers > 1:
 	dirs *= options.num_workers
@@ -8795,7 +8793,7 @@ if options.fromemail and options.smtp:
 
 if options.num_workers > 1:
 	for i in range(options.num_workers):
-		section = "Worker #{0}".format(i + 1)
+		section = "Worker #{}".format(i + 1)
 		if not config.has_section(section):
 			# Create the section to avoid having to test for it later
 			config.add_section(section)
@@ -8824,14 +8822,14 @@ if options.setup:
 Setup of this instance of AutoPrimeNet is now complete.
 Run the below command each time you want to start the program.
 
-	{0}
+	{}
 
-Then, start {1} as normal. AutoPrimeNet will automatically get assignments, report assignment progress, report results and upload proof files.
+Then, start {} as normal. AutoPrimeNet will automatically get assignments, report assignment progress, report results and upload proof files.
 Run --help for a full list of available options.
 """.format(
 			sys.argv[0]
 			if is_pyinstaller()
-			else "{0} -OO {1}".format(executable[:-4] if executable.endswith(".exe") else executable, sys.argv[0]),
+			else "{} -OO {}".format(executable[:-4] if executable.endswith(".exe") else executable, sys.argv[0]),
 			PROGRAM["name"],
 		)
 	)
@@ -8839,14 +8837,14 @@ Run --help for a full list of available options.
 
 if options.timeout > options.hours_between_checkins * 60 * 60:
 	parser.error(
-		"Timeout ({0:n} seconds) should be less than or equal to the hours between checkins ({1:n} hours)".format(
+		"Timeout ({:n} seconds) should be less than or equal to the hours between checkins ({:n} hours)".format(
 			options.timeout, options.hours_between_checkins
 		)
 	)
 
 if 0 < options.timeout < 30 * 60:
 	parser.error(
-		"Timeout ({0:n} seconds) must be greater than or equal to {1:n} seconds (30 minutes)".format(options.timeout, 30 * 60)
+		"Timeout ({:n} seconds) must be greater than or equal to {:n} seconds (30 minutes)".format(options.timeout, 30 * 60)
 	)
 
 if options.status:
@@ -8856,7 +8854,7 @@ if options.status:
 if options.results or options.proofs:
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if options.prpll else options.worktodo_file)
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
 		submit_work(dirs, adapter, adir, i, tasks)
@@ -8982,7 +8980,7 @@ for j in count():
 
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if options.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{0}.txt".format(i) if options.prpll else options.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if options.prpll else options.worktodo_file)
 		with LockFile(workfile):
 			process_add_file(adapter, workfile)
 			tasks = list(read_workfile(adapter, workfile))  # deque
@@ -9029,7 +9027,7 @@ for j in count():
 				"Will report results and upload proof files immediately%s, and report progress every %s hour%s. Next check at: %s",
 				""
 				if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS")
-				else ", get work every {0:.01f} hour{1}".format(
+				else ", get work every {:.01f} hour{}".format(
 					options.timeout / (60 * 60), "s" if options.timeout != 60 * 60 else ""
 				),
 				options.hours_between_checkins,
