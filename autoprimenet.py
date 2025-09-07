@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # /// script
-# requires-python = ">=2.6"
+# requires-python = ">=2.7"
 # dependencies = [
 #   "requests",
 # ]
@@ -327,6 +327,36 @@ if sys.platform == "win32":  # Windows
 			self.dwLength = ctypes.sizeof(self)
 			super(MEMORYSTATUSEX, self).__init__()
 
+	if hasattr(kernel32, "GetLogicalProcessorInformationEx"):  # Windows 7 or greater
+		kernel32.GetLogicalProcessorInformationEx.argtypes = (wintypes.DWORD, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD))
+		# kernel32.GetLogicalProcessorInformationEx.restype = wintypes.BOOL
+
+	kernel32.GetLogicalProcessorInformation.argtypes = (ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD))
+	# kernel32.GetLogicalProcessorInformation.restype = wintypes.BOOL
+
+	kernel32.GlobalMemoryStatusEx.argtypes = (ctypes.POINTER(MEMORYSTATUSEX),)
+	# kernel32.GlobalMemoryStatusEx.restype = wintypes.BOOL
+
+	kernel32.GetComputerNameW.argtypes = (wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+	# kernel32.GetComputerNameW.restype = wintypes.BOOL
+
+	kernel32.LocalFree.argtypes = (wintypes.HLOCAL,)
+	# kernel32.LocalFree.restype = wintypes.HLOCAL
+
+	advapi32.LookupAccountNameW.argtypes = (
+		wintypes.LPCWSTR,
+		wintypes.LPCWSTR,
+		ctypes.c_void_p,
+		ctypes.POINTER(wintypes.DWORD),
+		wintypes.LPWSTR,
+		ctypes.POINTER(wintypes.DWORD),
+		ctypes.POINTER(wintypes.DWORD),
+	)
+	# advapi32.LookupAccountNameW.restype = wintypes.BOOL
+
+	advapi32.ConvertSidToStringSidW.argtypes = (ctypes.c_void_p, wintypes.LPWSTR)
+	# advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
+
 	def get_windows_serial_number():
 		"""Retrieves the Windows Product ID from the system registry."""
 		output = ""
@@ -348,7 +378,7 @@ if sys.platform == "win32":  # Windows
 		computer_name = ctypes.create_unicode_buffer(256)
 		size = wintypes.DWORD(ctypes.sizeof(computer_name))
 		if not kernel32.GetComputerNameW(computer_name, ctypes.byref(size)):
-			raise ctypes.WinError()
+			raise ctypes.WinError(ctypes.get_last_error())
 			# return output
 
 		sid_size = wintypes.DWORD()
@@ -360,7 +390,7 @@ if sys.platform == "win32":  # Windows
 			)
 			and ctypes.get_last_error() != 122  # ERROR_INSUFFICIENT_BUFFER
 		):
-			raise ctypes.WinError()
+			raise ctypes.WinError(ctypes.get_last_error())
 			# return output
 
 		sid = ctypes.create_string_buffer(sid_size.value)
@@ -368,12 +398,12 @@ if sys.platform == "win32":  # Windows
 		if not advapi32.LookupAccountNameW(
 			None, computer_name, sid, ctypes.byref(sid_size), domain, ctypes.byref(domain_size), ctypes.byref(snu)
 		):
-			raise ctypes.WinError()
+			raise ctypes.WinError(ctypes.get_last_error())
 			# return output
 
 		stringsid = wintypes.LPWSTR()
 		if not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(stringsid)):
-			raise ctypes.WinError()
+			raise ctypes.WinError(ctypes.get_last_error())
 			# return output
 
 		output = stringsid.value
@@ -382,6 +412,15 @@ if sys.platform == "win32":  # Windows
 
 elif sys.platform == "darwin":  # macOS
 	libc = ctypes.CDLL(find_library("c"))
+
+	libc.sysctlbyname.argtypes = (
+		ctypes.c_char_p,
+		ctypes.c_void_p,
+		ctypes.POINTER(ctypes.c_size_t),
+		ctypes.c_void_p,
+		ctypes.c_size_t,
+	)
+	# libc.sysctlbyname.restype = ctypes.c_int
 
 	def sysctl_str(name):
 		size = ctypes.c_size_t()
@@ -448,18 +487,71 @@ elif sys.platform.startswith("linux"):
 			("_f", ctypes.c_char * (20 - 2 * ctypes.sizeof(ctypes.c_int) - ctypes.sizeof(ctypes.c_long))),
 		)
 
+	libc.sysinfo.argtypes = (ctypes.POINTER(sysinfo),)
+	# libc.sysinfo.restype = ctypes.c_int
+
 
 cl_lib = find_library("OpenCL")
 if cl_lib:
 	cl = ctypes.CDLL("OpenCL" if sys.platform == "win32" else cl_lib)
 
+	cl.clGetPlatformIDs.argtypes = (ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint))
+	# cl.clGetPlatformIDs.restype = ctypes.c_int
+
+	cl.clGetDeviceIDs.argtypes = (
+		ctypes.c_void_p,
+		ctypes.c_ulong,
+		ctypes.c_uint,
+		ctypes.POINTER(ctypes.c_void_p),
+		ctypes.POINTER(ctypes.c_uint),
+	)
+	# cl.clGetDeviceIDs.restype = ctypes.c_int
+
+	cl.clGetDeviceInfo.argtypes = (
+		ctypes.c_void_p,
+		ctypes.c_uint,
+		ctypes.c_size_t,
+		ctypes.c_void_p,
+		ctypes.POINTER(ctypes.c_size_t),
+	)
+	# cl.clGetDeviceInfo.restype = ctype.c_int
+
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
 	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
 
+	class nvmlMemory_t(ctypes.Structure):
+		_fields_ = (("total", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong))
 
-class nvmlMemory_t(ctypes.Structure):
-	_fields_ = (("total", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong))
+	# nvml.nvmlInit.argtypes = ()
+	# nvml.nvmlInit.restype = ctypes.c_int
+
+	nvml.nvmlSystemGetDriverVersion.argtypes = (ctypes.c_char_p, ctypes.c_uint)
+	# nvml.nvmlSystemGetDriverVersion.restype = ctypes.c_int
+
+	nvml.nvmlSystemGetCudaDriverVersion.argtypes = (ctypes.POINTER(ctypes.c_int),)
+	# nvml.nvmlSystemGetCudaDriverVersion.restype = ctypes.c_int
+
+	nvml.nvmlDeviceGetCount.argtypes = (ctypes.POINTER(ctypes.c_uint),)
+	# nvml.nvmlDeviceGetCount.restype = ctypes.c_int
+
+	nvml.nvmlDeviceGetHandleByIndex.argtypes = (ctypes.c_uint, ctypes.c_void_p)
+	# nvml.nvmlDeviceGetHandleByIndex.restype = ctypes.c_int
+
+	nvml.nvmlDeviceGetName.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint)
+	# nvml.nvmlDeviceGetName.restype = ctypes.c_int
+
+	nvml.nvmlDeviceGetCudaComputeCapability.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
+	# nvml.nvmlDeviceGetCudaComputeCapability.restype = ctypes.c_int
+
+	nvml.nvmlDeviceGetMaxClockInfo.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_uint))
+	# nvml.nvmlDeviceGetMaxClockInfo.restype = ctypes.c_int
+
+	nvml.nvmlDeviceGetMemoryInfo.argtypes = (ctypes.c_void_p, ctypes.POINTER(nvmlMemory_t))
+	# nvml.nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
+
+	# nvml.nvmlShutdown.argtypes = ()
+	# nvml.nvmlShutdown.restype = ctypes.c_int
 
 
 try:
@@ -481,22 +573,24 @@ except ImportError:
 	elif os.name == "nt":  # Windows
 		ctypes.windll.kernel32.GetDiskFreeSpaceExW.argtypes = (
 			wintypes.LPCWSTR,
-			ctypes.POINTER(ctypes.c_ulonglong),
-			ctypes.POINTER(ctypes.c_ulonglong),
-			ctypes.POINTER(ctypes.c_ulonglong),
+			ctypes.POINTER(wintypes.ULARGE_INTEGER),
+			ctypes.POINTER(wintypes.ULARGE_INTEGER),
+			ctypes.POINTER(wintypes.ULARGE_INTEGER),
 		)
-		ctypes.windll.kernel32.GetDiskFreeSpaceExW.restype = wintypes.BOOL
+		# ctypes.windll.kernel32.GetDiskFreeSpaceExW.restype = wintypes.BOOL
 
 		ctypes.windll.kernel32.GetDiskFreeSpaceExA.argtypes = (
 			wintypes.LPCSTR,
-			ctypes.POINTER(ctypes.c_ulonglong),
-			ctypes.POINTER(ctypes.c_ulonglong),
-			ctypes.POINTER(ctypes.c_ulonglong),
+			ctypes.POINTER(wintypes.ULARGE_INTEGER),
+			ctypes.POINTER(wintypes.ULARGE_INTEGER),
+			ctypes.POINTER(wintypes.ULARGE_INTEGER),
 		)
-		ctypes.windll.kernel32.GetDiskFreeSpaceExA.restype = wintypes.BOOL
+		# ctypes.windll.kernel32.GetDiskFreeSpaceExA.restype = wintypes.BOOL
 
 		def disk_usage(path):
-			_, total, free = ctypes.c_ulonglong(), ctypes.c_ulonglong(), ctypes.c_ulonglong()
+			_ = wintypes.ULARGE_INTEGER()
+			total = wintypes.ULARGE_INTEGER()
+			free = wintypes.ULARGE_INTEGER()
 			fun = (
 				ctypes.windll.kernel32.GetDiskFreeSpaceExW
 				if sys.version_info >= (3,) or isinstance(path, str)
@@ -514,10 +608,10 @@ try:
 except ImportError:
 	if os.name == "nt":  # Windows
 		ctypes.windll.kernel32.MoveFileExW.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD)
-		ctypes.windll.kernel32.MoveFileExW.restype = wintypes.BOOL
+		# ctypes.windll.kernel32.MoveFileExW.restype = wintypes.BOOL
 
 		ctypes.windll.kernel32.MoveFileExA.argtypes = (wintypes.LPCSTR, wintypes.LPCSTR, wintypes.DWORD)
-		ctypes.windll.kernel32.MoveFileExA.restype = wintypes.BOOL
+		# ctypes.windll.kernel32.MoveFileExA.restype = wintypes.BOOL
 
 		def replace(src, dst):
 			fun = (
@@ -575,6 +669,43 @@ if sys.platform == "win32":
 			("FileName", wintypes.WCHAR * 1),
 		)
 
+	kernel32.CreateFileW.argtypes = (
+		wintypes.LPCWSTR,
+		wintypes.DWORD,
+		wintypes.DWORD,
+		ctypes.c_void_p,
+		wintypes.DWORD,
+		wintypes.DWORD,
+		wintypes.HANDLE,
+	)
+	kernel32.CreateFileW.restype = wintypes.HANDLE
+
+	kernel32.CreateFileA.argtypes = (
+		wintypes.LPCSTR,
+		wintypes.DWORD,
+		wintypes.DWORD,
+		ctypes.c_void_p,
+		wintypes.DWORD,
+		wintypes.DWORD,
+		wintypes.HANDLE,
+	)
+	kernel32.CreateFileA.restype = wintypes.HANDLE
+
+	kernel32.ReadDirectoryChangesW.argtypes = (
+		wintypes.HANDLE,
+		wintypes.LPVOID,
+		wintypes.DWORD,
+		wintypes.BOOL,
+		wintypes.DWORD,
+		ctypes.POINTER(wintypes.DWORD),
+		ctypes.c_void_p,
+		ctypes.c_void_p,
+	)
+	# kernel32.ReadDirectoryChangesW.restype = wintypes.BOOL
+
+	kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+	# kernel32.CloseHandle.restype = wintypes.BOOL
+
 	def watch_files(adir, cpu_num):
 		"""Monitors a directory for file changes and processes specific file actions."""
 		fun = kernel32.CreateFileW if sys.version_info >= (3,) or isinstance(adir, unicode) else kernel32.CreateFileA
@@ -583,10 +714,10 @@ if sys.platform == "win32":
 			1,  # FILE_LIST_DIRECTORY
 			# FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
 			0x00000001 | 0x00000002 | 0x00000004,
-			None,  # lpSecurityAttributes
+			None,
 			3,  # OPEN_EXISTING
 			0x02000000,  # FILE_FLAG_BACKUP_SEMANTICS
-			None,  # hTemplateFile
+			None,
 		)
 		if handle == -1:
 			raise ctypes.WinError(ctypes.get_last_error())
@@ -600,18 +731,17 @@ if sys.platform == "win32":
 			while True:
 				buffer = ctypes.create_string_buffer(1024)
 				bytes_returned = wintypes.DWORD()
-				result = kernel32.ReadDirectoryChangesW(
+				if not kernel32.ReadDirectoryChangesW(
 					handle,
 					buffer,
 					len(buffer),
-					True,  # bWatchSubdirectory
+					True,
 					# FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
 					0x00000001 | 0x00000002 | 0x00000010,
 					ctypes.byref(bytes_returned),
-					None,  # lpOverlapped
-					None,  # lpCompletionRoutine
-				)
-				if not result:
+					None,
+					None,
+				):
 					raise ctypes.WinError(ctypes.get_last_error())
 
 				offset = 0
@@ -659,13 +789,17 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		ctypes.POINTER(ctypes.c_uint64),
 	)
 
-	# CoreFoundation.CFStringCreateWithCString.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32)
+	CoreFoundation.CFStringCreateWithCString.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32)
 	CoreFoundation.CFStringCreateWithCString.restype = ctypes.c_void_p
 
-	# CoreFoundation.CFArrayCreate.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_void_p)
+	CoreFoundation.CFArrayCreate.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_void_p)
 	CoreFoundation.CFArrayCreate.restype = ctypes.c_void_p
 
+	# CoreFoundation.CFRunLoopGetCurrent.argtypes = ()
 	CoreFoundation.CFRunLoopGetCurrent.restype = ctypes.c_void_p
+
+	# CoreFoundation.CFRunLoopRun.argtypes = ()
+	# CoreFoundation.CFRunLoopRun.restype = None
 
 	CoreServices.FSEventStreamCreate.argtypes = (
 		ctypes.c_void_p,
@@ -679,14 +813,19 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 	CoreServices.FSEventStreamCreate.restype = ctypes.c_void_p
 
 	CoreServices.FSEventStreamScheduleWithRunLoop.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+	# CoreServices.FSEventStreamScheduleWithRunLoop.restype = None
 
 	CoreServices.FSEventStreamStart.argtypes = (ctypes.c_void_p,)
+	# CoreServices.FSEventStreamStart.restype = ctypes.c_bool
 
 	CoreServices.FSEventStreamStop.argtypes = (ctypes.c_void_p,)
+	# CoreServices.FSEventStreamStop.restype = None
 
 	CoreServices.FSEventStreamInvalidate.argtypes = (ctypes.c_void_p,)
+	# CoreServices.FSEventStreamInvalidate.restype = None
 
 	CoreServices.FSEventStreamRelease.argtypes = (ctypes.c_void_p,)
+	# CoreServices.FSEventStreamRelease.restype = None
 
 	@FSEventStreamCallback
 	def fs_event_callback(_stream_ref, client_info, num_events, event_paths, event_flags, _event_ids):
@@ -726,12 +865,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		)
 		logging.info("Watching the directory: %r.", os.path.abspath(adir))
 
-		context = FSEventStreamContext()
-		context.version = 0
-		context.info = (info * (len(paths) + 1))(*((os.path.abspath(s).encode("utf-8"), i) for s, i in paths))
-		context.retain = None
-		context.release = None
-		context.copyDescription = None
+		context = FSEventStreamContext(0, (info * len(paths))(*((os.path.abspath(s).encode("utf-8"), i) for s, i in paths)))
 
 		stream = CoreServices.FSEventStreamCreate(
 			None,
@@ -741,7 +875,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 				None, strings, len(strings), ctypes.c_void_p.in_dll(CoreFoundation, "kCFTypeArrayCallBacks")
 			),
 			0xFFFFFFFFFFFFFFFF,  # kFSEventStreamEventIdSinceNow
-			ctypes.c_double(0.0),
+			0.0,
 			0x00000010,  # kFSEventStreamCreateFlagFileEvents
 		)
 
@@ -858,6 +992,15 @@ elif sys.platform.startswith("linux"):
 
 	BUF_LEN = 1024 * (ctypes.sizeof(InotifyEvent) + 16)
 
+	# libc.inotify_init.argtypes = ()
+	# libc.inotify_init.restype = ctypes.c_int
+
+	libc.inotify_add_watch.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32)
+	# libc.inotify_add_watch.restype = ctypes.c_int
+
+	libc.inotify_rm_watch.argtypes = (ctypes.c_int, ctypes.c_int)
+	# libc.inotify_rm_watch.restype = ctypes.c_int
+
 	def add_watch(fd, path, mask):
 		"""Add a watch to the inotify instance for the specified path with the given mask."""
 		wd = libc.inotify_add_watch(fd, path.encode("utf-8"), mask)
@@ -943,20 +1086,19 @@ elif sys.platform.startswith("linux"):
 
 
 try:
-	import certifi
 	import requests
 	import urllib3
 	from requests.exceptions import HTTPError, RequestException
 except ImportError as e:
 	executable = os.path.basename(sys.executable) if sys.executable else "python3"
 	print(
-		"""{}
+		"""{}: {}
 
 Please run the below command to install the Requests library:
 
 	{} -m pip install requests
 
-Then, run AutoPrimeNet again.""".format(e, executable[:-4] if executable.endswith(".exe") else executable)
+Then, run AutoPrimeNet again.""".format(type(e).__name__, e, executable[:-4] if executable.endswith(".exe") else executable)
 	)
 	sys.exit(1)
 else:
@@ -979,6 +1121,11 @@ else:
 
 
 try:
+	import certifi
+except ImportError:
+	certifi = None
+
+try:
 	import idna
 except ImportError:
 
@@ -998,7 +1145,7 @@ if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.1.2"
+VERSION = "1.2.0"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -1066,7 +1213,11 @@ session.mount("https://", HostHeaderSSLAdapter(max_retries=retries))
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
 atexit.register(session.close)
 # Python 2.7.9 and 3.4+
-context = ssl.create_default_context(cafile=certifi.where()) if hasattr(ssl, "create_default_context") else None
+context = (
+	ssl.create_default_context(cafile=certifi.where() if certifi is not None else certifi)
+	if hasattr(ssl, "create_default_context")
+	else None
+)
 
 # Mlucas constants
 
@@ -1177,7 +1328,9 @@ class LockFile:
 						logging.warning("%r lockfile already exists, waiting…", self.lockfile)
 					time.sleep(min(1 << i, 60 * 1000) / 1000)
 				else:
-					logging.exception("Error opening %r lockfile: %s", self.lockfile, e, exc_info=options.debug)
+					logging.exception(
+						"Error opening %r lockfile: %s: %s", self.lockfile, type(e).__name__, e, exc_info=options.debug
+					)
 					raise
 		if i:
 			logging.info("Locked %r", self.filename)
@@ -1564,7 +1717,7 @@ def ask_ok_cancel():
 def get_device_str(device, name):
 	"""Retrieve the specified information string from an OpenCL device."""
 	size = ctypes.c_size_t()
-	cl.clGetDeviceInfo(device, name, ctypes.c_size_t(0), None, ctypes.byref(size))
+	cl.clGetDeviceInfo(device, name, 0, None, ctypes.byref(size))
 
 	buf = ctypes.create_string_buffer(size.value)
 	cl.clGetDeviceInfo(device, name, size, buf, None)
@@ -1597,7 +1750,7 @@ def get_opencl_devices():
 
 	adevices = []
 
-	for aplatform in map(ctypes.c_void_p, platforms):
+	for aplatform in platforms:
 		num_devices = ctypes.c_uint()
 		result = cl.clGetDeviceIDs(aplatform, 0xFFFFFFFF, 0, None, ctypes.byref(num_devices))  # CL_DEVICE_TYPE_ALL
 		if result and result != -1:  # CL_DEVICE_NOT_FOUND
@@ -1611,7 +1764,7 @@ def get_opencl_devices():
 		if cl.clGetDeviceIDs(aplatform, 0xFFFFFFFF, num_devices.value, devices, None):  # CL_DEVICE_TYPE_ALL
 			logging.error("Failed to get the OpenCL devices")
 			continue
-		for device in map(ctypes.c_void_p, devices):
+		for device in devices:
 			name = get_device_str(device, 0x102B)  # CL_DEVICE_NAME
 
 			freq = get_device_value(device, 0x100C, ctypes.c_uint)  # CL_DEVICE_MAX_CLOCK_FREQUENCY
@@ -1691,7 +1844,7 @@ def dns_lookup(domain, atype):
 			# "https://dns.google/resolve", # Google Public DNS
 			"https://mozilla.cloudflare-dns.com/dns-query",
 			params={"name": domain, "type": atype},
-			headers={"accept": "application/dns-json"},
+			headers={"Accept": "application/dns-json"},
 			timeout=5,
 		)
 		result = r.json()
@@ -1699,8 +1852,8 @@ def dns_lookup(domain, atype):
 	except HTTPError as e:
 		logging.exception("%s: %s", result.get("error", result), e, exc_info=options.debug)
 		return None
-	except RequestException as e:
-		logging.exception("%s", e, exc_info=options.debug)
+	except (RequestException, JSONDecodeError) as e:
+		logging.exception("%s: %s", type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	return result
@@ -1714,7 +1867,7 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 	try:
 		root = ET.fromstring(xml_data)
 	except ET.ParseError as e:
-		logging.debug("%s", e)
+		logging.debug("%s: %s", type(e).__name__, e)
 		return None
 
 	if root.tag != "clientConfig":
@@ -1764,7 +1917,7 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 				r.raise_for_status()
 				result = r.content
 			except RequestException as e:
-				logging.debug("%s", e)
+				logging.debug("%s: %s", type(e).__name__, e)
 			else:
 				smtp_config = parse_autoconfig(result, email, local_part, email_domain)
 				if smtp_config is not None:
@@ -1783,7 +1936,7 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 		r.raise_for_status()
 		result = r.content
 	except RequestException as e:
-		logging.debug("%s", e)
+		logging.debug("%s: %s", type(e).__name__, e)
 	else:
 		smtp_config = parse_autoconfig(result, email, local_part, email_domain)
 		if smtp_config is not None:
@@ -2389,7 +2542,7 @@ def config_read():
 	try:
 		config.read([localfile])
 	except ConfigParserError as e:
-		logging.exception("Error reading %r file: %s", localfile, e, exc_info=options.debug)
+		logging.exception("Error reading %r file: %s: %s", localfile, type(e).__name__, e, exc_info=options.debug)
 	for section in (SEC.PrimeNet, SEC.Email, SEC.Internals):
 		if not config.has_section(section):
 			# Create the section to avoid having to test for it later
@@ -3182,7 +3335,7 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 				s.login(options.email_username, options.email_password)
 			s.sendmail(from_addr, to_addrs, msg.as_string())
 	except (IOError, OSError, ssl.CertificateError, smtplib.SMTPException) as e:
-		logging.exception("Failed to send e-mail: %s", e, exc_info=options.debug)
+		logging.exception("Failed to send e-mail: %s: %s", type(e).__name__, e, exc_info=options.debug)
 		return False
 	finally:
 		if s is not None:
@@ -3405,8 +3558,7 @@ def get_cpu_cores_threads():
 		# wmic cpu get NumberOfCores,NumberOfLogicalProcessors
 		# Get-CimInstance Win32_Processor | Select NumberOfCores,NumberOfLogicalProcessors
 		return_length = wintypes.DWORD()
-		# Windows 7 or greater
-		if hasattr(kernel32, "GetLogicalProcessorInformationEx"):
+		if hasattr(kernel32, "GetLogicalProcessorInformationEx"):  # Windows 7 or greater
 			RelationAll = 0xFFFF
 			if (
 				not kernel32.GetLogicalProcessorInformationEx(RelationAll, None, ctypes.byref(return_length))
@@ -3478,7 +3630,7 @@ def get_physical_memory():
 		# (Get-CimInstance Win32_PhysicalMemoryArray).MaxCapacity
 		# (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
 		memory_status = MEMORYSTATUSEX()
-		ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
+		kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
 		memory = memory_status.ullTotalPhys >> 20
 	elif sys.platform == "darwin":
 		output = sysctl_value(b"hw.memsize", ctypes.c_uint64)
@@ -3501,8 +3653,7 @@ def get_cpu_cache_sizes():
 		# Get-CimInstance Win32_Processor | Select L2CacheSize,L3CacheSize
 		# Get-CimInstance Win32_CacheMemory | Select CacheType,InstalledSize,Level
 		return_length = wintypes.DWORD()
-		# Windows 7 or greater
-		if hasattr(kernel32, "GetLogicalProcessorInformationEx"):
+		if hasattr(kernel32, "GetLogicalProcessorInformationEx"):  # Windows 7 or greater
 			RelationAll = 0xFFFF
 			if (
 				not kernel32.GetLogicalProcessorInformationEx(RelationAll, None, ctypes.byref(return_length))
@@ -3564,7 +3715,7 @@ def parse_v5_resp(r):
 	return ans
 
 
-__v5salt_ = 0
+random.seed()
 
 
 def secure_v5_url(guid, args):
@@ -3576,18 +3727,10 @@ def secure_v5_url(guid, args):
 
 	p_v5key = md5(k).hexdigest().upper()
 
-	global __v5salt_
-	if not __v5salt_:
-		random.seed()
+	args["ss"] = random.randint(0, 0xFFFF)
+	url = urlencode(args) + "&" + p_v5key
 
-	__v5salt_ = random.randint(0, sys.maxsize) & 0xFFFF
-
-	args["ss"] = __v5salt_
-	URL = urlencode(args) + "&" + p_v5key
-
-	ahash = md5(URL.encode("utf-8")).hexdigest().upper()
-
-	args["sh"] = ahash
+	args["sh"] = md5(url.encode("utf-8")).hexdigest().upper()
 
 
 def send_request(adapter, guid, args):
@@ -3606,7 +3749,7 @@ def send_request(adapter, guid, args):
 		r.raise_for_status()
 		text = r.text
 	except RequestException as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+		adapter.exception("%s: %s", type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	result = parse_v5_resp(text)
@@ -3643,8 +3786,8 @@ def get_exponent(adapter, n):
 		r = session.get(mersenne_ca_baseurl + "exponent/{}/json".format(n), timeout=180)
 		r.raise_for_status()
 		result = r.json()
-	except RequestException as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+	except (RequestException, JSONDecodeError) as e:
+		adapter.exception("Failed to get exponent data from mersenne.ca: %s: %s", type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	return result
@@ -4249,7 +4392,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 	except EOFError:
 		return None
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s", filename, e, exc_info=options.debug)
+		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	return counter, stage, pct_complete, fftlen
@@ -4281,7 +4424,7 @@ def parse_work_unit_cudalucas(adapter, filename, p):
 	except EOFError:
 		return None
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s", filename, e, exc_info=options.debug)
+		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	return counter, avg_msec_per_iter, stage, pct_complete, fftlen
@@ -4339,7 +4482,7 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s", filename, e, exc_info=options.debug)
+		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	if not header.startswith(b"OWL "):
@@ -4457,7 +4600,7 @@ def parse_work_unit_prpll(adapter, filename, p):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s", filename, e, exc_info=options.debug)
+		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	if not header.startswith(b"OWL "):
@@ -4570,7 +4713,7 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s", filename, e, exc_info=options.debug)
+		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	mfaktc_tf = MFAKTC_TF_RE.match(header)
@@ -4607,7 +4750,7 @@ def parse_work_unit_mfakto(adapter, filename, p):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s", filename, e, exc_info=options.debug)
+		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=options.debug)
 		return None
 
 	mfakto_tf = MFAKTO_TF_RE.match(header)
@@ -4653,7 +4796,7 @@ def get_stages_mfaktx_ini(adapter, adir):
 					stream.seek(0)
 					config.readfp(stream)
 	except ConfigParserError as e:
-		adapter.exception("Error reading %r configuration file: %s", ini_file, e, exc_info=options.debug)
+		adapter.exception("Error reading %r configuration file: %s: %s", ini_file, type(e).__name__, e, exc_info=options.debug)
 	if config.has_option("default", "Stages"):
 		stages = config.getint("default", "Stages")
 	return stages
@@ -5482,11 +5625,11 @@ def upload_proof_file(adapter, filename):
 						adapter.error("For proof %r, need list entry bad:", filename)
 						adapter.error("%s", result)
 						return False
-	except RequestException as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+	except (RequestException, JSONDecodeError) as e:
+		adapter.exception("Failed to upload proof file: %s: %s", type(e).__name__, e, exc_info=options.debug)
 		return False
 	except (IOError, OSError) as e:
-		adapter.exception("Cannot open proof file %r: %s", filename, e, exc_info=options.debug)
+		adapter.exception("Cannot open proof file %r: %s: %s", filename, type(e).__name__, e, exc_info=options.debug)
 		return False
 
 
@@ -5852,7 +5995,7 @@ def get_proof_data(adapter, assignment_aid, file):
 			if chunk:
 				file.write(chunk)
 	except RequestException as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+		adapter.exception("%s: %s", type(e).__name__, e, exc_info=options.debug)
 		return None
 	end = timeit.default_timer()
 	totaltime = end - start
@@ -6384,19 +6527,19 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 		r.raise_for_status()
 		result = r.json()
 	except HTTPError as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+		adapter.exception("%s: %s", type(e).__name__, e, exc_info=options.debug)
 		if retry_count < MAX_RETRIES and r.status_code in retries.RETRY_AFTER_STATUS_CODES:
 			try:
 				retry_after = retries.get_retry_after(r)
 			except urllib3.exceptions.InvalidHeader as e:
-				adapter.exception("%s", e, exc_info=options.debug)
+				adapter.exception("%s: %s", type(e).__name__, e, exc_info=options.debug)
 			else:
 				if retry_after is not None:
 					adapter.info("Retrying submission in %s", timedelta(seconds=retry_after))
 					time.sleep(retry_after)
 		retry = True
-	except RequestException as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+	except (RequestException, JSONDecodeError) as e:
+		adapter.exception("Failed to submit results to mersenne.ca: %s: %s", type(e).__name__, e, exc_info=options.debug)
 		retry = True
 	else:
 		adapter.info("mersenne.ca response:")
@@ -6455,7 +6598,8 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 		try:
 			ar = json.loads(sendline)
 		except JSONDecodeError as e:
-			adapter.exception("Unable to decode entry in %r: %s", resultsfile, e, exc_info=options.debug)
+			adapter.error("%r", sendline)
+			adapter.exception("Unable to decode entry in %r: %s: %s", resultsfile, type(e).__name__, e, exc_info=options.debug)
 			# Mlucas
 			if "Program: E" in sendline:
 				adapter.info("Please upgrade to Mlucas v19 or greater.")
@@ -6607,7 +6751,7 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				)
 				text = r.text
 			except RequestException as e:
-				logging.exception("Backup notification failed: %s", e, exc_info=options.debug)
+				logging.exception("Backup notification failed: %s: %s", type(e).__name__, e, exc_info=options.debug)
 			else:
 				adapter.debug("Backup notification: %s", text)
 			if result_type == PRIMENET.AR_LL_PRIME:
@@ -6971,8 +7115,8 @@ def tf1g_unreserve_all(adapter, cpu_num, retry_count=0):
 		)
 		r.raise_for_status()
 		result = r.json()
-	except RequestException as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+	except (RequestException, JSONDecodeError) as e:
+		adapter.exception("Failed to unreserve TF1G assignments: %s: %s", type(e).__name__, e, exc_info=options.debug)
 		retry = True
 	else:
 		if "error" in result:
@@ -7460,7 +7604,7 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 					adapter.info("Got assignment: %r", exponent_to_text(test))
 					tests.append(test)
 	except RequestException as e:
-		adapter.exception("%s", e, exc_info=options.debug)
+		adapter.exception("%s: %s", type(e).__name__, e, exc_info=options.debug)
 		retry = True
 	else:
 		if recover or recover_all:
@@ -7801,7 +7945,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 
 	if len(new_tasks) > 1:
 		adapter.info("Fetched %s assignment%s", len(new_tasks), "s" if len(new_tasks) != 1 else "")
-	if len(tasks) <= 5:
+	if tasks and len(tasks) <= 5:
 		output_status((adir,), cpu_num)
 	if num_fetched < num_to_get:
 		adapter.error(
@@ -7947,8 +8091,8 @@ def ping_server(ping_type=1):
 				)
 				r.raise_for_status()
 				result = r.json()
-			except RequestException as e:
-				logging.exception("%s", e, exc_info=options.debug)
+			except (RequestException, JSONDecodeError) as e:
+				logging.exception("Failed to ping server: %s: %s", type(e).__name__, e, exc_info=options.debug)
 			else:
 				return "\n".join(starmap("{}: {}".format, result.items()))
 		return None
@@ -8001,8 +8145,8 @@ def autoprimenet_version_check():
 		)
 		r.raise_for_status()
 		result = r.json()
-	except RequestException as e:
-		logging.exception("AutoPrimeNet version check failed: %s", e, exc_info=options.debug)
+	except (RequestException, JSONDecodeError) as e:
+		logging.exception("AutoPrimeNet version check failed: %s: %s", type(e).__name__, e, exc_info=options.debug)
 		return
 
 	releases = result["releases"]
@@ -8065,7 +8209,7 @@ def program_version_check():
 	elif len(aprogram) == 2:
 		name, version = aprogram
 	else:
-		logging.error("Unable to parse current version number %r", program)
+		logging.warning("Unable to parse current version number %r", program)
 		return
 	aname = name.lower()  # casefold()
 
@@ -8098,7 +8242,7 @@ def program_version_check():
 		logging.debug("Unknown architecture %r for version check", machine)
 
 	if aname not in {"prime95", "mlucas", "gpuowl", "prpll", "cudalucas", "cudapm1", "mfaktc", "mfakto", "cofact"}:
-		logging.error("Unknown GIMPS program %r for version check", name)
+		logging.warning("Unknown GIMPS program %r for version check", name)
 		return
 
 	try:
@@ -8111,8 +8255,8 @@ def program_version_check():
 		)
 		r.raise_for_status()
 		result = r.json()
-	except RequestException as e:
-		logging.exception("GIMPS program version check failed: %s", e, exc_info=options.debug)
+	except (RequestException, JSONDecodeError) as e:
+		logging.exception("GIMPS program version check failed: %s: %s", type(e).__name__, e, exc_info=options.debug)
 		return
 
 	releases = result["releases"] or result["releases_other"]
@@ -8125,11 +8269,11 @@ def program_version_check():
 	date = datetime.strptime(date_release, "%Y-%m-%d")  # "%F"
 	latest_version = parse_version(aversion, abuild)
 	if not latest_version:
-		logging.error("Unable to parse new version number %r for %s", aversion, name)
+		logging.warning("Unable to parse new version number %r for %s", aversion, name)
 		return
 	current_version = parse_version(version, build)
 	if not current_version:
-		logging.error("Unable to parse current version number %r for %s", version, name)
+		logging.warning("Unable to parse current version number %r for %s", version, name)
 		return
 	option_version = "{}_new_version".format(aname)
 	option_date = "{}_new_date".format(aname)
@@ -8644,6 +8788,12 @@ if options.debug > 1:
 # Adapted from: https://github.com/python/cpython/blob/main/Lib/_colorize.py
 COLOR = True
 if os.name == "nt":  # Windows
+	ctypes.windll.kernel32.GetStdHandle.argtypes = (wintypes.DWORD,)
+	ctypes.windll.kernel32.GetStdHandle.restype = wintypes.HANDLE
+
+	ctypes.windll.kernel32.GetConsoleMode.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+	# ctypes.windll.kernel32.GetConsoleMode.restype = wintypes.BOOL
+
 	handle = ctypes.windll.kernel32.GetStdHandle(wintypes.DWORD(-12))  # STD_ERROR_HANDLE
 	mode = wintypes.DWORD()
 	if not ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
