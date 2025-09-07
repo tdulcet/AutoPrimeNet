@@ -23,9 +23,9 @@ except BaseException as e:
 		raise
 	print(
 		"""
-An error occurred: {}
+An error occurred: {}: {}
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
-""".format(e)
+""".format(type(e).__name__, e)
 	)
 	sys.excepthook(*sys.exc_info())
 	# traceback.print_exc()
