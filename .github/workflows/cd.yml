@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest]
-        python-version: ["3.4", "3.8", "3.x"]
+        python-version: ["3.4", "3.8", "3.13", "3.x"]
         architecture: ["x86", "x64"]
         include:
           - os: windows-11-arm
@@ -47,12 +47,12 @@ jobs:
     - name: Script
       run: |
         python -X dev autoprimenet.py --help
-        curl -sSO https://www.mersenne.org/favicon.ico
+        curl -sSfO https://www.mersenne.org/favicon.ico
         python -OO -m PyInstaller -F -n autoprimenet -i favicon.ico wrapper.py
         .\dist\autoprimenet --help
     - uses: actions/upload-artifact@v4
       with:
-        name: AutoPrimeNet_Windows${{ matrix.python-version == '3.4' && '-XP' || matrix.python-version == '3.8' && '-Vista-7-8' || '' }}_${{ matrix.architecture }}
+        name: AutoPrimeNet_Windows${{ matrix.python-version == '3.4' && '-XP' || matrix.python-version == '3.8' && '-Vista-7-8' || matrix.python-version == '3.13' && '-8.1' || '' }}_${{ matrix.architecture }}
         path: |
           README.md
           LICENSE
@@ -73,6 +73,6 @@ jobs:
       run: |
         set -x
         ls -alR AutoPrimeNet_Windows*
-        for DIR in AutoPrimeNet_Windows*/; do (cd "$DIR"; zip -j "../${DIR%/}" -- README.md LICENSE dist/*); done
+        for DIR in AutoPrimeNet_Windows*/; do (cd "$DIR"; zip -j "../${DIR%/}.zip" -- README.md LICENSE dist/*); done
         ls -alR AutoPrimeNet_Windows*
         lftp -u "${{ secrets.FTP_USERNAME }},${{ secrets.FTP_PASSWORD }}" -e "set ssl:verify-certificate false; mput AutoPrimeNet_Windows*.zip; exit" download.mersenne.ca
