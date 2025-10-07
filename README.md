@@ -394,6 +394,7 @@ Pull requests welcome! Ideas for contributions:
 * Support more GIMPS programs.
 * Support FreeBSD and Android.
 	* ⭐ Help wanted
+* Create icon/logo for standalone executables.
 * Support setting more of the program options.
 * Improve the error handling of PrimeNet API calls.
 * Improve the performance.
@@ -403,6 +404,7 @@ Pull requests welcome! Ideas for contributions:
 * Add an optional GUI using [Tk](https://en.wikipedia.org/wiki/Tk_(software)) and the [tkinter library](https://docs.python.org/3/library/tkinter.html)
 * Add docstrings to all functions
 * Add an option to show debugging information
+* Support encrypting passwords in the config file
 * Support submitting P-1 results for Fermat numbers
 
 Thanks to [Daniel Connelly](https://github.com/Danc2050) for updating the PrimeNet Python script from Mlucas to eliminate the password requirement by getting assignments using the [PrimeNet API](https://v5.mersenne.org/v5design/v5webAPI_0.97.html) and to support reporting the assignment results and progress for CUDALucas using the PrimeNet API!
