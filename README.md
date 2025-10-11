@@ -132,9 +132,39 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 ## Usage
 
 ```
-Usage: autoprimenet.py [options]
-Use -h/--help to see all options
-Use --setup to configure this instance of the program
+usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
+                       [-i WORKTODO_FILE] [-r RESULTS_FILE] [-L LOGFILE]
+                       [-l LOCALFILE] [--archive-proofs ARCHIVE_DIR]
+                       [-u USER_ID] [-T WORK_PREFERENCE] [--cert-work]
+                       [--no-cert-work] [--cert-work-limit CERT_CPU_LIMIT]
+                       [--min-exp MIN_EXP] [--max-exp MAX_EXP]
+                       [--min-bit MIN_BIT] [--max-bit MAX_BIT]
+                       [--force-target-bits]
+                       [-m | -g | --prpll | --cudalucas | --mfaktc | --mfakto]
+                       [--num-workers NUM_WORKERS] [-n NUM_CACHE]
+                       [-W DAYS_OF_WORK] [--force-pminus1 TESTS_SAVED]
+                       [--pminus1-threshold PM1_MULTIPLIER]
+                       [--force-pminus1-bounds {MIN,MID,MAX}]
+                       [--convert-ll-to-prp] [--convert-prp-to-ll]
+                       [--no-report-100m] [--report-100m]
+                       [--checkin HOURS_BETWEEN_CHECKINS] [-t TIMEOUT] [-s]
+                       [--report-results] [--upload-proofs] [--recover]
+                       [--recover-all] [--register-exponents]
+                       [--unreserve EXPONENT] [--unreserve-all]
+                       [--no-more-work] [--resume-work] [--ping] [--v6]
+                       [--no-version-check] [--version-check]
+                       [--version-check-channel {alpha,beta,stable}]
+                       [--no-watch] [--watch] [--no-color] [--color] [--setup]
+                       [-H COMPUTER_ID] [--cpu-model CPU_BRAND]
+                       [--features CPU_FEATURES] [--frequency CPU_SPEED]
+                       [--memory MEMORY] [--max-memory DAY_NIGHT_MEMORY]
+                       [--max-disk-space WORKER_DISK_SPACE]
+                       [--l1 CPU_L1_CACHE_SIZE] [--l2 CPU_L2_CACHE_SIZE]
+                       [--l3 CPU_L3_CACHE_SIZE] [--cores NUM_CORES]
+                       [--hyperthreads CPU_HYPERTHREADS] [--hours CPU_HOURS]
+                       [--to TOEMAILS] [-f FROMEMAIL] [-S SMTP] [--tls]
+                       [--no-tls] [--starttls] [--no-starttls]
+                       [-U EMAIL_USERNAME] [-P EMAIL_PASSWORD] [--test-email]
 
 This program will automatically get and register assignments, report
 assignment progress and results, upload proof files to and download
@@ -149,37 +179,37 @@ assignment results and upload any proof files to PrimeNet immediately. It will
 get assignments on the --timeout interval, or only once if --timeout is 0. It
 will additionally report the progress on the --checkin interval.
 
-Options:
-  --version             show program's version number and exit
+options:
   -h, --help            show this help message and exit
+  --version             show program's version number and exit
   -d, --debug           Output detailed information. Provide multiple times
                         for even more verbose output.
-  -w WORKDIR, --workdir=WORKDIR
+  -w WORKDIR, --workdir WORKDIR
                         Working directory with the configuration file from
-                        this program, Default: . (current directory)
-  -D DIRS, --dir=DIRS   Directories relative to --workdir with the work and
+                        this program, Default: '.' (current directory)
+  -D DIRS, --dir DIRS   Directories relative to --workdir with the work and
                         results files from the GIMPS program. Provide once for
                         each worker. This is incompatible with PRPLL.
-  -i WORKTODO_FILE, --work-file=WORKTODO_FILE
+  -i WORKTODO_FILE, --work-file WORKTODO_FILE
                         Work file filename, Default: 'worktodo.txt'. Not used
                         with PRPLL.
-  -r RESULTS_FILE, --results-file=RESULTS_FILE
+  -r RESULTS_FILE, --results-file RESULTS_FILE
                         Results file filename, Default: 'results.json.txt' for
                         mfaktc/mfakto or 'results.txt' otherwise. Not used
                         with PRPLL.
-  -L LOGFILE, --logfile=LOGFILE
+  -L LOGFILE, --logfile LOGFILE
                         Log file filename, Default: 'autoprimenet.log'
-  -l LOCALFILE, --config-file=LOCALFILE
+  -l LOCALFILE, --config-file LOCALFILE
                         Local configuration file filename, Default:
                         'prime.ini'
-  --archive-proofs=ARCHIVE_DIR
+  --archive-proofs ARCHIVE_DIR
                         Directory to archive PRP proof files after upload,
-                        Default: none
-  -u USER_ID, --username=USER_ID
+                        Default: None
+  -u USER_ID, --username USER_ID
                         GIMPS/PrimeNet User ID. Create a GIMPS/PrimeNet
                         account: https://www.mersenne.org/update/. If you do
                         not want a PrimeNet account, you can use ANONYMOUS.
-  -T WORK_PREFERENCE, --workpref=WORK_PREFERENCE
+  -T WORK_PREFERENCE, --workpref WORK_PREFERENCE
                         Work preference, Default: 150. Supported work
                         preferences: 2 (Trial factoring), 4 (P-1 factoring),
                         12 (Trial factoring GPU), 100 (First time LL tests),
@@ -197,21 +227,21 @@ Options:
                         preference for all workers or once for each worker to
                         use different work preferences. Not all worktypes are
                         supported by all the GIMPS programs.
-  --cert-work           Get PRP proof certification work, Default: none.
+  --cert-work           Get PRP proof certification work, Default: False.
                         Currently only supported by PRPLL.
   --no-cert-work
-  --cert-work-limit=CERT_CPU_LIMIT
+  --cert-work-limit CERT_CPU_LIMIT
                         PRP proof certification work limit in percentage of
                         CPU or GPU time, Default: 10%. Requires the --cert-
                         work option.
-  --min-exp=MIN_EXP     Minimum exponent to get from PrimeNet or TF1G (2 -
+  --min-exp MIN_EXP     Minimum exponent to get from PrimeNet or TF1G (2 -
                         9,999,999,999). TF1G assignments are supported by
                         setting this flag to 1,000,000,000 or above.
-  --max-exp=MAX_EXP     Maximum exponent to get from PrimeNet or TF1G (2 -
+  --max-exp MAX_EXP     Maximum exponent to get from PrimeNet or TF1G (2 -
                         9,999,999,999)
-  --min-bit=MIN_BIT     Minimum bit level of TF assignments to get from
+  --min-bit MIN_BIT     Minimum bit level of TF assignments to get from
                         PrimeNet or TF1G
-  --max-bit=MAX_BIT     Maximum bit level of TF assignments to get from
+  --max-bit MAX_BIT     Maximum bit level of TF assignments to get from
                         PrimeNet or TF1G
   --force-target-bits   Perform a depth first factor search by forcing TF
                         assignments to factor to the target bit level (as
@@ -224,26 +254,26 @@ Options:
   --cudalucas           Get assignments for CUDALucas.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
-  --num-workers=NUM_WORKERS
+  --num-workers NUM_WORKERS
                         Number of workers (CPU Cores/GPUs), Default: 1
-  -n NUM_CACHE, --num-cache=NUM_CACHE
+  -n NUM_CACHE, --num-cache NUM_CACHE
                         Number of assignments to cache, Default: 0. Deprecated
                         in favor of the --days-work option.
-  -W DAYS_OF_WORK, --days-work=DAYS_OF_WORK
+  -W DAYS_OF_WORK, --days-work DAYS_OF_WORK
                         Days of work to queue ((0-180] days), Default: 1 day
                         for mfaktc/mfakto or 3 days otherwise. Increases
                         num_cache when the time left for all assignments is
                         less than this number of days.
-  --force-pminus1=TESTS_SAVED
+  --force-pminus1 TESTS_SAVED
                         Force P-1 factoring before LL/PRP tests and/or change
                         the default PrimeNet PRP and P-1 tests_saved value.
-  --pminus1-threshold=PM1_MULTIPLIER
+  --pminus1-threshold PM1_MULTIPLIER
                         Retry the P-1 factoring before LL/PRP tests only if
                         the existing P-1 bounds are less than the target
                         bounds (as listed on mersenne.ca) times this
                         threshold/multiplier. Requires the --force-pminus1
                         option.
-  --force-pminus1-bounds=PM1_BOUNDS
+  --force-pminus1-bounds {MIN,MID,MAX}
                         Force using the 'MIN', 'MID' or 'MAX' optimal P-1
                         bounds (as listed on mersenne.ca) for P-1 tests. For
                         Mlucas, this will rewrite Pfactor= assignments to
@@ -261,11 +291,11 @@ Options:
                         another method to notify yourself, such as setting the
                         notification options below.
   --report-100m
-  --checkin=HOURS_BETWEEN_CHECKINS
+  --checkin HOURS_BETWEEN_CHECKINS
                         Hours to wait between sending assignment progress and
                         expected completion dates (1-168 hours), Default: 1
                         hours.
-  -t TIMEOUT, --timeout=TIMEOUT
+  -t TIMEOUT, --timeout TIMEOUT
                         Seconds to wait between updates, Default: 3600 seconds
                         (1 hour). Use 0 to update once and exit.
   -s, --status          Output a status report and any expected completion
@@ -283,7 +313,7 @@ Options:
                         overwrite any existing work files.
   --register-exponents  Prompt for all parameters needed to register one or
                         more specific exponents and exit.
-  --unreserve=EXPONENT  Unreserve the exponent and exit. Use this only if you
+  --unreserve EXPONENT  Unreserve the exponent and exit. Use this only if you
                         are sure you will not be finishing this exponent.
   --unreserve-all       Report assignment results, unreserve all assignments
                         and exit.
@@ -298,7 +328,7 @@ Options:
   --no-version-check    Disable the automatic AutoPrimeNet and GIMPS program
                         version check
   --version-check
-  --version-check-channel=VERSION_CHECK_CHANNEL
+  --version-check-channel {alpha,beta,stable}
                         Prefer the 'alpha', 'beta' or 'stable' channel/branch
                         when checking for new versions of AutoPrimeNet and the
                         GIMPS program. Not all programs provide alpha or beta
@@ -312,78 +342,76 @@ Options:
   --setup               Prompt for all the options that are needed to setup
                         this program and exit.
 
-  Registering Options:
-    Sent to PrimeNet/GIMPS when registering. It will automatically send
-    the progress, which allows the program to then be monitored on the
-    GIMPS website CPUs page (https://www.mersenne.org/cpus/), just like
-    with Prime95/MPrime. This also allows the program to get much smaller
-    Category 0 and 1 exponents, if it meets the other requirements
-    (https://www.mersenne.org/thresholds/). AutoPrimeNet should
-    automatically detect most of this system information. When using the
-    --setup option and a GPU based GIMPS program, it can optionally report
-    the GPU instead of the CPU.
+Registering Options:
+  Sent to PrimeNet/GIMPS when registering. It will automatically send the
+  progress, which allows the program to then be monitored on the GIMPS
+  website CPUs page (https://www.mersenne.org/cpus/), just like with
+  Prime95/MPrime. This also allows the program to get much smaller Category
+  0 and 1 exponents, if it meets the other requirements
+  (https://www.mersenne.org/thresholds/). AutoPrimeNet should automatically
+  detect most of this system information. When using the --setup option and
+  a GPU based GIMPS program, it can optionally report the GPU instead of the
+  CPU.
 
-    -H COMPUTER_ID, --hostname=COMPUTER_ID
-                        Optional computer name, Default: example
-    --cpu-model=CPU_BRAND
-                        Processor (CPU) model, Default: cpu.unknown
-    --features=CPU_FEATURES
+  -H COMPUTER_ID, --hostname COMPUTER_ID
+                        Optional computer name, Default: 'example'
+  --cpu-model CPU_BRAND
+                        Processor (CPU) model, Default: 'cpu.unknown'
+  --features CPU_FEATURES
                         CPU features, Default: ''
-    --frequency=CPU_SPEED
+  --frequency CPU_SPEED
                         CPU frequency/speed (MHz), Default: 1000 MHz
-    --memory=MEMORY     Total physical memory (RAM) (MiB), Default: 1024 MiB
-    --max-memory=DAY_NIGHT_MEMORY
+  --memory MEMORY       Total physical memory (RAM) (MiB), Default: 1024 MiB
+  --max-memory DAY_NIGHT_MEMORY
                         Configured day/night P-1 stage 2 memory (MiB),
                         Default: 921 MiB (90% of physical memory). Required
                         for P-1 assignments.
-    --max-disk-space=WORKER_DISK_SPACE
+  --max-disk-space WORKER_DISK_SPACE
                         Configured disk space limit per worker to store the
                         proof interim residues files for PRP tests
                         (GiB/worker), Default: 0.0 GiB/worker. Use 0 to not
                         send.
-    --l1=CPU_L1_CACHE_SIZE
+  --l1 CPU_L1_CACHE_SIZE
                         L1 Data Cache size (KiB), Default: 8 KiB
-    --l2=CPU_L2_CACHE_SIZE
+  --l2 CPU_L2_CACHE_SIZE
                         L2 Cache size (KiB), Default: 512 KiB
-    --l3=CPU_L3_CACHE_SIZE
+  --l3 CPU_L3_CACHE_SIZE
                         L3 Cache size (KiB), Default: 0 KiB
-    --cores=NUM_CORES   Number of physical CPU cores, Default: 1
-    --hyperthreads=CPU_HYPERTHREADS
+  --cores NUM_CORES     Number of physical CPU cores, Default: 1
+  --hyperthreads CPU_HYPERTHREADS
                         Number of CPU threads per core (0 is unknown),
                         Default: 0. Choose 1 for non-hyperthreaded and 2 or
                         more for hyperthreaded.
-    --hours=CPU_HOURS   Hours per day you expect the GIMPS program will run (1
+  --hours CPU_HOURS     Hours per day you expect the GIMPS program will run (1
                         - 24), Default: 24 hours. Used to give better
                         estimated completion dates.
 
-  Notification Options:
-    Optionally configure this program to automatically send an e-mail/text
-    message notification if there is an error, if the GIMPS program has
-    stalled, if the available disk space is low, if it found a new
-    Mersenne prime or if there is a new version of the GIMPS program. Send
-    text messages by using your mobile providers e-mail to SMS or MMS
-    gateway. Use the --test-email option to verify the configuration. When
-    using the --setup option, it will automatically lookup the
-    configuration.
+Notification Options:
+  Optionally configure this program to automatically send an e-mail/text
+  message notification if there is an error, if the GIMPS program has
+  stalled, if the available disk space is low, if it found a new Mersenne
+  prime or if there is a new version of the GIMPS program. Send text
+  messages by using your mobile providers e-mail to SMS or MMS gateway. Use
+  the --test-email option to verify the configuration. When using the
+  --setup option, it will automatically lookup the configuration.
 
-    --to=TOEMAILS       To e-mail address. Use multiple times for multiple
+  --to TOEMAILS         To e-mail address. Use multiple times for multiple
                         To/recipient e-mail addresses. Defaults to the --from
                         value if not provided.
-    -f FROMEMAIL, --from=FROMEMAIL
+  -f FROMEMAIL, --from FROMEMAIL
                         From e-mail address
-    -S SMTP, --smtp=SMTP
-                        SMTP server. Optionally include a port with the
+  -S SMTP, --smtp SMTP  SMTP server. Optionally include a port with the
                         'hostname:port' syntax. Defaults to port 465 with
                         --tls and port 25 otherwise.
-    --tls               Use a secure connection with SSL/TLS
-    --no-tls
-    --starttls          Upgrade to a secure connection with StartTLS
-    --no-starttls
-    -U EMAIL_USERNAME, --email-username=EMAIL_USERNAME
+  --tls                 Use a secure connection with SSL/TLS
+  --no-tls
+  --starttls            Upgrade to a secure connection with StartTLS
+  --no-starttls
+  -U EMAIL_USERNAME, --email-username EMAIL_USERNAME
                         SMTP server username
-    -P EMAIL_PASSWORD, --email-password=EMAIL_PASSWORD
+  -P EMAIL_PASSWORD, --email-password EMAIL_PASSWORD
                         SMTP server password
-    --test-email        Send a test e-mail message and exit
+  --test-email          Send a test e-mail message and exit
 ```
 
 
