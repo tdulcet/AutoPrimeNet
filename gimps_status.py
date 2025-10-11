@@ -21,6 +21,7 @@
 
 from __future__ import division, print_function, unicode_literals
 
+import argparse
 import binascii
 import ctypes
 import glob
@@ -29,7 +30,6 @@ import json
 import locale
 import logging
 import math
-import optparse
 import os
 import re
 import struct
@@ -691,7 +691,7 @@ def unpack(aformat, file, noraise=False):
 def read_value_prime95(file, aformat, asum):
 	"""Read a value from a Prime95 work unit file and update the checksum."""
 	result = unpack(aformat, file)
-	if options.check:
+	if args.check:
 		for char, val in zip(aformat[1:], result):
 			if char in {"i", "I"}:
 				asum += val
@@ -707,7 +707,7 @@ def read_array_prime95(file, size, asum):
 	buffer = file.read(size)
 	if len(buffer) != size:
 		raise EOFError
-	if options.check:
+	if args.check:
 		asum += sum(bytearray(buffer))
 	return buffer, asum
 
@@ -721,7 +721,7 @@ def read_residue_prime95(file, asum):
 	buffer = file.read(size)
 	if len(buffer) != size:
 		raise EOFError
-	if options.check:
+	if args.check:
 		# result = array("I", buffer)
 		result = struct.unpack(aformat, buffer)
 		asum += alen
@@ -740,7 +740,7 @@ def parse_work_unit_prime95(filename):
 			wu.stage = stage.rstrip(b"\0").decode()
 			wu.pct_complete = max(0, min(1, pct_complete))
 
-			if options.check or options.jacobi:
+			if args.check or args.jacobi:
 				bit_len = int(math.ceil(log2(wu.k) + wu.n * log2(wu.b)))
 
 			asum = 0
@@ -754,7 +754,7 @@ def parse_work_unit_prime95(filename):
 
 				(wu.error_count, wu.counter, wu.shift_count), asum = read_value_prime95(f, "<III", asum)
 
-				if options.check:
+				if args.check:
 					residue, asum = read_residue_prime95(f, asum)
 					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
 					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
@@ -776,12 +776,12 @@ def parse_work_unit_prime95(filename):
 
 				(wu.error_count, wu.counter, wu.shift_count), asum = read_value_prime95(f, "<III", asum)
 
-				if options.check or options.jacobi:
+				if args.check or args.jacobi:
 					residue, asum = read_residue_prime95(f, asum)
 					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
 					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
-				if options.jacobi:
+				if args.jacobi:
 					if executor:
 						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 					else:
@@ -837,7 +837,7 @@ def parse_work_unit_prime95(filename):
 				else:
 					wu.proof_version = 1
 
-				if options.check:
+				if args.check:
 					residue, asum = read_residue_prime95(f, asum)
 					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
 					ares64 = residue & 0xFFFFFFFFFFFFFFFF
@@ -888,7 +888,7 @@ def parse_work_unit_prime95(filename):
 
 					wu.sigma_type = 1
 
-					if options.check:
+					if args.check:
 						_x, asum = read_residue_prime95(f, asum)
 
 						_z, asum = read_residue_prime95(f, asum)
@@ -950,7 +950,7 @@ def parse_work_unit_prime95(filename):
 						elif wu.state == ECM_STATE_GCD:
 							pass
 
-						if options.check:
+						if args.check:
 							_x, asum = read_residue_prime95(f, asum)
 
 							_z, asum = read_residue_prime95(f, asum)
@@ -959,7 +959,7 @@ def parse_work_unit_prime95(filename):
 							if montg_stage1:
 								(wu.stage1_prime,), asum = read_value_prime95(f, "<Q", asum)
 
-								if options.check:
+								if args.check:
 									_x, asum = read_residue_prime95(f, asum)
 
 									_z, asum = read_residue_prime95(f, asum)
@@ -968,7 +968,7 @@ def parse_work_unit_prime95(filename):
 									read_value_prime95(f, "<QIII", asum)
 								)
 
-								if options.check:
+								if args.check:
 									_x, asum = read_residue_prime95(f, asum)
 
 									_y, asum = read_residue_prime95(f, asum)
@@ -979,7 +979,7 @@ def parse_work_unit_prime95(filename):
 
 									_z, asum = read_residue_prime95(f, asum)
 						elif wu.state == ECM_STATE_MIDSTAGE:
-							if options.check:
+							if args.check:
 								_Qx_binary, asum = read_residue_prime95(f, asum)
 
 								(tmp,), asum = read_value_prime95(f, "<i", asum)
@@ -1021,14 +1021,14 @@ def parse_work_unit_prime95(filename):
 
 								_pairmap, asum = read_array_prime95(f, pairmap_size, asum)
 
-								if options.check:
+								if args.check:
 									_Qx_binary, asum = read_residue_prime95(f, asum)
 
 									_gg_binary, asum = read_residue_prime95(f, asum)
 							else:
 								(_required_missing, _C_done), asum = read_value_prime95(f, "<iQ", asum)
 
-								if options.check:
+								if args.check:
 									_Qx_binary, asum = read_residue_prime95(f, asum)
 
 									(tmp,), asum = read_value_prime95(f, "<i", asum)
@@ -1036,7 +1036,7 @@ def parse_work_unit_prime95(filename):
 									if tmp:
 										_gg_binary, asum = read_residue_prime95(f, asum)
 						elif wu.state == ECM_STATE_GCD:
-							if options.check:
+							if args.check:
 								_gg, asum = read_residue_prime95(f, asum)
 			elif magicnum == PM1_MAGICNUM:
 				if not 1 <= wu.version <= PM1_VERSION:
@@ -1084,7 +1084,7 @@ def parse_work_unit_prime95(filename):
 					elif state == 2:
 						wu.state = PM1_STATE_DONE
 
-					if options.check:
+					if args.check:
 						_x, asum = read_residue_prime95(f, asum)
 
 						if state == 1:
@@ -1162,7 +1162,7 @@ def parse_work_unit_prime95(filename):
 					elif wu.state in {PM1_STATE_GCD, PM1_STATE_DONE}:
 						(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
 
-					if options.check:
+					if args.check:
 						if wu.version == 4:
 							have_x = True
 						else:
@@ -1228,7 +1228,7 @@ def parse_work_unit_prime95(filename):
 				elif wu.state in {PP1_STATE_GCD, PP1_STATE_DONE}:
 					(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
 
-				if options.check:
+				if args.check:
 					_V, asum = read_residue_prime95(f, asum)
 
 					if PP1_STATE_MIDSTAGE <= wu.state <= PP1_STATE_GCD:
@@ -1242,12 +1242,12 @@ def parse_work_unit_prime95(filename):
 				logging.error("savefile with unknown magicnum = %#x", magicnum)
 				return None
 
-			if options.check and f.read():
+			if args.check and f.read():
 				return None
 
 			asum &= 0xFFFFFFFF
 
-			if options.check and filesum != asum:
+			if args.check and filesum != asum:
 				logging.error("Checksum error. Got %X, expected %X.", filesum, asum)
 	except EOFError:
 		return None
@@ -1261,7 +1261,7 @@ def parse_work_unit_prime95(filename):
 def read_residue_mlucas(file, nbytes, filename, check=False):
 	"""Reads and verifies the residue from an Mlucas work unit file."""
 	residue = None
-	if options.check or check:
+	if args.check or check:
 		buffer = file.read(nbytes)
 		if len(buffer) != nbytes:
 			raise EOFError
@@ -1273,7 +1273,7 @@ def read_residue_mlucas(file, nbytes, filename, check=False):
 	res35m1 = from_bytes(res35m1)
 	res36m1 = from_bytes(res36m1)
 	# print("{0:016X}".format(res64), "{0:010X}".format(res35m1), "{0:010X}".format(res36m1))
-	if options.check:
+	if args.check:
 		ares64 = residue & 0xFFFFFFFFFFFFFFFF
 		if res64 != ares64:
 			logging.error("%r: Res64 checksum error. Expected %X, got %X.", filename, res64, ares64)
@@ -1301,7 +1301,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 			nbytes = (p + 7) // 8 if m == MODULUS_TYPE_MERSENNE else (p >> 3) + 1 if m == MODULUS_TYPE_FERMAT else 0
 
 			residue1, res64, res35m1, res36m1 = read_residue_mlucas(
-				f, nbytes, filename, options.jacobi and t == TEST_TYPE_PRIMALITY and m == MODULUS_TYPE_MERSENNE
+				f, nbytes, filename, args.jacobi and t == TEST_TYPE_PRIMALITY and m == MODULUS_TYPE_MERSENNE
 			)
 
 			result = unpack("<3sQ", f, True)
@@ -1331,7 +1331,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.stage = "LL"
 					wu.pct_complete = nsquares / (p - 2)
 
-					if options.jacobi:
+					if args.jacobi:
 						if executor:
 							futures.append(executor.submit(jacobi_test, wu, p, residue1, filename))
 						else:
@@ -1344,7 +1344,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.stage = "Pépin"
 					wu.pct_complete = nsquares / (p - 1)
 
-				if options.check or (options.jacobi and m == MODULUS_TYPE_MERSENNE):
+				if args.check or (args.jacobi and m == MODULUS_TYPE_MERSENNE):
 					wu.res2048 = "{:0512X}".format(residue1 & (1 << 2048) - 1)
 			elif t == TEST_TYPE_PRP:
 				wu.work_type = WORK_PRP
@@ -1352,7 +1352,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 				wu.counter = nsquares
 				wu.prp_base = prp_base
 
-				# if options.check and nsquares == p:
+				# if args.check and nsquares == p:
 				#     a2 = prp_base * prp_base
 				#     r = residue1 % a2
 				#     if r:
@@ -1364,7 +1364,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 				wu.stage = "PRP"
 				wu.pct_complete = nsquares / p
 
-				if options.check:
+				if args.check:
 					wu.res2048 = "{:0512X}".format(residue1 & (1 << 2048) - 1)
 			elif t == TEST_TYPE_PM1:
 				wu.work_type = WORK_PMINUS1
@@ -1401,7 +1401,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 			wu.nerr_roe = nerr_roe
 			wu.nerr_gcheck = nerr_gcheck
 
-			if options.check and f.read():
+			if args.check and f.read():
 				return None
 	except EOFError:
 		return None
@@ -1419,13 +1419,13 @@ def parse_work_unit_cudalucas(filename, p):
 
 	try:
 		with open(filename, "rb") as f:
-			if options.check or options.jacobi:
+			if args.check or args.jacobi:
 				size = (end + 9) * 4
 				buffer = f.read(size)
 				if len(buffer) != size:
 					return None
 				view = memoryview(buffer)
-				if options.check:
+				if args.check:
 					chksum = checkpoint_checksum(buffer)
 				residue = from_bytes(view[: -9 * 4])
 
@@ -1437,7 +1437,7 @@ def parse_work_unit_cudalucas(filename, p):
 				return None
 			if magic_number:
 				logging.error("savefile with unknown magic_number = %s", magic_number)
-			if options.check and checksum != chksum:
+			if args.check and checksum != chksum:
 				logging.error("Checksum error. Got %X, expected %X.", checksum, chksum)
 			total_time <<= 15
 			_time_adj <<= 15
@@ -1451,17 +1451,17 @@ def parse_work_unit_cudalucas(filename, p):
 			wu.stage = "LL"
 			wu.pct_complete = j / (q - 2)
 
-			if options.check or options.jacobi:
+			if args.check or args.jacobi:
 				residue = rotr(residue, offset, q, (1 << q) - 1)
 				wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 				wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
-			if options.jacobi:
+			if args.jacobi:
 				if executor:
 					futures.append(executor.submit(jacobi_test, wu, q, residue, filename))
 				else:
 					jacobi_test(wu, q, residue, filename)
 
-			if options.check and f.read():
+			if args.check and f.read():
 				return None
 	except EOFError:
 		return None
@@ -1534,7 +1534,7 @@ def parse_work_unit_cudapm1(filename, p):
 			wu.fftlen = n
 			wu.B_done = b1
 
-			if options.check and f.read():
+			if args.check and f.read():
 				return None
 	except EOFError:
 		return None
@@ -1577,7 +1577,7 @@ def parse_work_unit_gpuowl(filename):
 				wu.counter = int(iteration)
 				wu.shift_count = 0
 
-				if options.check or options.jacobi:
+				if args.check or args.jacobi:
 					nWords = (wu.n - 1) // 32 + 1
 					size = nWords * 4
 					buffer = f.read(size)
@@ -1591,7 +1591,7 @@ def parse_work_unit_gpuowl(filename):
 				wu.pct_complete = wu.counter / (wu.n - 2)
 
 				# Python 3.5+
-				if options.check and hasattr(hashlib, "blake2b") and ahash is not None:
+				if args.check and hasattr(hashlib, "blake2b") and ahash is not None:
 					ahash = int(ahash, 16)
 					h = hashlib.blake2b(digest_size=8)
 					h.update(struct.pack("=II", wu.n, wu.counter))
@@ -1599,7 +1599,7 @@ def parse_work_unit_gpuowl(filename):
 					aahash = from_bytes(h.digest())
 					if ahash != aahash:
 						logging.error("Hash error. Expected %X, actual %X.", ahash, aahash)
-				if options.jacobi:
+				if args.jacobi:
 					if executor:
 						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 					else:
@@ -1633,7 +1633,7 @@ def parse_work_unit_gpuowl(filename):
 				if nErrors is not None:
 					wu.nerr_gcheck = int(nErrors)
 
-				if options.check:
+				if args.check:
 					nWords = (wu.n - 1) // 32 + 1
 					size = nWords * 4
 					buffer = f.read(size)
@@ -1681,7 +1681,7 @@ def parse_work_unit_gpuowl(filename):
 				wu.n = int(exponent)
 				wu.B_done = int(B1)
 
-				if options.check:
+				if args.check:
 					nWords = (wu.n - 1) // 32 + 1
 					size = nWords * 4
 					buffer = f.read(size)
@@ -1718,7 +1718,7 @@ def parse_work_unit_gpuowl(filename):
 				wu.B_done = int(B1)
 				wu.C_done = int(B2)
 
-				if options.check and crc is not None:
+				if args.check and crc is not None:
 					if nWords is None:
 						nWords = (wu.n - 1) // 32 + 1
 					size = nWords * 4
@@ -1748,7 +1748,7 @@ def parse_work_unit_gpuowl(filename):
 				logging.error("Unknown save/checkpoint file header: %s", header)
 				return None
 
-			# if options.check and f.read():
+			# if args.check and f.read():
 			# 	return None
 	except EOFError:
 		return None
@@ -1756,7 +1756,7 @@ def parse_work_unit_gpuowl(filename):
 		logging.exception("Error reading %r file.", filename)
 		return None
 
-	if options.check and crc is not None:
+	if args.check and crc is not None:
 		crc = int(crc)
 		acrc = binascii.crc32(buffer) & 0xFFFFFFFF
 		if crc != acrc:
@@ -1797,7 +1797,7 @@ def parse_work_unit_prpll(filename):
 				wu.shift_count = 0
 				wu.total_time = int(float(elapsed) * 1000 * 1000)
 
-				if options.check or options.jacobi:
+				if args.check or args.jacobi:
 					nWords = (wu.n - 1) // 32 + 1
 					size = nWords * 4
 					buffer = f.read(size)
@@ -1810,7 +1810,7 @@ def parse_work_unit_prpll(filename):
 				wu.stage = "LL"
 				wu.pct_complete = wu.counter / (wu.n - 2)
 
-				if options.jacobi:
+				if args.jacobi:
 					if executor:
 						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 					else:
@@ -1836,7 +1836,7 @@ def parse_work_unit_prpll(filename):
 				wu.nerr_gcheck = int(nErrors)
 				wu.total_time = int(float(elapsed) * 1000 * 1000)
 
-				if options.check:
+				if args.check:
 					nWords = (wu.n - 1) // 32 + 1
 					size = nWords * 4
 					buffer = f.read(size)
@@ -1856,7 +1856,7 @@ def parse_work_unit_prpll(filename):
 				logging.error("Unknown save/checkpoint file header: %s", header)
 				return None
 
-			if options.check and f.read():
+			if args.check and f.read():
 				return None
 	except EOFError:
 		return None
@@ -1864,7 +1864,7 @@ def parse_work_unit_prpll(filename):
 		logging.exception("Error reading %r file.", filename)
 		return None
 
-	if options.check and crc is not None:
+	if args.check and crc is not None:
 		crc = int(crc)
 		acrc = binascii.crc32(buffer) & 0xFFFFFFFF
 		if crc != acrc:
@@ -1954,7 +1954,7 @@ def parse_work_unit_mfaktc(filename):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 
-			if options.check and f.read():
+			if args.check and f.read():
 				return None
 	except (IOError, OSError):
 		logging.exception("Error reading %r file.", filename)
@@ -1969,7 +1969,7 @@ def parse_work_unit_mfaktc(filename):
 	else:
 		return None
 
-	if options.check:
+	if args.check:
 		chksum = checkpoint_checksum(header.rsplit(None, 1)[0])
 		i = int(i, 16)
 		if chksum != i:
@@ -2003,7 +2003,7 @@ def parse_work_unit_mfakto(filename):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 
-			if options.check and f.read():
+			if args.check and f.read():
 				return None
 	except (IOError, OSError):
 		logging.exception("Error reading %r file.", filename)
@@ -2016,7 +2016,7 @@ def parse_work_unit_mfakto(filename):
 	else:
 		return None
 
-	if options.check:
+	if args.check:
 		chksum = checkpoint_checksum(header.rsplit(None, 1)[0])
 		i = int(i, 16)
 		if chksum != i:
@@ -2109,7 +2109,7 @@ def parse_proof(filename):
 			residue_size = -(int(math.ceil(log2(wu.k) + wu.n * log2(wu.b))) // -8)
 			proofs_written = (proof_file_size - proof_header_size) // ((wu.proof_power + 1) * residue_size)
 
-			if options.check and wu.version == 2 and proofs_written == wu.proof_power_mult:
+			if args.check and wu.version == 2 and proofs_written == wu.proof_power_mult:
 				f.seek(proof_header_size)
 				for _ in range(1, wu.proof_power_mult):
 					f.seek((wu.proof_power + 1) * residue_size, 1)  # os.SEEK_CUR
@@ -2158,7 +2158,7 @@ def one_line_status(file, num, index, wu):
 			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
 			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
-		if options.jacobi:
+		if args.jacobi:
 			temp.append("Jacobi: {:n} ({})".format(wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed"))
 	elif wu.work_type == WORK_PRP:
 		work_type_str = "PRP"
@@ -2220,7 +2220,7 @@ def one_line_status(file, num, index, wu):
 			temp.append("B2_start={}".format(wu.B2_start))
 
 	if wu.res64:
-		if options.long and (wu.res35m1 is not None or wu.res36m1 is not None):
+		if args.long and (wu.res35m1 is not None or wu.res36m1 is not None):
 			temp.extend((
 				"Res64: {}".format(wu.res64),
 				"Res35m1: {}".format(wu.res35m1) if wu.res35m1 is not None else "",
@@ -2254,7 +2254,7 @@ def one_line_status(file, num, index, wu):
 		assignment_to_str(wu) if not index else "",
 		"{:n}. {}".format(num + 1, os.path.basename(file)) if num >= 0 else os.path.basename(file),
 	]
-	if options.long:
+	if args.long:
 		date = datetime.fromtimestamp(os.path.getmtime(file))
 		size = os.path.getsize(file)
 		result.extend(("{}B".format(output_unit(size)), "{:%c}".format(date)))
@@ -2283,7 +2283,7 @@ def json_status(file, wu, program):
 	))
 	if wu.known_factors is not None:
 		result["known_factors"] = tuple(map(str, wu.known_factors))
-	if options.long:
+	if args.long:
 		result["date"] = os.path.getmtime(file)
 		result["size"] = os.path.getsize(file)
 
@@ -2305,7 +2305,7 @@ def json_status(file, wu, program):
 			result["shift_count"] = wu.shift_count
 		if wu.fftlen:
 			result["fftlen"] = wu.fftlen
-		if options.jacobi:
+		if args.jacobi:
 			result["jacobi"] = wu.jacobi
 	elif wu.work_type == WORK_PRP:
 		if wu.counter is not None:
@@ -2402,7 +2402,7 @@ def main(dirs):
 
 	for adir in dirs:
 		aresults = results[adir] = OrderedDict()
-		if options.prime95:
+		if args.prime95:
 			aaresults = aresults["Prime95/MPrime"] = []
 			entries = OrderedDict()
 			for entry in glob.iglob(os.path.join(adir, "[pfemnc][A-Y0-9]*")):
@@ -2422,7 +2422,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.mlucas:
+		if args.mlucas:
 			aaresults = aresults["Mlucas"] = []
 			entries = OrderedDict()
 			for entry in glob.iglob(os.path.join(adir, "[pfq][0-9]*")):
@@ -2443,7 +2443,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.cudalucas:
+		if args.cudalucas:
 			aaresults = aresults["CUDALucas"] = []
 			entries = OrderedDict()
 			for entry in glob.iglob(os.path.join(adir, "[ct][0-9]*")):
@@ -2459,7 +2459,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.cudapm1:
+		if args.cudapm1:
 			aaresults = aresults["CUDAPm1"] = []
 			entries = OrderedDict()
 			for entry in glob.iglob(os.path.join(adir, "[ct][0-9]*s[12]")):
@@ -2475,7 +2475,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.gpuowl:
+		if args.gpuowl:
 			aaresults = aresults["GpuOwl"] = []
 			entries = OrderedDict()
 			for entry in (
@@ -2503,7 +2503,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.prpll:
+		if args.prpll:
 			aaresults = aresults["PRPLL"] = []
 			entries = OrderedDict()
 			for entry in (
@@ -2527,7 +2527,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.mfaktc:
+		if args.mfaktc:
 			aaresults = aresults["mfaktc"] = []
 			for file in glob.iglob(os.path.join(adir, "[MW][0-9]*.ckp")):
 				if MFAKTC_RE.match(os.path.basename(file)):
@@ -2537,7 +2537,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.mfakto:
+		if args.mfakto:
 			aaresults = aresults["mfakto"] = []
 			entries = OrderedDict()
 			for entry in glob.iglob(os.path.join(adir, "M[0-9]*.ckp*")):
@@ -2553,7 +2553,7 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
-		if options.proof:
+		if args.proof:
 			aaresults = aresults["PRP proof"] = []
 			for file in (
 				aglob
@@ -2585,73 +2585,73 @@ def main(dirs):
 			rows = []
 			for j, num, file, result in aaresults:
 				rows.append(one_line_status(file, num, j, result))
-				if options.json:
+				if args.json:
 					parsed[file] = json_status(file, result, program)
 			if rows:
 				output_table(rows)
 			else:
 				print("\tNo save/checkpoint files found for {}.".format(program))
 
-	if options.json:
-		with open(options.json, "w") as f:
+	if args.json:
+		with open(args.json, "w") as f:
 			json.dump(parsed, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":
-	parser = optparse.OptionParser(
-		version="%prog 1.0",
-		description="Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files",
+	parser = argparse.ArgumentParser(
+		description="Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files"
 	)
-	parser.add_option("-w", "--workdir", default=os.curdir, help="Working directory, Default: %default (current directory)")
-	# parser.add_option("-D", "--dir", action="append", dest="dirs", help="Directories with the save/checkpoint files. Provide once for each directory.")
-	parser.add_option("-p", "--prime95", "--mprime", action="store_true", help="Look for Prime95/MPrime save/checkpoint files")
-	parser.add_option("-m", "--mlucas", action="store_true", help="Look for Mlucas save/checkpoint files")
-	parser.add_option("-g", "--gpuowl", action="store_true", help="Look for GpuOwl save/checkpoint files")
-	parser.add_option("--prpll", action="store_true", help="Look for PRPLL save/checkpoint files")
-	parser.add_option("-c", "--cudalucas", action="store_true", help="Look for CUDALucas save/checkpoint files")
-	parser.add_option("--cudapm1", action="store_true", help="Look for CUDAPm1 save/checkpoint files")
-	parser.add_option("--mfaktc", action="store_true", help="Look for mfaktc save/checkpoint files")
-	parser.add_option("--mfakto", action="store_true", help="Look for mfakto save/checkpoint files")
-	parser.add_option("--proof", action="store_true", help="Look for PRP proof files")
-	parser.add_option("-l", "--long", action="store_true", help="Output in long format with the file size and modification time")
-	parser.add_option(
+	parser.suggest_on_error = True  # Python 3.14+
+	parser.add_argument("--version", action="version", version="%(prog)s 1.0")
+	parser.add_argument("-w", "--workdir", default=os.curdir, help="Working directory, Default: %(default)r (current directory)")
+	# parser.add_argument("-D", "--dir", action="append", dest="dirs", help="Directories with the save/checkpoint files. Provide once for each directory.")
+	parser.add_argument("-p", "--prime95", "--mprime", action="store_true", help="Look for Prime95/MPrime save/checkpoint files")
+	parser.add_argument("-m", "--mlucas", action="store_true", help="Look for Mlucas save/checkpoint files")
+	parser.add_argument("-g", "--gpuowl", action="store_true", help="Look for GpuOwl save/checkpoint files")
+	parser.add_argument("--prpll", action="store_true", help="Look for PRPLL save/checkpoint files")
+	parser.add_argument("-c", "--cudalucas", action="store_true", help="Look for CUDALucas save/checkpoint files")
+	parser.add_argument("--cudapm1", action="store_true", help="Look for CUDAPm1 save/checkpoint files")
+	parser.add_argument("--mfaktc", action="store_true", help="Look for mfaktc save/checkpoint files")
+	parser.add_argument("--mfakto", action="store_true", help="Look for mfakto save/checkpoint files")
+	parser.add_argument("--proof", action="store_true", help="Look for PRP proof files")
+	parser.add_argument("-l", "--long", action="store_true", help="Output in long format with the file size and modification time")
+	parser.add_argument(
 		"--check",
 		action="store_true",
 		help="Verify any checksums, CRCs or residues in save/checkpoint files. Also, calculate the Res64 and Res2048 values from any LL/PRP/CERT savefiles or version 2 PRP proof files. This may be computationally expensive.",
 	)
-	parser.add_option(
+	parser.add_argument(
 		"--jacobi",
 		action="store_true",
 		help="Run the Jacobi Error Check on LL save/checkpoint files. This may be very computationally expensive.",
 	)
-	parser.add_option("--json", help="Export data as JSON to this file")
+	parser.add_argument("--json", help="Export data as JSON to this file")
+	parser.add_argument("dirs", nargs="*", help="Directories relative to --workdir with the save/checkpoint or PRP proof files.")
 
-	options, args = parser.parse_args()
-	# if args:
-	# parser.error("Unexpected argument: {0!r}".format(args[0]))
+	args = parser.parse_args()
 
-	workdir = os.path.expanduser(options.workdir)
-	dirs = [os.path.join(workdir, adir) for adir in args] if args else [workdir]
+	workdir = os.path.expanduser(args.workdir)
+	dirs = [os.path.join(workdir, adir) for adir in args.dirs] if args.dirs else [workdir]
 
 	for adir in dirs:
 		if not os.path.isdir(adir):
 			parser.error("Directory {!r} does not exist".format(adir))
 
 	if not (
-		options.prime95
-		or options.mlucas
-		or options.cudalucas
-		or options.cudapm1
-		or options.gpuowl
-		or options.prpll
-		or options.mfaktc
-		or options.mfakto
-		or options.proof
+		args.prime95
+		or args.mlucas
+		or args.cudalucas
+		or args.cudapm1
+		or args.gpuowl
+		or args.prpll
+		or args.mfaktc
+		or args.mfakto
+		or args.proof
 	):
 		parser.error("Must select at least one GIMPS program to look for save/checkpoint files for")
 
-	if options.json and os.path.exists(options.json):
-		parser.error("File {!r} already exists".format(options.json))
+	if args.json and os.path.exists(args.json):
+		parser.error("File {!r} already exists".format(args.json))
 
 	logging.basicConfig(level=logging.DEBUG, format="%(filename)s: [%(asctime)s]  %(levelname)s: %(message)s")
 
