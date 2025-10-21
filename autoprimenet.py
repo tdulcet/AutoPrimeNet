@@ -122,6 +122,12 @@ except ImportError:
 
 try:
 	# Python 3+
+	from http.client import HTTP_PORT
+except ImportError:
+	from httplib import HTTP_PORT
+
+try:
+	# Python 3+
 	from configparser import ConfigParser
 	from configparser import Error as ConfigParserError
 except ImportError:
@@ -2732,12 +2738,18 @@ def check_options(parser, args):
 			)
 		)
 
+	if args.min_exp and args.max_exp and args.min_exp >= args.max_exp:
+		parser.error("Minimum exponent ({}) must be less than the maximum exponent ({})".format(args.min_exp, args.max_exp))
+
 	if args.min_exp and args.max_exp and args.min_exp < MAX_PRIMENET_EXP <= args.max_exp:
 		parser.error(
 			"Minimum exponent ({}) and maximum exponent ({}) must both be less than or greater than 1,000,000,000 (for TF1G)".format(
 				args.min_exp, args.max_exp
 			)
 		)
+
+	if args.min_bit and args.max_bit and args.min_bit >= args.max_bit:
+		parser.error("Minimum bit level ({}) must be less than the maximum bit level ({})".format(args.min_bit, args.max_bit))
 
 	if not 0 <= args.days_of_work <= 180:
 		parser.error("Days of work must be less than or equal to 180 days")
@@ -5951,15 +5963,17 @@ def get_proof_data(adapter, assignment_aid, file):
 	)
 	start = timeit.default_timer()
 	try:
-		r = session.get(primenet_baseurl + "proof_get_data/", params={"aid": assignment_aid}, timeout=180, stream=True)
-		r.raise_for_status()
-		length = int(r.headers["Content-Length"])
-		if hasattr(os, "posix_fallocate"):  # Python 3.3+, Linux
-			os.posix_fallocate(file.fileno(), 0, length - 32)
-		amd5 = next(r.iter_content(chunk_size=32))
-		for chunk in r.iter_content(chunk_size=max_chunk_size):
-			if chunk:
-				file.write(chunk)
+		with session.get(primenet_baseurl + "proof_get_data/", params={"aid": assignment_aid}, timeout=180, stream=True) as r:
+			r.raise_for_status()
+			length = int(r.headers["Content-Length"])
+			if hasattr(os, "posix_fallocate"):  # Python 3.3+, Linux
+				os.posix_fallocate(file.fileno(), 0, length - 32)
+			# amd5 = r.raw.read(32)
+			amd5 = next(r.iter_content(chunk_size=32))
+			# shutil.copyfileobj(r.raw, file)
+			for chunk in r.iter_content(chunk_size=max_chunk_size):
+				if chunk:
+					file.write(chunk)
 	except RequestException as e:
 		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
 		return None
@@ -6093,7 +6107,11 @@ def get_assignment(
 	))
 	retry = False
 	if (assignment_num is None or assignment_num) and not get_cert_work:
-		adapter.info("Getting assignment from server")
+		adapter.info(
+			"Getting assignment from server%s%s",
+			", min exponent {}, max exponent {}".format(min_exp, max_exp) if min_exp or max_exp else "",
+			", min bits {}, max bits {}".format(args.min_bit, args.max_bit) if args.min_bit or args.max_bit else "",
+		)
 	r = send_request(adapter, guid, params)
 	if r is None:
 		retry = True
@@ -7536,9 +7554,12 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 	else:
 		stages = get_stages_mfaktx_ini(adapter, adir)
 		adapter.info(
-			"Getting %s%s TF1G assignments from mersenne.ca, stages = %s",
+			"Getting %s%s TF1G assignments from mersenne.ca, min exponent %s, max exponent %s%s, stages = %s",
 			format(max_ghd or max_assignments, "n"),
 			" GHz-days of" if max_ghd else "",
+			args.min_exp,
+			args.max_exp,
+			", min bits {}, max bits {}".format(args.min_bit, args.max_bit) if args.min_bit or args.max_bit else "",
 			stages,
 		)
 		data.update({
@@ -7555,18 +7576,18 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 			data["biggest"] = int(config.getboolean(SEC.PrimeNet, "tf1g_biggest"))
 	retry = False
 	try:
-		r = session.post(mersenne_ca_baseurl + "tf1G.php", data=data, timeout=180, stream=True)
-		r.raise_for_status()
-		tests = []
-		for task in r.iter_lines(decode_unicode=True):
-			if task:
-				test = parse_assignment(task)
-				if test is None:
-					adapter.error("Invalid assignment %r", task)
-					tests.append(task)
-				else:
-					adapter.info("Got assignment: %r", exponent_to_text(test))
-					tests.append(test)
+		with session.post(mersenne_ca_baseurl + "tf1G.php", data, timeout=180, stream=True) as r:
+			r.raise_for_status()
+			tests = []
+			for task in r.iter_lines(decode_unicode=True):
+				if task:
+					test = parse_assignment(task)
+					if test is None:
+						adapter.error("Invalid assignment %r", task)
+						tests.append(task)
+					else:
+						adapter.info("Got assignment: %r", exponent_to_text(test))
+						tests.append(test)
 	except RequestException as e:
 		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
 		retry = True
@@ -7910,19 +7931,32 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 	if tasks and len(tasks) <= 5:
 		output_status((adir,), cpu_num)
 	if num_fetched < num_to_get:
-		adapter.error(
-			"Failed to get requested number of new assignments, %s requested, %s successfully retrieved", num_to_get, num_fetched
-		)
+		adapter.error("Failed to get new assignments, %s requested, %s successfully retrieved", num_to_get, num_fetched)
 		send_msg(
 			"❌📥 Failed to get new assignments on {}".format(args.computer_id),
 			"""Failed to get new assignments for the {!r} file on your {!r} computer (worker #{}).
+
+Minimum exponent: {}
+Maximum exponent: {}
+Minimum bits: {}
+Maximum bits: {}
 
 Below is the last up to 10 lines of the {!r} log file for AutoPrimeNet:
 
 {}
 
 If you believe this is a bug with AutoPrimeNet, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues
-""".format(workfile, args.computer_id, cpu_num + 1, logfile, tail(logfile, 10)),
+""".format(
+				workfile,
+				args.computer_id,
+				cpu_num + 1,
+				args.min_exp,
+				args.max_exp,
+				args.min_bit,
+				args.max_bit,
+				logfile,
+				tail(logfile, 10),
+			),
 			priority="2 (High)",
 		)
 
@@ -8031,7 +8065,7 @@ def ping_server(ping_type=1):
 	logging.info("Contacting PrimeNet Server.")
 	if args.v6:
 		for family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
-			"mersenne.org", 80, urllib3.util.connection.allowed_gai_family(), socket.SOCK_STREAM
+			"mersenne.org", HTTP_PORT, urllib3.util.connection.allowed_gai_family(), socket.SOCK_STREAM
 		):
 			try:
 				r = session.post(
@@ -8979,11 +9013,13 @@ if guid is None:
 elif config_updated:
 	register_instance(guid)
 
+proofs_thread = None
 if args.timeout > 0:
 	proofs_thread = threading.Thread(target=proofs_worker, name="UploadProofs")
 	proofs_thread.daemon = True
 	proofs_thread.start()
 
+results_thread = watcher_threads = None
 if args.timeout > 0 and (args.watch is None or args.watch):
 	results_thread = threading.Thread(target=results_worker, name="ReportResults", args=(dirs,))
 	results_thread.daemon = True
@@ -9032,6 +9068,19 @@ for j in count():
 	cert_work = current_time >= cert_last_update + cert_freq * 60 * 60
 
 	check_disk_space(dirs)
+
+	if watcher_threads:
+		for thread in watcher_threads:
+			if not thread.is_alive():
+				logging.critical(
+					"The %r thread has crashed, AutoPrimeNet will be unable to report results or upload proof files", thread.name
+				)
+
+	if results_thread and not results_thread.is_alive():
+		logging.critical("The %r thread has crashed, AutoPrimeNet will be unable to report results", results_thread.name)
+
+	if proofs_thread and not proofs_thread.is_alive():
+		logging.critical("The %r thread has crashed, AutoPrimeNet will be unable to upload proof files", proofs_thread.name)
 
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
