@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Read Prime95/MPrime, Mlucas, GpuOwl/PRPLL, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files, and display status of them."""
+"""Read Prime95/MPrime, Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files, and display status of them."""
 
 # Adapted from: https://github.com/sethtroisi/prime95/blob/py_status_report/prime95_status.py
 
@@ -287,6 +287,7 @@ GPUOWL_RE = re.compile(
 	+ r"(?:([0-9]+)(?:-([0-9]+)\.(?:ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|(-old)?\.(?:(?:ll|p[12])\.)?owl)|unverified\.prp(\.bak)?)|[0-9]+(-prev)?\.(?:tf\.)?owl)$"
 )
 PRPLL_RE = re.compile(r"(?:(?:ll-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp)|unverified\.prp))$")
+PRMERS_RE = re.compile(r"^(?:(?:wagstaff_|llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$")
 MFAKTC_RE = re.compile(r"^([MW][0-9]+)(?:_[0-9]+-[0-9]+_[0-9]+)?\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
 
@@ -450,6 +451,7 @@ class work_unit(object):
 
 		# ECM
 		self.C = None
+		self.sigma = None
 		self.D = None
 		self.B2_start = None
 
@@ -462,24 +464,20 @@ class work_unit(object):
 		self.E = None
 
 
-# CUDALucas, mfaktc and mfakto use a "CRC-32 like checksum", so binascii.crc32() cannot be used
-crc32_table = []
-for i in range(256):
-	crc = i << 24
-	for _j in range(8):
-		if crc & 0x80000000:
-			crc = (crc << 1) ^ 0x04C11DB7
-		else:
-			crc <<= 1
-	crc32_table.append(crc & 0xFFFFFFFF)
+# CUDALucas, mfaktc and mfakto use a "CRC-32 like checksum"
+REVERSE_BITS = bytearray(int("{:08b}".format(i)[::-1], 2) for i in range(256))
 
 
 def checkpoint_checksum(buffer):
 	"""Calculate a CRC-32 like checksum for the given buffer."""
-	chksum = 0
-	for b in bytearray(buffer):
-		chksum = ((chksum << 8) ^ crc32_table[(chksum >> 24) ^ b]) & 0xFFFFFFFF
-	return chksum
+	chksum = (binascii.crc32(buffer.translate(REVERSE_BITS), 0xFFFFFFFF) & 0xFFFFFFFF) ^ 0xFFFFFFFF
+
+	return (
+		(REVERSE_BITS[chksum & 0xFF] << 24)
+		| (REVERSE_BITS[(chksum >> 8) & 0xFF] << 16)
+		| (REVERSE_BITS[(chksum >> 16) & 0xFF] << 8)
+		| REVERSE_BITS[(chksum >> 24) & 0xFF]
+	)
 
 
 # Adapted from: https://github.com/tdulcet/Distributed-Computing-Scripts/blob/master/primenet.py
@@ -1437,8 +1435,8 @@ def parse_work_unit_cudalucas(filename, p):
 				return None
 			if magic_number:
 				logging.error("savefile with unknown magic_number = %s", magic_number)
-			if args.check and checksum != chksum:
-				logging.error("Checksum error. Got %X, expected %X.", checksum, chksum)
+			if args.check and chksum != checksum:
+				logging.error("Checksum error. Got %X, expected %X.", chksum, checksum)
 			total_time <<= 15
 			_time_adj <<= 15
 
@@ -1874,6 +1872,187 @@ def parse_work_unit_prpll(filename):
 	return wu
 
 
+def transform_size(exponent):
+	log2_n = 1
+	while True:
+		log2_n += 1
+		w = exponent >> log2_n
+		if (w + 1) * 2 + log2_n < 64:
+			break
+
+	log2_n5 = 2
+	while True:
+		log2_n5 += 1
+		w = exponent // (5 << log2_n5)
+		if (w + 1) * 2 + (log2_n5 + 2.4) < 64:
+			break
+
+	return min(1 << log2_n, 5 << log2_n5)
+
+
+def li(x):
+	l = math.log(x)
+	return x / l + x / (l * l)
+
+
+def prime_count_approx(low, high):
+	diff = li(high) - li(low)
+	return max(0, int(diff))
+
+
+def parse_work_unit_prmers(filename, exponent, curve):
+	"""Parses a PrMers work unit file, extracting important information."""
+	wu = work_unit()
+
+	try:
+		with open(filename, "rb") as f:
+			if args.check or args.jacobi:
+				f.seek(0, 2)  # os.SEEK_END
+				size = f.tell()
+				f.seek(0)
+				if args.check:
+					buffer = f.read(size - 4)
+					(crc,) = unpack("=I", f)
+					acrc = (~binascii.crc32(buffer) ^ 0xA23777AC) & 0xFFFFFFFF
+					if crc != acrc:
+						logging.error("CRC error. Expected %X, actual %X.", crc, acrc)
+					f.seek(0)
+
+			name = os.path.basename(filename)
+
+			if name.startswith("llsafe_m_"):
+				wu.work_type = WORK_TEST
+
+				version, p, i, et = unpack("=iIQd", f)
+
+				if not 1 <= version <= 2:
+					logging.error("LL savefile with unknown version = %s", version)
+					return None
+
+				if version == 2:
+					_itersave, _jsave = unpack("=QQ", f)
+
+				wu.counter = i
+
+				wu.stage = "LL"
+				wu.pct_complete = i / (p - 2)
+			elif name.startswith(("wagstaff_m_", "m_")):
+				wu.work_type = WORK_PRP
+
+				version, p, i, et = unpack("=iIId", f)
+
+				if version != 1:
+					logging.error("PRP savefile with unknown version = %s", version)
+					return None
+
+				if name.startswith("wagstaff_m_"):
+					wu.c = 1
+					wu.known_factors = (3,)
+
+				wu.counter = i
+
+				wu.stage = "PRP"
+				wu.pct_complete = i / p
+			elif name.startswith("pm1_m_"):
+				wu.work_type = WORK_PMINUS1
+
+				version, p, i, et = unpack("=iIId", f)
+
+				if version != 3:
+					logging.error("P-1 stage 1 savefile with unknown version = %s", version)
+					return None
+
+				f.seek(11 * transform_size(p) * 8, 1)  # os.SEEK_CUR
+
+				_chk, _blks, _bib, _cbl, _inlot, eacc_len = unpack("=QQQQBI", f)
+
+				eacc_hex_c = f.read(eacc_len)
+				if len(eacc_hex_c) != eacc_len:
+					raise EOFError
+
+				(wbits_len,) = unpack("=I", f)
+
+				wbits_hex_c = f.read(wbits_len)
+				if len(wbits_hex_c) != wbits_len:
+					raise EOFError
+
+				_chunkIdx, _startP, _first, processedBits, bitsInChunk = unpack("=QQBQQ", f)
+
+				wu.state = PM1_STATE_STAGE1
+				wu.counter = processedBits - bitsInChunk + i
+
+				wu.stage = "S1"
+				wu.pct_complete = (processedBits - bitsInChunk + i) / (processedBits + i)
+			elif name.startswith("pm1_s2_m_"):
+				wu.work_type = WORK_PMINUS1
+
+				version, p, B1u, B2u, _cur_p, cur_idx, et = unpack("=iIQQQQd", f)
+
+				if version != 1:
+					logging.error("P-1 stage 2 savefile with unknown version = %s", version)
+					return None
+
+				wu.state = PM1_STATE_STAGE2
+				wu.counter = cur_idx + 1
+				wu.B_done = B1u
+				wu.C_done = B2u
+
+				wu.stage = "S2"
+				wu.pct_complete = (cur_idx + 1) / prime_count_approx(B1u, B2u)
+			elif name.startswith("ecm_m_"):
+				wu.work_type = WORK_ECM
+
+				version, p, i, nb, B1, et = unpack("=iIIIQd", f)
+
+				if version != 1:
+					logging.error("ECM stage 1 savefile with unknown version = %s", version)
+					return None
+
+				wu.state = ECM_STATE_STAGE1
+				wu.curve = curve + 1
+				wu.counter = i
+				wu.B = B1
+
+				wu.stage = "C{}S1".format(curve + 1)
+				wu.pct_complete = i / nb
+			elif name.startswith("ecm2_m_"):
+				wu.work_type = WORK_ECM
+
+				version, p, idx, cnt, B1, B2, et = unpack("=iIIIQQd", f)
+
+				if version != 2:
+					logging.error("ECM stage 2 savefile with unknown version = %s", version)
+					return None
+
+				wu.state = ECM_STATE_STAGE2
+				wu.curve = curve + 1
+				wu.counter = idx
+				wu.B = B1
+				wu.C = B2
+
+				wu.stage = "C{}S2".format(curve + 1)
+				wu.pct_complete = idx / cnt
+			else:
+				logging.error("Unknown save/checkpoint file: %r", filename)
+				return None
+	except EOFError:
+		return None
+	except (IOError, OSError):
+		logging.exception("Error reading %r file.", filename)
+		return None
+
+	if exponent != p:
+		logging.error("Expecting the exponent %s, but found %s", exponent, p)
+		return None
+
+	wu.n = p
+	wu.total_time = int(et * 1000 * 1000)
+	wu.fftlen = transform_size(p)
+
+	wu.version = version
+	return wu
+
+
 def calculate_k(exp, bits):
 	"""calculates biggest possible k in "2 * exp * k + 1 < 2^bits"
 
@@ -2181,11 +2360,17 @@ def one_line_status(file, num, index, wu):
 	elif wu.work_type == WORK_ECM:
 		work_type_str = "ECM"
 		stage = ECM_STATES[wu.state]
-		temp = ["{} Curve #{:n}, s={:.0f}".format(ECM_SIGMA_TYPES[wu.sigma_type], wu.curve, wu.sigma), "B1={}".format(wu.B)]
-		if wu.C:
-			temp.append("B2={}".format(wu.C))
+		temp = [
+			"{} Curve #{:n}, s={:.0f}".format(ECM_SIGMA_TYPES[wu.sigma_type], wu.curve, wu.sigma)
+			if wu.sigma
+			else "Curve #{:n}".format(wu.curve),
+			"B1={}".format(wu.B),
+			"B2={}".format(wu.C) if wu.C else "",
+		]
 		if wu.B2_start:
 			temp.append("B2_start={}".format(wu.B2_start))
+		if wu.fftlen:
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
 	elif wu.work_type == WORK_PMINUS1:
 		work_type_str = "P-1"
 		stage = PM1_STATES[wu.state]
@@ -2193,10 +2378,10 @@ def one_line_status(file, num, index, wu):
 		B2 = wu.interim_C or wu.C_done
 		# if B2 and B2 > B1:
 		temp = [
-			"E={}{}".format(wu.E, ", Iter: {:n}".format(wu.counter) if wu.counter else "")
+			"E={}{}".format(wu.E, ", Iter: {:n}".format(wu.counter) if wu.counter is not None else "")
 			if wu.E is not None and wu.E >= 2
 			else "Iter: {:n}".format(wu.counter)
-			if wu.counter
+			if wu.counter is not None
 			else "",
 			"B1={}".format(B1) if B1 else "",
 			"B2={}".format(B2) if B2 else "",
@@ -2328,8 +2513,9 @@ def json_status(file, wu, program):
 	elif wu.work_type == WORK_ECM:
 		result["state"] = wu.state
 		result["curve"] = wu.curve
-		result["sigma"] = wu.sigma
-		result["sigma_type"] = wu.sigma_type
+		if wu.sigma:
+			result["sigma"] = wu.sigma
+			result["sigma_type"] = wu.sigma_type
 		result["B"] = wu.B
 		if wu.C is not None:
 			result["C"] = wu.C
@@ -2337,11 +2523,13 @@ def json_status(file, wu, program):
 			result["D"] = wu.D
 		if wu.B2_start is not None:
 			result["B2_start"] = wu.B2_start
+		if wu.fftlen:
+			result["fftlen"] = wu.fftlen
 	elif wu.work_type == WORK_PMINUS1:
 		result["state"] = wu.state
 		if wu.E is not None:
 			result["E"] = wu.E
-		if wu.counter:
+		if wu.counter is not None:
 			result["counter"] = wu.counter
 		if wu.interim_B is not None:
 			result["interim_B"] = wu.interim_B
@@ -2527,6 +2715,22 @@ def main(dirs):
 					else:
 						logging.error("unable to parse the %r save/checkpoint file", file)
 
+		if args.prmers:
+			aaresults = aresults["PrMers"] = []
+			entries = OrderedDict()
+			for entry in glob.iglob(os.path.join(adir, "*m_[0-9]*.ckpt*")):
+				match = PRMERS_RE.match(os.path.basename(entry))
+				if match:
+					exponent = int(match.group(1) or match.group(2))
+					entries.setdefault(exponent, []).append((entry, match.group(3) and int(match.group(3))))
+			for exponent, entry in entries.items():
+				for j, (file, curve) in enumerate(sorted(entry)):
+					result = parse_work_unit_prmers(file, exponent, curve)
+					if result is not None:
+						aaresults.append((j, -1, file, result))
+					else:
+						logging.error("unable to parse the %r save/checkpoint file", file)
+
 		if args.mfaktc:
 			aaresults = aresults["mfaktc"] = []
 			for file in glob.iglob(os.path.join(adir, "[MW][0-9]*.ckp")):
@@ -2599,7 +2803,7 @@ def main(dirs):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(
-		description="Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files"
+		description="Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files"
 	)
 	parser.suggest_on_error = True  # Python 3.14+
 	parser.add_argument("--version", action="version", version="%(prog)s 1.0")
@@ -2609,6 +2813,7 @@ if __name__ == "__main__":
 	parser.add_argument("-m", "--mlucas", action="store_true", help="Look for Mlucas save/checkpoint files")
 	parser.add_argument("-g", "--gpuowl", action="store_true", help="Look for GpuOwl save/checkpoint files")
 	parser.add_argument("--prpll", action="store_true", help="Look for PRPLL save/checkpoint files")
+	parser.add_argument("--prmers", action="store_true", help="Look for PrMers save/checkpoint files")
 	parser.add_argument("-c", "--cudalucas", action="store_true", help="Look for CUDALucas save/checkpoint files")
 	parser.add_argument("--cudapm1", action="store_true", help="Look for CUDAPm1 save/checkpoint files")
 	parser.add_argument("--mfaktc", action="store_true", help="Look for mfaktc save/checkpoint files")
@@ -2618,12 +2823,12 @@ if __name__ == "__main__":
 	parser.add_argument(
 		"--check",
 		action="store_true",
-		help="Verify any checksums, CRCs or residues in save/checkpoint files. Also, calculate the Res64 and Res2048 values from any LL/PRP/CERT savefiles or version 2 PRP proof files. This may be computationally expensive.",
+		help="Verify any checksums, CRCs or residues in save/checkpoint files. Also, calculate the Res64 and Res2048 values from any LL/PRP/CERT savefiles (except PrMers) or version 2 PRP proof files. This may be computationally expensive.",
 	)
 	parser.add_argument(
 		"--jacobi",
 		action="store_true",
-		help="Run the Jacobi Error Check on LL save/checkpoint files. This may be very computationally expensive.",
+		help="Run the Jacobi Error Check on LL save/checkpoint files (except PrMers). This may be very computationally expensive.",
 	)
 	parser.add_argument("--json", help="Export data as JSON to this file")
 	parser.add_argument("dirs", nargs="*", help="Directories relative to --workdir with the save/checkpoint or PRP proof files.")
@@ -2644,6 +2849,7 @@ if __name__ == "__main__":
 		or args.cudapm1
 		or args.gpuowl
 		or args.prpll
+		or args.prmers
 		or args.mfaktc
 		or args.mfakto
 		or args.proof
