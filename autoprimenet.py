@@ -55,6 +55,7 @@
 #  02111-1307, USA.                                                            #
 #                                                                              #
 ################################################################################
+# region Imports
 from __future__ import division, print_function, unicode_literals
 
 import argparse
@@ -212,6 +213,8 @@ except ImportError:
 		return math.exp(x) - 1
 
 
+# endregion
+# region OS
 if sys.platform == "win32":  # Windows
 	from ctypes import wintypes
 
@@ -1127,6 +1130,7 @@ try:
 except ImportError:
 	certifi = None
 
+# endregion
 try:
 	import idna
 except ImportError:
@@ -1142,6 +1146,7 @@ else:
 		return idna.encode(hostname.lower(), uts46=True).decode("utf-8")
 
 
+# region Constants and Globals
 locale.setlocale(locale.LC_ALL, "")
 if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
@@ -1231,6 +1236,7 @@ MODULUS_TYPE_MERSENNE = 1
 MODULUS_TYPE_FERMAT = 3
 
 
+# endregion
 class timedelta(timedelta):
 	"""Custom timedelta class with a formatted string representation."""
 
@@ -1252,6 +1258,7 @@ class timedelta(timedelta):
 		)
 
 
+# region console IO
 class Formatter(logging.Formatter):
 	"""Custom logging formatter to include worker information if available."""
 
@@ -1714,6 +1721,8 @@ def ask_ok_cancel():
 	return ask_yn("\nAccept the answers above?", True)
 
 
+# endregion
+# region Devices
 def get_device_str(device, name):
 	"""Retrieve the specified information string from an OpenCL device."""
 	size = ctypes.c_size_t()
@@ -1836,6 +1845,8 @@ def get_gpus():
 	return gpus
 
 
+# endregion
+# region Network, Mail
 def dns_lookup(domain, atype):
 	"""Perform a DNS lookup for the given domain and record type using Cloudflare's DNS over HTTPS (DoH) service."""
 	try:
@@ -2039,7 +2050,9 @@ def email_autoconfig(email):
 	return None
 
 
-def setup(config, args):
+# endregion
+# region Remote (PrimeNet and TF1G)
+def setup(config, options):
 	"""Configures the GIMPS/PrimeNet client with user preferences and system settings."""
 	wrapper = textwrap.TextWrapper(width=75)
 	print(
@@ -2436,6 +2449,7 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 		pass
 
 
+# region Config
 attr_to_copy = {
 	SEC.PrimeNet: {
 		"worktodo_file": "workfile",
@@ -2785,6 +2799,10 @@ def check_options(parser, args):
 		parser.error("Cannot use both SSL/TLS and StartTLS.")
 
 
+# endregion
+
+
+# region Numbers
 def is_known_mersenne_prime(p):
 	"""Check if a given number is a known Mersenne prime exponent."""
 	mersenne_primes = frozenset((
@@ -2983,6 +3001,8 @@ else:
 		return adigits
 
 
+# endregion
+# region Worktodo Parsing
 WORK_PATTERN = re.compile(
 	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|Cert)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
 )
@@ -3226,6 +3246,8 @@ def write_workfile(adir, workfile, assignments):
 	replace(f.name, workfile)
 
 
+# endregion
+# region Email
 def announce_prime_to_user(exponent, worktype):
 	"""Announces a prime or probable prime number to the user and prompts to send an email."""
 	color = BOLD + COLORS.RED if COLOR else ""
@@ -3423,6 +3445,8 @@ GUID: {}
 	return True
 
 
+# endregion
+# region System Information
 def generate_application_str():
 	"""Generates a formatted application string based on the platform and selected program."""
 	if sys.platform == "darwin":
@@ -3688,6 +3712,8 @@ def get_cpu_cache_sizes():
 	return cache_sizes
 
 
+# endregion
+# region v5 Comms
 def parse_v5_resp(r):
 	"""Parses a v5 response string into a dictionary of options and values."""
 	ans = {}
@@ -3777,6 +3803,8 @@ def get_exponent(adapter, n):
 	return result
 
 
+# endregion
+# region Factoring
 FACTOR_LIMITS = (
 	(82, 1071000000),
 	(81, 842000000),
@@ -4274,8 +4302,10 @@ def walk(exponent, factoredTo):
 	return (smallB1, smallB2), (midB1, midB2), (B1, B2)
 
 
+# endregion
 # End of Mihai Preda's script
 
+# region Savefle parsing
 # Python 3.2+
 if hasattr(int, "from_bytes"):
 
@@ -5077,6 +5107,8 @@ def parse_mfakto_output_file(adapter, adir, p):
 	return iteration, avg_msec_per_iter, stage, pct_complete, None, 0, 0
 
 
+# endregion
+# region Progress
 def get_progress_assignment(adapter, adir, assignment):
 	"""Retrieve the progress of an assignment."""
 	if not assignment:
@@ -5260,6 +5292,8 @@ def adjust_rolling_average(dirs):
 	config.set(SEC.Internals, "RollingAverage", str(rolling_average))
 
 
+# endregion
+# region Status
 def output_status(dirs, cpu_num=None):
 	"""Outputs the status of queued work and expected completion dates for given directories."""
 	logging.info("Below is a report on the work you have queued and any expected completion dates.")
@@ -5456,6 +5490,8 @@ Disk space available: {}
 		config.remove_option(SEC.Internals, "storage_available_critical")
 
 
+# endregion
+# region Proof Upload
 def checksum_md5(filename):
 	"""Calculate and return the MD5 checksum of a given file."""
 	amd5 = md5()
@@ -5688,6 +5724,7 @@ def proofs_worker():
 			time.sleep(args.timeout)
 
 
+# endregion
 # TODO -- have people set their own program options for commented out portions
 def program_options(send=False, start=-1, retry_count=0):
 	"""Sets the program options on the PrimeNet server."""
@@ -5891,6 +5928,7 @@ https://www.mersenne.org/editcpu/?g=%s""",
 	)
 
 
+# region Assignment communication
 def assignment_unreserve(adapter, assignment, retry_count=0):
 	"""Unreserves an assignment from the PrimeNet server."""
 	guid = get_guid(config)
@@ -8096,6 +8134,9 @@ def ping_server(ping_type=1):
 	return None
 
 
+# endregion Assignment communication
+# endregion Remote (PrimeNet and TF1G)
+# region Version checking
 VERSION_PATTERN = re.compile(
 	r"^v?([0-9]+)(?:\.([0-9]+)(?:\.([0-9]+))?(?:-([0-9]+))?|\b)(?:-?(alpha|beta|pre)\.?([0-9]+)?\b)?", re.I
 )
@@ -8329,6 +8370,8 @@ def is_pyinstaller():
 	return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
 
+# endregion
+# region Main
 #######################################################################################################
 #
 # Start main program here
@@ -9154,3 +9197,4 @@ for j in count():
 			break
 
 sys.exit(0)
+# endregion
