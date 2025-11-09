@@ -2052,7 +2052,7 @@ def email_autoconfig(email):
 
 # endregion
 # region Remote (PrimeNet and TF1G)
-def setup(config, options):
+def setup(config, args):
 	"""Configures the GIMPS/PrimeNet client with user preferences and system settings."""
 	wrapper = textwrap.TextWrapper(width=75)
 	print(
