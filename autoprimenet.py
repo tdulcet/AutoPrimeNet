@@ -363,7 +363,7 @@ if sys.platform == "win32":  # Windows
 	)
 	# advapi32.LookupAccountNameW.restype = wintypes.BOOL
 
-	advapi32.ConvertSidToStringSidW.argtypes = (ctypes.c_void_p, wintypes.LPWSTR)
+	advapi32.ConvertSidToStringSidW.argtypes = (ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR))
 	# advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
 
 	def get_windows_serial_number():
