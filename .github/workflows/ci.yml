@@ -20,7 +20,7 @@ jobs:
         python3 -m pip install --upgrade pip
         python3 -m pip install pylint
     - name: Script
-      run: pylint -f github --py-version 2.6 -d design,C0103,W0311,C0301,C0302,C0209,R1702 --load-plugins pylint.extensions.code_style,pylint.extensions.comparison_placement,pylint.extensions.for_any_all,pylint.extensions.consider_refactoring_into_while_condition,pylint.extensions.consider_ternary_expression,pylint.extensions.dict_init_mutate,pylint.extensions.docstyle,pylint.extensions.check_elif,pylint.extensions.set_membership,pylint.extensions.typing -e R6104,C1804,C1805 -r y *.py
+      run: pylint -f github --py-version 2.7 -d design,C0103,W0311,C0301,C0302,C0209,R1702 --load-plugins pylint.extensions.code_style,pylint.extensions.comparison_placement,pylint.extensions.for_any_all,pylint.extensions.consider_refactoring_into_while_condition,pylint.extensions.consider_ternary_expression,pylint.extensions.dict_init_mutate,pylint.extensions.docstyle,pylint.extensions.check_elif,pylint.extensions.set_membership,pylint.extensions.typing -e R6104,C1804,C1805 -r y *.py
       continue-on-error: true
 
   Ruff:
@@ -47,10 +47,6 @@ jobs:
       fail-fast: false
     steps:
     - uses: actions/checkout@v6
-    - name: Install dependencies
-      run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install requests
     - name: Script
       run: |
         set -x
@@ -58,6 +54,36 @@ jobs:
         python3 -X dev -c 'import platform; print(platform.freedesktop_os_release())' || true
         python3 -X dev autoprimenet.py --help
         python3 -X dev gimps_status.py --help
+
+  Linux-old:
+    name: Linux old
+
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        container: ["ubuntu:14.04"]
+      fail-fast: false
+    steps:
+    # - uses: actions/checkout@v6
+    - name: Install
+      run: |
+        apt-get update
+        apt-get install -y wget python python-requests python3 python3-requests
+        python --version
+        python3 --version
+    - name: Download
+      run: |
+        wget "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/archive/$GITHUB_SHA.tar.gz"
+        tar -xzvf "$GITHUB_SHA.tar.gz" --strip-components=1
+    - name: Script
+      run: |
+        set -x
+        python autoprimenet.py --help
+        python gimps_status.py --help
+        python3 autoprimenet.py --help
+        python3 gimps_status.py --help
 
   macOS:
     name: macOS

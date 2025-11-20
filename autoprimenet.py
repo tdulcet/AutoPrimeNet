@@ -1156,7 +1156,7 @@ VERSION = "1.2.0"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
-	{"name": "Mlucas", "version": "21.0.1"},
+	{"name": "Mlucas", "version": "21.0.2"},
 	{"name": "GpuOwl", "version": "7.5"},
 	{"name": "PRPLL", "version": "0.15"},
 	{"name": "CUDALucas", "version": "2.06"},
@@ -1206,7 +1206,8 @@ session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {} ({} 
 session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))  # Disable cookies
 MAX_RETRIES = 3
 # urllib3 1.26+: allowed_methods=None, method_whitelist=None
-retries = urllib3.util.Retry(
+# urllib3 1.9+: urllib3.Retry
+retries = urllib3.Retry(
 	MAX_RETRIES,
 	backoff_factor=1,
 	respect_retry_after_header=False,
@@ -1215,7 +1216,7 @@ retries = urllib3.util.Retry(
 		if tuple(map(int, urllib3.__version__.split(".", 2)[:2])) >= (1, 26)
 		else {"method_whitelist": None}
 	)
-)  # fmt: skip
+) if hasattr(urllib3, "Retry") else MAX_RETRIES  # fmt: skip
 session.mount("https://", HostHeaderSSLAdapter(max_retries=retries))
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
 atexit.register(session.close)
@@ -1781,7 +1782,7 @@ def get_opencl_devices():
 			mem = get_device_value(device, 0x101F, ctypes.c_uint64)  # CL_DEVICE_GLOBAL_MEM_SIZE
 			memory = mem >> 20
 
-			adevices.append((name.decode("utf-8"), freq, memory))
+			adevices.append((name.decode("utf-8"), freq, memory, "OpenCL"))
 
 	return adevices
 
@@ -1819,7 +1820,7 @@ def get_nvidia_devices():
 			nvml.nvmlDeviceGetMemoryInfo(device, ctypes.byref(mem))
 			memory = mem.total >> 20
 
-			devices.append((name.decode("utf-8"), freq, memory))
+			devices.append((name.decode("utf-8"), freq, memory, "NVML"))
 	finally:
 		nvml.nvmlShutdown()
 
@@ -2090,11 +2091,6 @@ def setup(config, args):
 		1,
 		6,
 	)
-	if program == 3:
-		print(
-			"Warning: PRPLL support is experimental and for testing only. At the time of this release, PRPLL was not PrimeNet server compatible and thus was not (yet) fully supported."
-		)
-		ask_ok()
 	tf1g = False
 	if program in {5, 6}:  # mfaktc or mfakto
 		tf1g = ask_yn(
@@ -2107,8 +2103,8 @@ def setup(config, args):
 		gpus = get_gpus()
 		if gpus:
 			print("Detected GPUs (some may be repeated):")
-			for i, (name, freq, memory) in enumerate(gpus):
-				print("\n{:n}. {}".format(i + 1, name))
+			for i, (name, freq, memory, source) in enumerate(gpus):
+				print("\n{:n}. {!r} ({})".format(i + 1, name, source))
 				print("\tFrequency/Speed: {:n} MHz".format(freq))
 				print("\tTotal Memory: {:n} MiB ({}B)".format(memory, output_unit(memory << 20)))
 			print()
@@ -2140,7 +2136,7 @@ def setup(config, args):
 			config.remove_option(SEC.PrimeNet, option)
 
 	if gpu:
-		name, freq, memory = gpus[gpu - 1]
+		name, freq, memory, _ = gpus[gpu - 1]
 		args.cpu_brand = name
 		config.set(SEC.PrimeNet, "CpuBrand", name)
 		args.cpu_speed = freq
@@ -2734,11 +2730,6 @@ def check_options(parser, args):
 	if not 1 <= args.cert_cpu_limit <= 100:
 		parser.error("Proof certification work limit must be between 1 and 100%")
 
-	if args.prpll:
-		logging.warning(
-			"PRPLL support is experimental and for testing only. At the time of this release, PRPLL was not PrimeNet server compatible and thus was not (yet) fully supported."
-		)
-
 	if not (args.mlucas or args.cudalucas or args.gpuowl or args.prpll or args.mfaktc or args.mfakto):
 		parser.error("Must select at least one GIMPS program to get assignments for")
 
@@ -2897,7 +2888,7 @@ def primes(limit):
 			# sieve[j : size : p] = bytes(len(range(j, size, p)))
 			sieve[j:size:p] = bytearray(len(range(j, size, p)))
 
-	return array("H", chain((2,), (3 + 2 * i for i in range(size) if sieve[i])))
+	return array("H" if sys.version_info >= (2, 7, 11) else b"H", chain((2,), (3 + 2 * i for i in range(size) if sieve[i])))
 
 
 # memoryview()
@@ -3156,6 +3147,7 @@ def read_workfile(adapter, workfile):
 			if assignment.k < 1.0 or assignment.b < 2 or not assignment.c:
 				adapter.error("Illegal number in %r file, k < 1 or b < 2, or c = 0", workfile)
 				illegal_line = True
+
 			if (
 				assignment.k == 1.0
 				and assignment.b == 2
@@ -3166,8 +3158,13 @@ def read_workfile(adapter, workfile):
 			):
 				adapter.error("%r file contained composite exponent: %s.", workfile, assignment.n)
 				illegal_line = True
+
 			if assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1 and assignment.B1 < 50000:
 				adapter.error("%r file has P-1 with B1 < 50000 (exponent: %s).", workfile, assignment.n)
+				illegal_line = True
+
+			if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR and assignment.sieve_depth >= assignment.factor_to:
+				adapter.error("%r file has TF with min bit >= max bit.", workfile)
 				illegal_line = True
 		else:
 			illegal_line = True
@@ -8045,7 +8042,7 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 		date = datetime.fromtimestamp(mtime)
 		if last_time >= mtime:
 			adapter.warning(
-				"STALL DETECTED: Log/Save file %r has not been modified since the last progress update (%s)",
+				"Stall detected: Log/Save file %r has not been modified since the last progress update (%s)",
 				file,
 				date.strftime("%c"),
 			)
@@ -8500,7 +8497,7 @@ group.add_argument("-g", "--gpuowl", action="store_true", help="Get assignments 
 group.add_argument(
 	"--prpll",
 	action="store_true",
-	help="Get assignments for PRPLL. This is experimental and for testing only. PRPLL is not PrimeNet server compatible and thus is not yet fully supported.",
+	help="Get assignments for PRPLL. Only PRPLL NTT is PrimeNet server compatible and thus is fully supported.",
 )
 group.add_argument("--cudalucas", action="store_true", help="Get assignments for CUDALucas.")
 group.add_argument("--mfaktc", action="store_true", help="Get assignments for mfaktc.")
