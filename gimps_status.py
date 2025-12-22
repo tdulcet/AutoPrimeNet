@@ -287,7 +287,9 @@ GPUOWL_RE = re.compile(
 	+ r"(?:([0-9]+)(?:-([0-9]+)\.(?:ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|(-old)?\.(?:(?:ll|p[12])\.)?owl)|unverified\.prp(\.bak)?)|[0-9]+(-prev)?\.(?:tf\.)?owl)$"
 )
 PRPLL_RE = re.compile(r"(?:(?:ll-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp)|unverified\.prp))$")
-PRMERS_RE = re.compile(r"^(?:(?:wagstaff_|llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$")
+PRMERS_RE = re.compile(
+	r"^(?:(?:wagstaff_|llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$"
+)
 MFAKTC_RE = re.compile(r"^([MW][0-9]+)(?:_[0-9]+-[0-9]+_[0-9]+)?\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
 
@@ -1982,7 +1984,7 @@ def parse_work_unit_prmers(filename, exponent, curve):
 				wu.counter = processedBits - bitsInChunk + i
 
 				wu.stage = "S1"
-				wu.pct_complete = (processedBits - bitsInChunk + i) / (processedBits + i)
+				wu.pct_complete = wu.counter / (processedBits + i)
 			elif name.startswith("pm1_s2_m_"):
 				wu.work_type = WORK_PMINUS1
 
@@ -1998,8 +2000,8 @@ def parse_work_unit_prmers(filename, exponent, curve):
 				wu.C_done = B2u
 
 				wu.stage = "S2"
-				wu.pct_complete = (cur_idx + 1) / prime_count_approx(B1u, B2u)
-			elif name.startswith("ecm_m_"):
+				wu.pct_complete = wu.counter / prime_count_approx(B1u, B2u)
+			elif name.startswith(("ecm_m_", "ecm_te_m_")):
 				wu.work_type = WORK_ECM
 
 				version, p, i, nb, B1, et = unpack("=iIIIQd", f)
@@ -2015,14 +2017,17 @@ def parse_work_unit_prmers(filename, exponent, curve):
 
 				wu.stage = "C{}S1".format(curve + 1)
 				wu.pct_complete = i / nb
-			elif name.startswith("ecm2_m_"):
+			elif name.startswith(("ecm2_m_", "ecm2_te_m_")):
 				wu.work_type = WORK_ECM
 
 				version, p, idx, cnt, B1, B2, et = unpack("=iIIIQQd", f)
 
-				if version != 2:
+				if not 2 <= version <= 3:
 					logging.error("ECM stage 2 savefile with unknown version = %s", version)
 					return None
+
+				if version == 3:
+					_seed, _torsion = unpack("=QB", f)
 
 				wu.state = ECM_STATE_STAGE2
 				wu.curve = curve + 1

@@ -5,7 +5,7 @@ The PrimeNet automated assignment handler program for GIMPS
 
 Copyright © 2024 Teal Dulcet
 
-Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, CUDALucas, mfaktc and mfakto GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports both Python 2 and 3 and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
+Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc and mfakto GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports both Python 2 and 3 and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
 
 Adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
 
@@ -39,22 +39,23 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Full support
 		* Mlucas
 		* GpuOwl
+		* PRPLL
+		* PrMers
 		* CUDALucas
 		* mfaktc
 		* mfakto
 	* Partial support
-		* PRPLL
 		* CUDAPm1
 	* Report results only
 		* Prime95/MPrime
 		* cofact
-		* PrMers
 * Supported worktypes
 	* LL
 	* PRP
 	* PRP cofactor
-	* Trial Factor (TF)
-	* P-1 factor
+	* Trial Factoring (TF)
+	* P-1 factoring
+	* ECM factoring
 	* PRP Certification (CERT)
 * Supports multiple workers (CPU Cores or GPUs)
 	* Supports setting per worker options, including work preferences
@@ -140,11 +141,12 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
                        [--min-exp MIN_EXP] [--max-exp MAX_EXP]
                        [--min-bit MIN_BIT] [--max-bit MAX_BIT]
                        [--force-target-bits]
-                       [-m | -g | --prpll | --cudalucas | --mfaktc | --mfakto]
+                       [-m | -g | --prpll | --prmers | --cudalucas | --mfaktc | --mfakto]
                        [--num-workers NUM_WORKERS] [-n NUM_CACHE]
                        [-W DAYS_OF_WORK] [--force-pminus1 TESTS_SAVED]
                        [--pminus1-threshold PM1_MULTIPLIER]
                        [--force-pminus1-bounds {MIN,MID,MAX}]
+                       [--ecm-bounds-multiplier ECM_MULTIPLIER]
                        [--convert-ll-to-prp] [--convert-prp-to-ll]
                        [--no-report-100m] [--report-100m]
                        [--checkin HOURS_BETWEEN_CHECKINS] [-t TIMEOUT] [-s]
@@ -169,15 +171,16 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
 This program will automatically get and register assignments, report
 assignment progress and results, upload proof files to and download
 certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL,
-CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments and report
-results to mersenne.ca for exponents above the PrimeNet limit of 1G. It also
-saves its configuration to a 'prime.ini' file by default, so it is only
-necessary to give most of the arguments once. The first time it is run, it
-will register the current Mlucas/GpuOwl/PRPLL/CUDALucas/mfaktc/mfakto instance
-with PrimeNet (see the Registering Options below). Then, it will report
-assignment results and upload any proof files to PrimeNet immediately. It will
-get assignments on the --timeout interval, or only once if --timeout is 0. It
-will additionally report the progress on the --checkin interval.
+PrMers, CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments
+and report results to mersenne.ca for exponents above the PrimeNet limit of
+1G. It also saves its configuration to a 'prime.ini' file by default, so it is
+only necessary to give most of the arguments once. The first time it is run,
+it will register the current
+Mlucas/GpuOwl/PRPLL/PrMers/CUDALucas/mfaktc/mfakto instance with PrimeNet (see
+the Registering Options below). Then, it will report assignment results and
+upload any proof files to PrimeNet immediately. It will get assignments on the
+--timeout interval, or only once if --timeout is 0. It will additionally
+report the progress on the --checkin interval.
 
 options:
   -h, --help            show this help message and exit
@@ -211,22 +214,23 @@ options:
                         not want a PrimeNet account, you can use ANONYMOUS.
   -T WORK_PREFERENCE, --workpref WORK_PREFERENCE
                         Work preference, Default: 150. Supported work
-                        preferences: 2 (Trial factoring), 4 (P-1 factoring),
-                        12 (Trial factoring GPU), 100 (First time LL tests),
-                        101 (Double-check LL tests), 102 (World record LL
-                        tests), 104 (100M digit LL tests), 106 (Double-check
-                        LL tests with zero shift count), 150 (First time PRP
-                        tests), 151 (Double-check PRP tests), 152 (World
-                        record PRP tests), 153 (100M digit PRP tests), 154
-                        (Smallest available first time PRP that needs P-1
-                        factoring), 155 (Double-check using PRP with proof),
-                        156 (Double-check using PRP with proof and nonzero
-                        shift count), 160 (First time PRP on Mersenne
-                        cofactors), 161 (Double-check PRP on Mersenne
-                        cofactors). Provide once to use the same work
-                        preference for all workers or once for each worker to
-                        use different work preferences. Not all worktypes are
-                        supported by all the GIMPS programs.
+                        preferences: 2 (Trial factoring), 4 (P-1 factoring), 5
+                        (ECM factoring), 8 (ECM on Mersenne cofactors), 12
+                        (Trial factoring GPU), 100 (First time LL tests), 101
+                        (Double-check LL tests), 102 (World record LL tests),
+                        104 (100M digit LL tests), 106 (Double-check LL tests
+                        with zero shift count), 150 (First time PRP tests),
+                        151 (Double-check PRP tests), 152 (World record PRP
+                        tests), 153 (100M digit PRP tests), 154 (Smallest
+                        available first time PRP that needs P-1 factoring),
+                        155 (Double-check using PRP with proof), 156 (Double-
+                        check using PRP with proof and nonzero shift count),
+                        160 (First time PRP on Mersenne cofactors), 161
+                        (Double-check PRP on Mersenne cofactors). Provide once
+                        to use the same work preference for all workers or
+                        once for each worker to use different work
+                        preferences. Not all worktypes are supported by all
+                        the GIMPS programs.
   --cert-work           Get PRP proof certification work, Default: False.
                         Currently only supported by PRPLL.
   --no-cert-work
@@ -248,9 +252,10 @@ options:
                         listed on mersenne.ca)
   -m, --mlucas          Get assignments for Mlucas.
   -g, --gpuowl          Get assignments for GpuOwl.
-  --prpll               Get assignments for PRPLL. This is experimental and
-                        for testing only. PRPLL is not PrimeNet server
-                        compatible and thus is not yet fully supported.
+  --prpll               Get assignments for PRPLL. Only PRPLL NTT is PrimeNet
+                        server compatible and thus is fully supported.
+  --prmers              Get assignments for PrMers. This is experimental and
+                        for testing only.
   --cudalucas           Get assignments for CUDALucas.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
@@ -276,10 +281,13 @@ options:
   --force-pminus1-bounds {MIN,MID,MAX}
                         Force using the 'MIN', 'MID' or 'MAX' optimal P-1
                         bounds (as listed on mersenne.ca) for P-1 tests. For
-                        Mlucas, this will rewrite Pfactor= assignments to
-                        Pminus1=. For GpuOwl, this will use a nonstandard
-                        Pfactor= format to add the bounds. Can be used in
-                        combination with the --force-pminus1 option.
+                        Mlucas and PrMers, this will rewrite Pfactor=
+                        assignments to Pminus1=. For GpuOwl, this will use a
+                        nonstandard Pfactor= format to add the bounds. Can be
+                        used in combination with the --force-pminus1 option.
+  --ecm-bounds-multiplier ECM_MULTIPLIER
+                        Multiply the PrimeNet server assigned ECM bounds by
+                        this multiplier.
   --convert-ll-to-prp   Convert all LL assignments to PRP. This is for use
                         when registering assignments.
   --convert-prp-to-ll   Convert all PRP assignments to LL. This is
@@ -425,6 +433,7 @@ Pull requests welcome! Ideas for contributions:
 * Create icon/logo for standalone executables.
 * Support setting more of the program options.
 * Improve the error handling of PrimeNet API calls.
+* Improve the assignment ETA calculation, especially for P-1 and ECM
 * Improve the performance.
 * Support reporting interim residues.
 * Localize the program and translate the output into other languages (see [here](https://mersenneforum.org/showthread.php?t=27046)).

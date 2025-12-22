@@ -8,7 +8,7 @@
 # ]
 # ///
 
-"""Automatic assignment handler for Mlucas, GpuOwl/PRPLL, CUDALucas, CUDAPm1, mfaktc, mfakto and cofact.
+"""Automatic assignment handler for Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto and cofact.
 
 [*] Python can be downloaded from https://www.python.org/downloads/
     * An .exe version of this script (not requiring Python) can be downloaded from:
@@ -1159,6 +1159,7 @@ PROGRAMS = (
 	{"name": "Mlucas", "version": "21.0.2"},
 	{"name": "GpuOwl", "version": "7.5"},
 	{"name": "PRPLL", "version": "0.15"},
+	{"name": "PrMers", "version": "4.15"},
 	{"name": "CUDALucas", "version": "2.06"},
 	{"name": "mfaktc", "version": "0.23"},
 	{"name": "mfakto", "version": "0.16"},
@@ -1464,7 +1465,7 @@ ERRORS = {
 
 
 class Assignment(object):
-	"""Assignment(work_type, uid, k, b, n, c, sieve_depth, factor_to, pminus1ed, B1, B2, B2_start, tests_saved, prp_base, prp_residue_type, prp_dblchk, known_factors, ra_failed, cert_squarings)."""
+	"""Assignment(work_type, uid, k, b, n, c, sieve_depth, factor_to, pminus1ed, B1, B2, B2_start, curves_to_do, curve, tests_saved, prp_base, prp_residue_type, prp_dblchk, known_factors, ra_failed, cert_squarings)."""
 
 	__slots__ = (
 		"work_type",
@@ -1479,6 +1480,8 @@ class Assignment(object):
 		"B1",
 		"B2",
 		"B2_start",
+		"curves_to_do",
+		"curve",
 		"tests_saved",
 		"prp_base",
 		"prp_residue_type",
@@ -1489,7 +1492,7 @@ class Assignment(object):
 	)
 
 	def __init__(self, work_type=None):
-		"""Create new instance of Assignment(work_type, uid, k, b, n, c, sieve_depth, factor_to, pminus1ed, B1, B2, B2_start, tests_saved, prp_base, prp_residue_type, prp_dblchk, known_factors, ra_failed, cert_squarings)."""
+		"""Create new instance of Assignment(work_type, uid, k, b, n, c, sieve_depth, factor_to, pminus1ed, B1, B2, B2_start, curves_to_do, curve, tests_saved, prp_base, prp_residue_type, prp_dblchk, known_factors, ra_failed, cert_squarings)."""
 		self.work_type = work_type
 		self.uid = None
 		# k*b^n+c
@@ -1503,6 +1506,8 @@ class Assignment(object):
 		self.B1 = 0
 		self.B2 = 0
 		self.B2_start = 0
+		self.curves_to_do = 0
+		self.curve = 0
 		self.tests_saved = 0.0
 		self.prp_base = 0
 		self.prp_residue_type = 0
@@ -1568,6 +1573,8 @@ def exponent_to_text(assignment):
 		work_type_str = "Trial factor"
 	elif assignment.work_type in {PRIMENET.WORK_TYPE_PFACTOR, PRIMENET.WORK_TYPE_PMINUS1}:
 		work_type_str = "P-1"
+	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+		work_type_str = "ECM"
 	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 		work_type_str = "CERT"
 	return "{} {}".format(work_type_str, exponent_to_str(assignment))
@@ -2086,13 +2093,28 @@ def setup(config, args):
 		config.set(SEC.PrimeNet, "ComputerID", compid)
 
 	program = ask_int(
-		"Which GIMPS program are you getting assignments for (1=Mlucas, 2=GpuOwl, 3=PRPLL, 4=CUDALucas, 5=mfaktc, 6=mfakto)",
-		6 if args.mfakto else 5 if args.mfaktc else 4 if args.cudalucas else 3 if args.prpll else 2 if args.gpuowl else 1,
+		"Which GIMPS program are you getting assignments for (1=Mlucas, 2=GpuOwl, 3=PRPLL, 4=PrMers, 5=CUDALucas, 6=mfaktc, 7=mfakto)",
+		7
+		if args.mfakto
+		else 6
+		if args.mfaktc
+		else 5
+		if args.cudalucas
+		else 4
+		if args.prmers
+		else 3
+		if args.prpll
+		else 2
+		if args.gpuowl
+		else 1,
 		1,
-		6,
+		7,
 	)
+	if program == 4:
+		print("Warning: PrMers support is experimental and for testing only. At the time of this release, PrMers was still alpha.")
+		ask_ok()
 	tf1g = False
-	if program in {5, 6}:  # mfaktc or mfakto
+	if program in {6, 7}:  # mfaktc or mfakto
 		tf1g = ask_yn(
 			"Is this setup for the TF1G subproject on https://mersenne.ca/tf1G? This is mutually exclusive with PrimeNet trial factoring.",
 			args.min_exp and args.min_exp >= MAX_PRIMENET_EXP,
@@ -2120,7 +2142,7 @@ def setup(config, args):
 		config.set(SEC.PrimeNet, "CPUHours", str(hours))
 		config.set(SEC.Internals, "RollingAverage", str(1000))
 
-	for i, option in enumerate(("mlucas", "gpuowl", "prpll", "cudalucas", "mfaktc", "mfakto"), 1):
+	for i, option in enumerate(("mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "mfaktc", "mfakto"), 1):
 		if program == i:
 			if not getattr(args, option):
 				setattr(args, option, True)
@@ -2156,6 +2178,8 @@ def setup(config, args):
 	print("""Use the following values to select a work preference:
 	2 - Trial factoring
 	4 - P-1 factoring
+	5 - ECM factoring
+	8 - ECM on Mersenne cofactors
 	12 - Trial factoring GPU
 	100 - First time LL tests
 	101 - Double-check LL tests
@@ -2175,48 +2199,52 @@ def setup(config, args):
 	print("Not all worktypes are supported by all the GIMPS programs:")
 	if sys.stdout.encoding.lower().startswith("utf"):
 		print("""
-┌──────────┬────────┬────────┬───────┬───────────┬─────────┬───────────────┐
-│ Worktype │ Mlucas │ GpuOwl │ PRPLL │ CUDALucas │ CUDAPm1 │ mfaktc/mfakto │
-├──────────┴────────┴────────┴───────┴───────────┴─────────┴───────────────┤
-│ 4          ✔        ✔                            ✔                       │
-│ 12                                                         ✔             │
-│ 100        ✔        ✔*       ✔       ✔                                   │
-│ 101        ✔                         ✔                                   │
-│ 102        ✔        ✔*       ✔       ✔                                   │
-│ 104        ✔        ✔*       ✔       ✔                                   │
-│ 106                 ✔*       ✔                                           │
-│ 150        ✔        ✔        ✔                                           │
-│ 151**      ✔        ✔        ✔                                           │
-│ 152        ✔        ✔        ✔                                           │
-│ 153        ✔        ✔        ✔                                           │
-│ 154        ✔        ✔*                                                   │
-│ 155                 ✔        ✔                                           │
-│ 156                                                                      │
-│ 160        ✔                                                             │
-│ 161        ✔                                                             │
-└──────────────────────────────────────────────────────────────────────────┘""")
+┌──────────┬────────┬────────┬───────┬────────┬───────────┬─────────┬───────────────┐
+│ Worktype │ Mlucas │ GpuOwl │ PRPLL │ PrMers │ CUDALucas │ CUDAPm1 │ mfaktc/mfakto │
+├──────────┴────────┴────────┴───────┴────────┴───────────┴─────────┴───────────────┤
+│ 4          ✔        ✔                ✔                    ✔                       │
+│ 5                                    ✔                                            │
+│ 8                                    ✔                                            │
+│ 12                                                                  ✔             │
+│ 100        ✔        ✔*       ✔       ✔        ✔                                   │
+│ 101        ✔                                  ✔                                   │
+│ 102        ✔        ✔*       ✔       ✔        ✔                                   │
+│ 104        ✔        ✔*       ✔       ✔        ✔                                   │
+│ 106                 ✔*       ✔       ✔                                            │
+│ 150        ✔        ✔        ✔       ✔                                            │
+│ 151**      ✔        ✔        ✔       ✔                                            │
+│ 152        ✔        ✔        ✔       ✔                                            │
+│ 153        ✔        ✔        ✔       ✔                                            │
+│ 154        ✔        ✔*                                                            │
+│ 155                 ✔        ✔       ✔                                            │
+│ 156                                                                               │
+│ 160        ✔                         ✔                                            │
+│ 161        ✔                         ✔                                            │
+└───────────────────────────────────────────────────────────────────────────────────┘""")
 	else:
 		print("""
-+----------+--------+--------+-------+-----------+---------+---------------+
-| Worktype | Mlucas | GpuOwl | PRPLL | CUDALucas | CUDAPm1 | mfaktc/mfakto |
-+----------+--------+--------+-------+-----------+---------+---------------+
-| 4          X        X                            X                       |
-| 12                                                         X             |
-| 100        X        X*       X       X                                   |
-| 101        X                         X                                   |
-| 102        X        X*       X       X                                   |
-| 104        X        X*       X       X                                   |
-| 106                 X*       X                                           |
-| 150        X        X        X                                           |
-| 151**      X        X        X                                           |
-| 152        X        X        X                                           |
-| 153        X        X        X                                           |
-| 154        X        X*                                                   |
-| 155                 X        X                                           |
-| 156                                                                      |
-| 160        X                                                             |
-| 161        X                                                             |
-+--------------------------------------------------------------------------+""")
++----------+--------+--------+-------+--------+-----------+---------+---------------+
+| Worktype | Mlucas | GpuOwl | PRPLL | PrMers | CUDALucas | CUDAPm1 | mfaktc/mfakto |
++----------+--------+--------+-------+--------+-----------+---------+---------------+
+| 4          X        X                X                    X                       |
+| 5                                    X                                            |
+| 8                                    X                                            |
+| 12                                                                  X             |
+| 100        X        X*       X       X        X                                   |
+| 101        X                                  X                                   |
+| 102        X        X*       X       X        X                                   |
+| 104        X        X*       X       X        X                                   |
+| 106                 X*       X       X                                            |
+| 150        X        X        X       X                                            |
+| 151**      X        X        X       X                                            |
+| 152        X        X        X       X                                            |
+| 153        X        X        X       X                                            |
+| 154        X        X*                                                            |
+| 155                 X        X       X                                            |
+| 156                                                                               |
+| 160        X                         X                                            |
+| 161        X                         X                                            |
++-----------------------------------------------------------------------------------+""")
 	print("""* Some previous versions of GpuOwl
 ** Frequently returns LL DC assignments instead of PRP DC
 """)
@@ -2464,6 +2492,7 @@ attr_to_copy = {
 		"mlucas": "mlucas",
 		"gpuowl": "gpuowl",
 		"prpll": "prpll",
+		"prmers": "prmers",
 		"cudalucas": "cudalucas",
 		"mfaktc": "mfaktc",
 		"mfakto": "mfakto",
@@ -2473,6 +2502,7 @@ attr_to_copy = {
 		"tests_saved": "tests_saved",
 		"pm1_multiplier": "pm1_multiplier",
 		"pm1_bounds": "pm1_bounds",
+		"ecm_multiplier": "ECMBoundsMultiplier",
 		"no_report_100m": "no_report_100m",
 		"convert_ll_to_prp": "convert_ll_to_prp",
 		"convert_prp_to_ll": "convert_prp_to_ll",
@@ -2517,6 +2547,7 @@ OPTIONS_TYPE_HINTS = {
 		"mlucas": bool,
 		"gpuowl": bool,
 		"prpll": bool,
+		"prmers": bool,
 		# "cudalucas": bool,
 		"mfaktc": bool,
 		"mfakto": bool,
@@ -2524,6 +2555,7 @@ OPTIONS_TYPE_HINTS = {
 		"DaysOfWork": float,
 		"tests_saved": float,
 		"pm1_multiplier": float,
+		"ecm_multiplier": float,
 		"version_check": bool,
 		"watch": bool,
 		"color": bool,
@@ -2730,11 +2762,14 @@ def check_options(parser, args):
 	if not 1 <= args.cert_cpu_limit <= 100:
 		parser.error("Proof certification work limit must be between 1 and 100%")
 
-	if not (args.mlucas or args.cudalucas or args.gpuowl or args.prpll or args.mfaktc or args.mfakto):
+	if args.prmers:
+		logging.warning("PrMers support is experimental and for testing only. At the time of this release, PrMers was still alpha.")
+
+	if not (args.mlucas or args.cudalucas or args.gpuowl or args.prpll or args.prmers or args.mfaktc or args.mfakto):
 		parser.error("Must select at least one GIMPS program to get assignments for")
 
-	if sum(1 for opt in (args.mlucas, args.cudalucas, args.gpuowl, args.prpll, args.mfaktc, args.mfakto) if opt) != 1:
-		parser.error("This program can only be used with Mlucas or GpuOwl or PRPLL or CUDALucas or mfaktc or mfakto")
+	if sum(1 for opt in (args.mlucas, args.cudalucas, args.gpuowl, args.prpll, args.prmers, args.mfaktc, args.mfakto) if opt) != 1:
+		parser.error("This program can only be used with Mlucas or GpuOwl or PRPLL or PrMers or CUDALucas or mfaktc or mfakto")
 
 	if args.day_night_memory > args.memory:
 		parser.error(
@@ -2995,7 +3030,7 @@ else:
 # endregion
 # region Worktodo Parsing
 WORK_PATTERN = re.compile(
-	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|Cert)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
+	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|ECM2?|Cert)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
 )
 
 Test_RE = re.compile(
@@ -3010,6 +3045,9 @@ PFactor_RE = re.compile(
 )
 PMinus1_RE = re.compile(
 	r'^(P[Mm]inus1)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+),([0-9]+)(?:,([0-9]+)(?:,([0-9]+))?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
+)
+ECM_RE = re.compile(
+	r'^(ECM2?)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)(?:,([0-9]+)(?:,([0-9]+)(?:,([0-9]+))?)?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
 Cert_RE = re.compile(
 	r"^(Cert)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)$"
@@ -3108,6 +3146,26 @@ def parse_assignment(task):
 				assignment.B2_start = int(B2_start)
 		if known_factors:
 			assignment.known_factors = tuple(map(int, known_factors.split(",")))
+	elif work_type in {"ECM", "ECM2"}:
+		found = ECM_RE.match(task)
+		if not found:
+			return None
+		_, _, k, b, n, c, B1, B2, curves_to_do, curve, known_factors = found.groups()
+		assignment.work_type = PRIMENET.WORK_TYPE_ECM
+		assignment.k = float(k)
+		assignment.b = int(b)
+		assignment.n = int(n)
+		assignment.c = int(c)
+		assignment.B1 = int(B1)
+		# assignment.curves_to_do = 100
+		if B2:
+			assignment.B2 = int(B2)
+			if curves_to_do:
+				assignment.curves_to_do = int(curves_to_do)
+				if curve:
+					assignment.curve = int(curve)
+		if known_factors:
+			assignment.known_factors = tuple(map(int, known_factors.split(",")))
 	elif work_type == "Cert":
 		found = Cert_RE.match(task)
 		if not found:
@@ -3144,8 +3202,8 @@ def read_workfile(adapter, workfile):
 		illegal_line = False
 		assignment = parse_assignment(task)
 		if assignment is not None:
-			if assignment.k < 1.0 or assignment.b < 2 or not assignment.c:
-				adapter.error("Illegal number in %r file, k < 1 or b < 2, or c = 0", workfile)
+			if assignment.k < 1.0 or assignment.b < 2 or assignment.n < 1 or not assignment.c:
+				adapter.error("Illegal number in %r file, k < 1 or b < 2 or n < 1 or c = 0", workfile)
 				illegal_line = True
 
 			if (
@@ -3154,13 +3212,13 @@ def read_workfile(adapter, workfile):
 				and not is_prime(assignment.n)
 				and assignment.c == -1
 				and not assignment.known_factors
-				and assignment.work_type != PRIMENET.WORK_TYPE_PMINUS1
+				and assignment.work_type not in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM}
 			):
 				adapter.error("%r file contained composite exponent: %s.", workfile, assignment.n)
 				illegal_line = True
 
-			if assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1 and assignment.B1 < 50000:
-				adapter.error("%r file has P-1 with B1 < 50000 (exponent: %s).", workfile, assignment.n)
+			if assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM} and assignment.B1 < 50000:
+				adapter.error("%r file has P-1/ECM with B1 < 50000 (exponent: %s).", workfile, assignment.n)
 				illegal_line = True
 
 			if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR and assignment.sieve_depth >= assignment.factor_to:
@@ -3197,6 +3255,9 @@ def output_assignment(assignment):
 				temp.extend((assignment.prp_base, assignment.prp_residue_type))
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
+	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+		test = "Factor"
+		temp.extend((assignment.n, "{:.0f}".format(assignment.sieve_depth), "{:.0f}".format(assignment.factor_to)))
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
 		test = "Pfactor"
 		temp.extend((
@@ -3209,9 +3270,6 @@ def output_assignment(assignment):
 		))
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
-	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
-		test = "Factor"
-		temp.extend((assignment.n, "{:.0f}".format(assignment.sieve_depth), "{:.0f}".format(assignment.factor_to)))
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
 		test = "Pminus1"
 		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1, assignment.B2))
@@ -3221,11 +3279,22 @@ def output_assignment(assignment):
 			temp.append(assignment.B2_start)
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
+	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+		test = "ECM2"
+		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1))
+		if assignment.B2 or assignment.curves_to_do or assignment.curve:
+			temp.append(assignment.B2)
+		if assignment.curves_to_do or assignment.curve:
+			temp.append(assignment.curves_to_do)
+		if assignment.curve:
+			temp.append(assignment.curve)
+		if assignment.known_factors:
+			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
 	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 		test = "Cert"
 		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.cert_squarings))
 
-	if assignment.work_type != PRIMENET.WORK_TYPE_PMINUS1:
+	if assignment.work_type not in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM}:
 		if assignment.B1:
 			test = "B1={}{};".format(assignment.B1, ",B2={}".format(assignment.B2) if assignment.B2 else "") + test
 		elif assignment.B2:
@@ -3453,12 +3522,14 @@ def generate_application_str():
 	program = PROGRAMS[
 		0
 		if args.prime95
-		else 6
+		else 7
 		if args.mfakto
-		else 5
+		else 6
 		if args.mfaktc
-		else 4
+		else 5
 		if args.cudalucas
+		else 4
+		if args.prmers
 		else 3
 		if args.prpll
 		else 2
@@ -3789,8 +3860,8 @@ def send_request(adapter, guid, params):
 def get_exponent(adapter, n):
 	"""Fetches and returns the JSON data for a given Mersenne exponent."""
 	try:
-		# r = session.get(primenet_baseurl + "report_exponent_simple/", params={"exp_lo": n, "faclim": 1, "json": 1}, timeout=180)
-		r = session.get(mersenne_ca_baseurl + "exponent/{}/json".format(n), timeout=180)
+		# r = session.get(primenet_baseurl + "report_exponent_simple/", params={"exp_lo": n, "faclim": 1, "json": 1}, timeout=30)
+		r = session.get(mersenne_ca_baseurl + "exponent/{}/json".format(n), timeout=30)
 		r.raise_for_status()
 		result = r.json()
 	except (RequestException, JSONDecodeError) as e:
@@ -4342,8 +4413,7 @@ def read_residue_mlucas(file, nbytes):
 
 def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 	"""Parses a Mlucas work unit file and extract information."""
-	counter = 0
-	pct_complete = None
+	iteration = 0
 	fftlen = None
 
 	try:
@@ -4376,20 +4446,15 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 
 			if t == TEST_TYPE_PRIMALITY:
 				if m == MODULUS_TYPE_MERSENNE:
-					counter = nsquares
-					stage = "LL"
-					pct_complete = nsquares / (p - 2)
+					iteration = nsquares
 			elif t == TEST_TYPE_PRP:
-				counter = nsquares
-				stage = "PRP"
-				pct_complete = nsquares / p
+				iteration = nsquares
 			elif t == TEST_TYPE_PM1:
 				if astage == 1:
-					counter = nsquares
+					iteration = nsquares
 				# elif astage == 2:
 				# 	interim_C = from_bytes(tmp[:-1])
 				# 	_psmall = from_bytes(tmp[-1:])
-				stage = "S{}".format(astage)
 			else:
 				adapter.debug("savefile with unknown TEST_TYPE = %s", t)
 				return None
@@ -4406,7 +4471,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
-	return counter, stage, pct_complete, fftlen
+	return iteration, fftlen
 
 
 def parse_work_unit_cudalucas(adapter, filename, p):
@@ -4427,18 +4492,16 @@ def parse_work_unit_cudalucas(adapter, filename, p):
 			total_time <<= 15
 			# _time_adj <<= 15
 
-			counter = j
+			iteration = j
 			fftlen = n
 			avg_msec_per_iter = (total_time / j) / 1000
-			stage = "LL"
-			pct_complete = j / (q - 2)
 	except EOFError:
 		return None
 	except (IOError, OSError) as e:
 		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
-	return counter, avg_msec_per_iter, stage, pct_complete, fftlen
+	return iteration, avg_msec_per_iter, fftlen
 
 
 # GpuOwl headers
@@ -4486,8 +4549,7 @@ P2_v3_RE = re.compile(br"^OWL P2 (3) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 def parse_work_unit_gpuowl(adapter, filename, p):
 	"""Parses a GpuOwl work unit file and extract information."""
 	counter = 0
-	pct_complete = None
-	buffs = bits = 0
+	iterations = stage = None
 
 	try:
 		with open(filename, "rb") as f:
@@ -4512,8 +4574,6 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 			return None
 
 		counter = int(iteration)
-		stage = "LL"
-		pct_complete = counter / (p - 2)
 	elif header.startswith(b"OWL PRP "):
 		prp_v12 = PRP_v12_RE.match(header)
 		prp_v11 = PRP_v11_RE.match(header)
@@ -4533,8 +4593,6 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 			return None
 
 		counter = int(iteration)
-		stage = "PRP"
-		pct_complete = counter / p
 	elif header.startswith((b"OWL PM1 ", b"OWL P1 ", b"OWL P1F ")):
 		p1_v3 = P1_v3_RE.match(header)
 		p1_v2 = P1_v2_RE.match(header)
@@ -4550,40 +4608,35 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 		elif p1_v1:
 			_version, exponent, _B1, iteration, nBits = p1_v1.groups()
 			counter = int(iteration)
-			bits = int(nBits)
-			pct_complete = counter / bits
+			iterations = int(nBits)  # bits
 		elif p1final_v1:
 			_version, exponent, _B1, _crc = p1final_v1.groups()
-			pct_complete = 1.0
+			# pct_complete = 1.0
 		else:
 			adapter.debug("P-1 stage 1 savefile with unknown version: %r", header)
 			return None
 
-		# B_done = int(B1)
-		stage = "S1"
+		stage = 1
 	elif header.startswith(b"OWL P2 "):
 		p2_v3 = P2_v3_RE.match(header)
 		p2_v2 = P2_v2_RE.match(header)
 		p2_v1 = P2_v1_RE.match(header)
 
 		if p2_v3:
-			_version, exponent, _B1, _B2, _D, _nBuf, nextBlock = p2_v3.groups()
-			if int(nextBlock) == 0xFFFFFFFF:  # (1 << 32) - 1
-				pct_complete = 1.0
+			_version, exponent, _B1, _B2, _D, _nBuf, _nextBlock = p2_v3.groups()
+			# if int(nextBlock) == 0xFFFFFFFF:  # (1 << 32) - 1
+			# 	pct_complete = 1.0
 		elif p2_v2:
 			_version, exponent, _B1, _B2, _crc = p2_v2.groups()
 		elif p2_v1:
 			_version, exponent, _B1, _B2, _nWords, kDone = p2_v1.groups()
 			counter = int(kDone)
-			buffs = 2880
-			pct_complete = counter / buffs
+			iterations = 2880  # buffs
 		else:
 			adapter.debug("P-1 stage 2 savefile with unknown version: %r", header)
 			return None
 
-		# B_done = int(B1)
-		# C_done = int(B2)
-		stage = "S2"
+		stage = 2
 	else:
 		adapter.debug("Error: Unknown save/checkpoint file header: %r", header)
 		return None
@@ -4591,7 +4644,7 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 	if p != int(exponent):
 		return None
 
-	return counter, stage, pct_complete, bits, buffs
+	return counter, iterations, stage
 
 
 # PRPLL headers
@@ -4603,10 +4656,6 @@ PRP_v13_RE = re.compile(br"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res
 
 def parse_work_unit_prpll(adapter, filename, p):
 	"""Parses a PRPLL work unit file and extract information."""
-	counter = 0
-	avg_msec_per_iter = None
-	pct_complete = None
-
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
@@ -4627,8 +4676,6 @@ def parse_work_unit_prpll(adapter, filename, p):
 			return None
 
 		counter = int(iteration)
-		stage = "LL"
-		pct_complete = counter / (p - 2)
 		avg_msec_per_iter = (float(elapsed) / counter) * 1000
 	elif header.startswith(b"OWL PRP "):
 		prp_v13 = PRP_v13_RE.match(header)
@@ -4640,8 +4687,6 @@ def parse_work_unit_prpll(adapter, filename, p):
 			return None
 
 		counter = int(iteration)
-		stage = "PRP"
-		pct_complete = counter / p
 		avg_msec_per_iter = (float(elapsed) / counter) * 1000
 	else:
 		adapter.debug("Error: Unknown save/checkpoint file header: %r", header)
@@ -4650,7 +4695,139 @@ def parse_work_unit_prpll(adapter, filename, p):
 	if p != int(exponent):
 		return None
 
-	return counter, avg_msec_per_iter, stage, pct_complete
+	return counter, avg_msec_per_iter
+
+
+def transform_size(exponent):
+	log2_n = 1
+	while True:
+		log2_n += 1
+		w = exponent >> log2_n
+		if (w + 1) * 2 + log2_n < 64:
+			break
+
+	log2_n5 = 2
+	while True:
+		log2_n5 += 1
+		w = exponent // (5 << log2_n5)
+		if (w + 1) * 2 + (log2_n5 + 2.4) < 64:
+			break
+
+	return min(1 << log2_n, 5 << log2_n5)
+
+
+def li(x):
+	l = math.log(x)
+	return x / l + x / (l * l)
+
+
+def prime_count_approx(low, high):
+	diff = li(high) - li(low)
+	return max(0, int(diff))
+
+
+def parse_work_unit_prmers(adapter, filename, exponent):
+	"""Parses a PrMers work unit file and extract information."""
+	iterations = stage = None
+
+	try:
+		with open(filename, "rb") as f:
+			name = os.path.basename(filename)
+
+			if name.startswith("llsafe_m_"):
+				version, p, i, et = unpack("=iIQd", f)
+
+				if not 1 <= version <= 2:
+					adapter.error("LL savefile with unknown version = %s", version)
+					return None
+
+				if version == 2:
+					_itersave, _jsave = unpack("=QQ", f)
+
+				iteration = i
+			elif name.startswith("m_"):
+				version, p, i, et = unpack("=iIId", f)
+
+				if version != 1:
+					adapter.error("PRP savefile with unknown version = %s", version)
+					return None
+
+				iteration = i
+			elif name.startswith("pm1_m_"):
+				version, p, i, et = unpack("=iIId", f)
+
+				if version != 3:
+					adapter.error("P-1 stage 1 savefile with unknown version = %s", version)
+					return None
+
+				f.seek(11 * transform_size(p) * 8, 1)  # os.SEEK_CUR
+
+				_chk, _blks, _bib, _cbl, _inlot, eacc_len = unpack("=QQQQBI", f)
+
+				eacc_hex_c = f.read(eacc_len)
+				if len(eacc_hex_c) != eacc_len:
+					raise EOFError
+
+				(wbits_len,) = unpack("=I", f)
+
+				wbits_hex_c = f.read(wbits_len)
+				if len(wbits_hex_c) != wbits_len:
+					raise EOFError
+
+				_chunkIdx, _startP, _first, processedBits, bitsInChunk = unpack("=QQBQQ", f)
+
+				iteration = processedBits - bitsInChunk + i
+				iterations = processedBits + i  # bits
+				stage = 1
+			elif name.startswith("pm1_s2_m_"):
+				version, p, B1u, B2u, _cur_p, cur_idx, et = unpack("=iIQQQQd", f)
+
+				if version != 1:
+					adapter.error("P-1 stage 2 savefile with unknown version = %s", version)
+					return None
+
+				iteration = cur_idx + 1
+				iterations = prime_count_approx(B1u, B2u)  # primes
+				stage = 2
+			elif name.startswith(("ecm_m_", "ecm_te_m_")):
+				version, p, i, nb, _B1, et = unpack("=iIIIQd", f)
+
+				if version != 1:
+					adapter.error("ECM stage 1 savefile with unknown version = %s", version)
+					return None
+
+				iteration = i
+				iterations = nb  # bits
+				stage = 1
+			elif name.startswith(("ecm2_m_", "ecm2_te_m_")):
+				version, p, idx, cnt, _B1, _B2, et = unpack("=iIIIQQd", f)
+
+				if not 2 <= version <= 3:
+					adapter.error("ECM stage 2 savefile with unknown version = %s", version)
+					return None
+
+				if version == 3:
+					_seed, _torsion = unpack("=QB", f)
+
+				iteration = idx
+				iterations = cnt  # bits
+				stage = 2
+			else:
+				adapter.error("Unknown save/checkpoint file: %r", filename)
+				return None
+	except EOFError:
+		return None
+	except (IOError, OSError) as e:
+		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		return None
+
+	if exponent != p:
+		adapter.error("Expecting the exponent %s, but found %s", exponent, p)
+		return None
+
+	avg_msec_per_iter = (et / iteration) * 1000
+
+	return iteration, iterations, avg_msec_per_iter, stage, transform_size(p)
 
 
 def calculate_k(exp, bits):
@@ -4745,10 +4922,10 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 
 	pct_complete = pct_complete_mfakt(n, bits, int(num_classes), int(cur_class))
 	assignment_ghd = tf_ghd_credit(n, bits, int(bit_max))
-	counter = pct_complete * assignment_ghd
-	avg_msec_per_iter = ms_elapsed / counter if ms_elapsed else None
+	iteration = pct_complete * assignment_ghd
+	avg_msec_per_iter = ms_elapsed / iteration if ms_elapsed else None
 
-	return counter, avg_msec_per_iter, pct_complete
+	return iteration, assignment_ghd, avg_msec_per_iter
 
 
 # "%u %d %d %d %s: %d %d %s %llu %08X\n", exp, bit_min, bit_max, mystuff.num_classes, MFAKTO_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
@@ -4782,10 +4959,10 @@ def parse_work_unit_mfakto(adapter, filename, p):
 
 	pct_complete = pct_complete_mfakt(n, bits, int(num_classes), int(cur_class))
 	assignment_ghd = tf_ghd_credit(n, bits, int(bit_max))
-	counter = pct_complete * assignment_ghd
-	avg_msec_per_iter = ms_elapsed / counter if ms_elapsed else None
+	iteration = pct_complete * assignment_ghd
+	avg_msec_per_iter = ms_elapsed / iteration if ms_elapsed else None
 
-	return counter, avg_msec_per_iter, pct_complete
+	return iteration, assignment_ghd, avg_msec_per_iter
 
 
 def get_stages_mfaktx_ini(adapter, adir):
@@ -4823,15 +5000,14 @@ def parse_stat_file(adapter, adir, p):
 	for entry in glob.iglob(os.path.join(adir, "p{}*".format(p))):
 		match = MLUCAS_RE.match(os.path.basename(entry))
 		if match:
-			astage = match.group(2) and int(match.group(2))
-			savefiles.append((1 if astage is None else astage, entry))
+			savefiles.append((int(match.group(2)) if match.group(2) else 1, entry))
 	iteration = 0
-	stage = pct_complete = None
+	iterations = stage = None
 	fftlen = None
 	for astage, savefile in sorted(savefiles, reverse=True):
 		result = parse_work_unit_mlucas(adapter, savefile, p, astage)
 		if result is not None:
-			iteration, stage, pct_complete, fftlen = result
+			iteration, fftlen = result
 			break
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
@@ -4839,7 +5015,7 @@ def parse_stat_file(adapter, adir, p):
 	statfile = os.path.join(adir, "p{}.stat".format(p))
 	if not os.path.isfile(statfile):
 		adapter.debug("stat file %r does not exist", statfile)
-		return iteration, None, stage, pct_complete, fftlen, 0, 0
+		return iteration, iterations, None, stage, fftlen
 
 	w = readonly_list_file(statfile)  # appended line by line, no lock needed
 	found = 0
@@ -4861,12 +5037,12 @@ def parse_stat_file(adapter, adir, p):
 			if not found:
 				iteration = int(res.group(2))
 				percent = float(res.group(3))
-				if astage in {"S1", "S2"}:
-					stage = astage
 				if astage == "S1":
-					bits = int(iteration / (percent / 100))
+					iterations = bits = int(iteration / (percent / 100))
+					stage = 1
 				elif astage == "S2":
 					s2 = iteration
+					stage = 2
 			if (not bits or astage == "S1") and (not s2 or astage == "S2"):
 				msec_per_iter = float(res.group(4))
 				if res.group(5) == "sec":
@@ -4874,7 +5050,7 @@ def parse_stat_file(adapter, adir, p):
 				list_msec_per_iter.append(msec_per_iter)
 			found += 1
 		elif s2 and iteration == s2 and s2_res:
-			s2 = int((iteration - int(s2_res.group(1))) / (percent / 100) / 20)
+			iterations = s2 = int((iteration - int(s2_res.group(1))) / (percent / 100) / 20)
 			iteration = int(s2 * (percent / 100))
 		elif fft_res and not fftlen:
 			fftlen = int(fft_res.group(1))
@@ -4882,10 +5058,10 @@ def parse_stat_file(adapter, adir, p):
 			break
 	if not found:
 		# iteration is 0, but don't know the estimated speed yet
-		return iteration, None, stage, pct_complete, fftlen, bits, s2
+		return iteration, iterations, None, stage, fftlen
 	# take the median of the last grepped lines
 	msec_per_iter = median_low(list_msec_per_iter)
-	return iteration, msec_per_iter, stage, pct_complete, fftlen, bits, s2
+	return iteration, iterations, msec_per_iter, None, stage, fftlen
 
 
 def parse_cuda_output_file(adapter, adir, p):
@@ -4894,17 +5070,15 @@ def parse_cuda_output_file(adapter, adir, p):
 	savefile = os.path.join(adir, "c{}".format(p))
 	iteration = 0
 	avg_msec_per_iter = None
-	stage = pct_complete = None
 	fftlen = None
-	buffs = bits = 0
 	if os.path.isfile(savefile):
 		result = parse_work_unit_cudalucas(adapter, savefile, p)
 		if result is not None:
-			iteration, avg_msec_per_iter, stage, pct_complete, fftlen = result
+			iteration, avg_msec_per_iter, fftlen = result
 	else:
 		adapter.debug("Save/Checkpoint file %r does not exist", savefile)
 
-	return iteration, avg_msec_per_iter, stage, pct_complete, fftlen, bits, buffs
+	return iteration, None, avg_msec_per_iter, None, None, fftlen
 
 
 GPUOWL_RE = re.compile(r"^(?:(?:[0-9]+)(?:-([0-9]+)\.(ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|\.(?:(ll|p[12])\.)?owl))$")
@@ -4926,13 +5100,12 @@ def parse_gpuowl_log_file(adapter, adir, p):
 				entry,
 			))
 	iteration = 0
-	stage = pct_complete = None
+	iterations = stage = None
 	fftlen = None
-	buffs = bits = 0
 	for _, _, savefile in sorted(savefiles, reverse=True):
 		result = parse_work_unit_gpuowl(adapter, savefile, p)
 		if result is not None:
-			iteration, stage, pct_complete, bits, buffs = result
+			iteration, iterations, stage = result
 			break
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
@@ -4941,7 +5114,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 	logfile = os.path.join(adir, "gpuowl.log")
 	if not os.path.isfile(logfile):
 		adapter.debug("Log file %r does not exist", logfile)
-		return iteration, None, stage, pct_complete, fftlen, 0, 0
+		return iteration, iterations, None, stage, fftlen
 
 	w = readonly_list_file(logfile, errors="replace")
 	found = 0
@@ -4956,6 +5129,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 	p2_regex = re.compile(r"[0-9]{6,} P2(?: ([0-9]+)/([0-9]+)|\([0-9]+(?:\.[0-9])?M?,[0-9]+(?:\.[0-9])?M?\) OK @([0-9]+)):")
 	list_usec_per_iter = []
 	p1 = p2 = False
+	buffs = bits = 0
 	# get the 5 most recent Iter line
 	for line in reversed(list(w)):
 		res = regex.search(line)
@@ -4980,8 +5154,8 @@ def parse_gpuowl_log_file(adapter, adir, p):
 					p2 = True
 				else:
 					iteration = int(p2_res.group(1))
-					buffs = int(p2_res.group(2))  # 2880
-				stage = "S2"
+					iterations = buffs = int(p2_res.group(2))  # 2880
+				stage = 2
 		elif res and us_res and found < 20:
 			found += 1
 			aiteration = int(res.group(3))
@@ -4990,14 +5164,14 @@ def parse_gpuowl_log_file(adapter, adir, p):
 				iteration = aiteration
 				p1 = res.group(2) == "P1"
 				if p1:
-					stage = "S1"
+					stage = 1
 			elif aiteration > iteration:
 				break
 			if not p1 and not (p2 or buffs):
 				p1_res = p1_regex.search(line)
 				p1 = res.group(2) == "OK" and bool(p1_res)
 				if p1:
-					stage = "S1"
+					stage = 1
 			if len(list_usec_per_iter) < 5:
 				list_usec_per_iter.append(int(us_res.group(1)))
 		elif ares and found < 20:
@@ -5006,22 +5180,22 @@ def parse_gpuowl_log_file(adapter, adir, p):
 			if found == 1:
 				percent = apercent
 				p1 = True
-				stage = "S1"
+				stage = 2
 			elif apercent > percent:
 				break
 			if len(list_usec_per_iter) < 5:
 				list_usec_per_iter.append(int(ares.group(4)))
 		elif p2 and blocks_res:
 			if not buffs:
-				buffs = int(blocks_res.group(1))
+				iterations = buffs = int(blocks_res.group(1))
 				iteration -= int(blocks_res.group(2))
 		elif p1 and (p1_bits_res or ap1_bits_res):
 			if not bits:
 				if p1_bits_res:
-					bits = int(p1_bits_res.group(1))
+					iterations = bits = int(p1_bits_res.group(1))
 					iteration = min(iteration, bits)
 				else:
-					bits = int(ap1_bits_res.group(2))
+					iterations = bits = int(ap1_bits_res.group(2))
 					iteration = int(bits * (percent / 100))
 		elif fft_res and not fftlen:
 			if int(fft_res.group(1)) != p:
@@ -5031,10 +5205,10 @@ def parse_gpuowl_log_file(adapter, adir, p):
 			break
 	if not found:
 		# iteration is 0, but don't know the estimated speed yet
-		return iteration, None, stage, pct_complete, fftlen, bits, buffs
+		return iteration, iterations, None, stage, fftlen
 	# take the median of the last grepped lines
 	msec_per_iter = median_low(list_usec_per_iter) / 1000 if list_usec_per_iter else None
-	return iteration, msec_per_iter, stage, pct_complete, fftlen, bits, buffs
+	return iteration, iterations, msec_per_iter, None, stage, fftlen
 
 
 PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(?:ll|prp)$")
@@ -5049,18 +5223,48 @@ def parse_prpll_log_file(adapter, adir, p):
 			savefiles.append((tuple(map(int, os.path.splitext(os.path.basename(entry))[0].split("-"))), entry))
 	iteration = 0
 	avg_msec_per_iter = None
-	stage = pct_complete = None
-	fftlen = None
-	buffs = bits = 0
 	for _, savefile in sorted(savefiles, reverse=True):
 		result = parse_work_unit_prpll(adapter, savefile, p)
 		if result is not None:
-			iteration, avg_msec_per_iter, stage, pct_complete = result
+			iteration, avg_msec_per_iter = result
 			break
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
-	return iteration, avg_msec_per_iter, stage, pct_complete, fftlen, bits, buffs
+	return iteration, None, avg_msec_per_iter, None, None, None
+
+
+PRMERS_RE = re.compile(r"^(?:(?:llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt$")
+
+
+def parse_prmers_log_file(adapter, adir, p):
+	"""Parse the PRPLL log file for the progress of the assignment."""
+	savefiles = []
+	for entry in glob.iglob(os.path.join(adir, "*m_{}*.ckpt".format(p))):
+		name = os.path.basename(entry)
+		match = PRMERS_RE.match(name)
+		if match:
+			savefiles.append((
+				2 if name.startswith(("llsafe_m_", "m_")) else 1 if name.startswith("pm1_") else 0,
+				int(match.group(3)) if match.group(3) else -1,
+				2 if name.startswith(("pm1_s2_", "ecm2_")) else 1,
+				entry,
+			))
+	iteration = 0
+	avg_msec_per_iter = None
+	iterations = curve = stage = None
+	fftlen = None
+	for _, acurve, _, savefile in sorted(savefiles, reverse=True):
+		result = parse_work_unit_prmers(adapter, savefile, p)
+		if result is not None:
+			iteration, iterations, avg_msec_per_iter, stage, fftlen = result
+			if acurve >= 0:
+				curve = acurve + 1
+			break
+	else:
+		adapter.debug("No save/checkpoint files found for the exponent %s", p)
+
+	return iteration, iterations, avg_msec_per_iter, curve, stage, fftlen
 
 
 def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
@@ -5076,32 +5280,32 @@ def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
 	"""Parse the mfaktc output file for the progress of the assignment."""
 	savefile = os.path.join(adir, get_mfaktc_output_filename(adir, p, sieve_depth, factor_to))
 	iteration = 0
+	iterations = None
 	avg_msec_per_iter = None
-	stage = pct_complete = None
 	if os.path.isfile(savefile):
 		result = parse_work_unit_mfaktc(adapter, savefile, p)
 		if result is not None:
-			iteration, avg_msec_per_iter, pct_complete = result
+			iteration, iterations, avg_msec_per_iter = result
 	# else:
 	# 	adapter.debug("Checkpoint file %r does not exist", savefile)
 
-	return iteration, avg_msec_per_iter, stage, pct_complete, None, 0, 0
+	return iteration, iterations, avg_msec_per_iter, None, None, None
 
 
 def parse_mfakto_output_file(adapter, adir, p):
 	"""Parse the mfakto output file for the progress of the assignment."""
 	savefile = os.path.join(adir, "M{}.ckp".format(p))
 	iteration = 0
+	iterations = None
 	avg_msec_per_iter = None
-	stage = pct_complete = None
 	if os.path.isfile(savefile):
 		result = parse_work_unit_mfakto(adapter, savefile, p)
 		if result is not None:
-			iteration, avg_msec_per_iter, pct_complete = result
+			iteration, iterations, avg_msec_per_iter = result
 	# else:
 	# 	adapter.debug("Checkpoint file %r does not exist", savefile)
 
-	return iteration, avg_msec_per_iter, stage, pct_complete, None, 0, 0
+	return iteration, iterations, avg_msec_per_iter, None, None, None
 
 
 # endregion
@@ -5114,6 +5318,8 @@ def get_progress_assignment(adapter, adir, assignment):
 		result = parse_gpuowl_log_file(adapter, adir, assignment.n)
 	elif args.prpll:  # PRPLL
 		result = parse_prpll_log_file(adapter, adir, assignment.n)
+	elif args.prmers:  # PrMers
+		result = parse_prmers_log_file(adapter, adir, assignment.n)
 	elif args.cudalucas:  # CUDALucas
 		result = parse_cuda_output_file(adapter, adir, assignment.n)
 	elif args.mfaktc:  # mfaktc
@@ -5127,59 +5333,48 @@ def get_progress_assignment(adapter, adir, assignment):
 
 def compute_progress(assignment, msec_per_iter, p, progress):
 	"""Calculate the progress percentage and estimated time left for a given assignment."""
-	iteration, _, _, _, _, bits, s2 = progress
-	percent = iteration / (
-		s2
-		or bits
-		or (
-			assignment.n
-			if assignment.work_type == PRIMENET.WORK_TYPE_PRP
-			else assignment.cert_squarings
-			if assignment.work_type == PRIMENET.WORK_TYPE_CERT
-			else tf_ghd_credit(assignment.n, int(assignment.sieve_depth), int(assignment.factor_to))
-			if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR
-			else assignment.n - 2
-		)
+	iteration, iterations, _, curve, stage, _ = progress
+	aiterations = (
+		iterations
+		if iterations is not None
+		else assignment.n
+		if assignment.work_type == PRIMENET.WORK_TYPE_PRP
+		else assignment.cert_squarings
+		if assignment.work_type == PRIMENET.WORK_TYPE_CERT
+		else tf_ghd_credit(assignment.n, int(assignment.sieve_depth), int(assignment.factor_to))
+		if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR
+		else assignment.n - 2
 	)
 	if msec_per_iter is None:
-		return percent, None, msec_per_iter
+		return aiterations, None, msec_per_iter
 
 	if assignment.n != p and assignment.work_type != PRIMENET.WORK_TYPE_FACTOR:
 		msec_per_iter *= assignment.n * log2(assignment.n) * log2(log2(assignment.n)) / (p * log2(p) * log2(log2(p)))
 
-	if bits:
-		time_left = msec_per_iter * (bits - iteration)
-		# 1.5 suggested by EWM for Mlucas v20.0 and 1.13-1.275 for v20.1
-		time_left += msec_per_iter * bits * 1.2
-		if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK, PRIMENET.WORK_TYPE_PRP}:
-			time_left += msec_per_iter * (assignment.n if assignment.work_type == PRIMENET.WORK_TYPE_PRP else assignment.n - 2)
-	elif s2:
-		time_left = msec_per_iter * (s2 - iteration) if not args.gpuowl else args.timeout
+	if iterations is not None and stage is not None:
+		if stage == 1:
+			time_left = msec_per_iter * (iterations - iteration)
+			# 1.5 suggested by EWM for Mlucas v20.0 and 1.13-1.275 for v20.1
+			time_left += msec_per_iter * iterations * 1.2
+		elif stage == 2:
+			time_left = msec_per_iter * (iterations - iteration) if not args.gpuowl else args.timeout
+
+		if curve is not None and assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+			time_left += msec_per_iter * iterations * 2 * (assignment.curves_to_do - curve)
+
 		if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK, PRIMENET.WORK_TYPE_PRP}:
 			time_left += msec_per_iter * (assignment.n if assignment.work_type == PRIMENET.WORK_TYPE_PRP else assignment.n - 2)
 	elif assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_PFACTOR}:
 		# assume P-1 time is 1.75% of a PRP test (from Prime95)
 		time_left = msec_per_iter * assignment.n * 0.0175
-	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
-		time_left = msec_per_iter * (
-			tf_ghd_credit(assignment.n, int(assignment.sieve_depth), int(assignment.factor_to)) - iteration
-		)
+	# elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
 	else:
-		time_left = msec_per_iter * (
-			(
-				assignment.n
-				if assignment.work_type == PRIMENET.WORK_TYPE_PRP
-				else assignment.cert_squarings
-				if assignment.work_type == PRIMENET.WORK_TYPE_CERT
-				else assignment.n - 2
-			)
-			- iteration
-		)
+		time_left = msec_per_iter * (aiterations - iteration)
 
 	rolling_average = config.getint(SEC.Internals, "RollingAverage") if config.has_option(SEC.Internals, "RollingAverage") else 1000
 	rolling_average = min(4000, max(10, rolling_average))
 	time_left *= (24 / args.cpu_hours) * (1000 / rolling_average)
-	return percent, time_left / 1000, msec_per_iter
+	return aiterations, time_left / 1000, msec_per_iter
 
 
 def work_estimate(adapter, adir, cpu_num, assignment):
@@ -5358,10 +5553,14 @@ def output_status(dirs, cpu_num=None):
 					)
 			elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
 				work_type_str = "factor from 2^{:.0f} to 2^{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
-			elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
-				work_type_str = "P-1 B1={}".format(assignment.B1)
 			elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
 				work_type_str = "P-1"
+			elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
+				work_type_str = "P-1 B1={}".format(assignment.B1)
+			elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+				work_type_str = "ECM {} curve{} B1={}".format(
+					assignment.curves_to_do, "s" if assignment.curves_to_do != 1 else "", assignment.B1
+				)
 			elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 				work_type_str = "Certify"
 			prob += aprob
@@ -6132,14 +6331,6 @@ def get_assignment(
 	elif recover_all:
 		params["all"] = 1
 	# adapter.debug("Fetching using v5 API")
-	supported = frozenset((
-		PRIMENET.WORK_TYPE_FACTOR,
-		PRIMENET.WORK_TYPE_PFACTOR,
-		PRIMENET.WORK_TYPE_FIRST_LL,
-		PRIMENET.WORK_TYPE_DBLCHK,
-		PRIMENET.WORK_TYPE_PRP,
-		PRIMENET.WORK_TYPE_CERT,
-	))
 	retry = False
 	if (assignment_num is None or assignment_num) and not get_cert_work:
 		adapter.info(
@@ -6182,7 +6373,15 @@ def get_assignment(
 	}:
 		adapter.error("Server sent bad exponent: %s.", assignment.n)
 		return None
-	if assignment.work_type not in supported:
+	if assignment.work_type not in {
+		PRIMENET.WORK_TYPE_FACTOR,
+		PRIMENET.WORK_TYPE_PFACTOR,
+		PRIMENET.WORK_TYPE_ECM,
+		PRIMENET.WORK_TYPE_FIRST_LL,
+		PRIMENET.WORK_TYPE_DBLCHK,
+		PRIMENET.WORK_TYPE_PRP,
+		PRIMENET.WORK_TYPE_CERT,
+	}:
 		adapter.error("Returned assignment from server is not a supported worktype %s.", assignment.work_type)
 		# TODO: Unreserve assignment
 		# assignment_unreserve()
@@ -6238,12 +6437,25 @@ def get_assignment(
 		assignment.c = int(r["c"])
 		assignment.sieve_depth = float(r["sf"])
 		assignment.tests_saved = float(r["saved"])
+		if "kf" in r:
+			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
 	elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
 		assignment.B1 = int(r["B1"])
 		assignment.B2 = int(r["B2"])
+		if "kf" in r:
+			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
+	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+		assignment.k = float(r["A"])
+		assignment.b = int(r["b"])
+		assignment.c = int(r["c"])
+		assignment.B1 = int(r["B1"])
+		assignment.B2 = int(r["B2"])
+		assignment.curves_to_do = int(r["CR"])
+		if "kf" in r:
+			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
 	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
@@ -6300,7 +6512,10 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	if progress is not None:
 		percent, _time_left, _, _ = progress
 	if args.cert_cpu_limit < 50 and (
-		(assignment is not None and assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_PFACTOR})
+		(
+			assignment is not None
+			and assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_PFACTOR, PRIMENET.WORK_TYPE_ECM}
+		)
 		or (percent is not None and percent > 0.85)
 	):
 		can_get_cert_work = False
@@ -6477,6 +6692,16 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 		if "b2" in ar or "B2" in ar:
 			params["B2"] = ar["B2"] if "B2" in ar else ar["b2"]
 		if result_type == PRIMENET.AR_P1_FACTOR:
+			params["f"] = ",".join(ar["factors"])
+	elif result_type in {PRIMENET.AR_ECM_FACTOR, PRIMENET.AR_ECM_NOFACTOR}:
+		params["d"] = 1
+		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		params["CR"] = ar["curves"]
+		params["B1"] = ar["b1"]
+		if "b2" in ar:
+			params["B2"] = ar["b2"]
+		if result_type == PRIMENET.AR_ECM_FACTOR:
+			params["stage"] = ar["stage"]
 			params["f"] = ",".join(ar["factors"])
 	elif result_type == PRIMENET.AR_CERT:
 		params["d"] = 1
@@ -6658,11 +6883,14 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 	elif worktype.startswith("PRP"):
 		result_type = PRIMENET.AR_PRP_PRIME if ar["status"] == "P" else PRIMENET.AR_PRP_RESULT
 		# ar["status"] == "C"
+	elif worktype == "TF":
+		result_type = PRIMENET.AR_TF_FACTOR if ar["status"] == "F" else PRIMENET.AR_TF_NOFACTOR
+		# ar["status"] == "NF"
 	elif worktype in {"P-1", "PM1"}:
 		result_type = PRIMENET.AR_P1_FACTOR if ar["status"] == "F" else PRIMENET.AR_P1_NOFACTOR
 		# ar["status"] == "NF"
-	elif worktype == "TF":
-		result_type = PRIMENET.AR_TF_FACTOR if ar["status"] == "F" else PRIMENET.AR_TF_NOFACTOR
+	elif worktype == "ECM":
+		result_type = PRIMENET.AR_ECM_FACTOR if ar["status"] == "F" else PRIMENET.AR_ECM_NOFACTOR
 		# ar["status"] == "NF"
 	elif worktype in {"Cert", "CERT"}:
 		result_type = PRIMENET.AR_CERT
@@ -6736,6 +6964,27 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				", B2={}{}".format(b2, ", E={}".format(ar["brent-suyama"]) if "brent-suyama" in ar else "")
 				if b2 is not None
 				else "",
+				ar.get("security-code", "-"),
+			)
+	elif result_type in {PRIMENET.AR_ECM_FACTOR, PRIMENET.AR_ECM_NOFACTOR}:
+		if result_type == PRIMENET.AR_ECM_FACTOR:
+			factors = ar["factors"]
+			buf += "{} has {}factor{}: {} (ECM curve {}, B1={}, B2={})".format(
+				exponent_to_str(assignment),
+				"a " if len(factors) == 1 else "",
+				"s" if len(factors) != 1 else "",
+				", ".join(factors),
+				ar["curves"],
+				ar["b1"],
+				ar["b2"],
+			)
+		else:
+			buf += "{} completed {} ECM curve{}, B1={}, B2={}, {}".format(
+				exponent_to_str(assignment),
+				ar["curves"],
+				"s" if ar["curves"] != 1 else "",
+				ar["b1"],
+				ar["b2"],
 				ar.get("security-code", "-"),
 			)
 	elif result_type == PRIMENET.AR_CERT:
@@ -6821,6 +7070,9 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 							reverse=True,
 						)
 					)
+			elif args.prmers:  # PrMers
+				file = os.path.join(adir, "prmers.log")
+				savefile = os.path.join(adir, "m_{}.ckpt".format(assignment.n))
 			elif args.cudalucas:  # CUDALucas
 				file = savefile = os.path.join(adir, "c{}".format(assignment.n))
 			else:  # Mlucas
@@ -6882,7 +7134,7 @@ Python version: {16}
 		adapter.debug("Sending result: %r", sendline)
 		adapter.info("Sending result to server: %s", buf)
 
-	if result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_P1_FACTOR}:
+	if result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_P1_FACTOR, PRIMENET.AR_ECM_FACTOR}:
 		for factor in map(int, ar["factors"]):
 			adapter.info(
 				"The %s factor %s has %s decimal digits and %g bits",
@@ -6900,7 +7152,7 @@ Python version: {16}
 	return ar, message, assignment, result_type, no_report
 
 
-RESULT_PATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gpuowl|prpll|mfakt[co]|cofact|prmers")
+RESULT_PATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gpuowl|prpll|prmers|mfakt[co]|cofact")
 
 
 def submit_work(dirs, adapter, adir, cpu_num, tasks):
@@ -6970,7 +7222,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 						failed.append(sendline)
 
 				if is_sent:
-					if result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_P1_FACTOR}:
+					if result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_P1_FACTOR, PRIMENET.AR_ECM_FACTOR}:
 						config.set(SEC.Internals, "RollingStartTime", str(0))
 						# adjust_rolling_average(dirs)
 					else:
@@ -7227,9 +7479,9 @@ def update_assignment(adapter, cpu_num, assignment, task):
 				or (assignment.work_type == PRIMENET.WORK_TYPE_PRP and not assignment.tests_saved)
 			)
 		):
-			json = get_exponent(adapter, assignment.n)
-			if json is not None and int(json["exponent"]) == assignment.n:
-				actual = json["current"]["actual"]
+			result = get_exponent(adapter, assignment.n)
+			if result is not None and int(result["exponent"]) == assignment.n:
+				actual = result["current"]["actual"]
 				bound1 = actual["b1"] and int(actual["b1"])
 				bound2 = actual["b2"] and int(actual["b2"])
 				if bound1 and bound2:
@@ -7267,7 +7519,7 @@ def update_assignment(adapter, cpu_num, assignment, task):
 
 	if args.pm1_bounds:
 		add_bounds = False
-		if args.mlucas and assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
+		if (args.mlucas or args.prmers) and assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
 			adapter.info("Converting from Pfactor= to Pminus1=")
 			assignment.work_type = PRIMENET.WORK_TYPE_PMINUS1
 			add_bounds = True
@@ -7277,18 +7529,24 @@ def update_assignment(adapter, cpu_num, assignment, task):
 		):
 			add_bounds = True
 		if add_bounds:
-			B1, B2 = walk(assignment.n, assignment.sieve_depth)[bounds.index(args.pm1_bounds)]
-			adapter.info("Adding %s optimal P-1 bounds B1=%s, B2=%s to assignment", args.pm1_bounds, B1, B2)
-			p1, p2 = pm1(assignment.n, assignment.sieve_depth, B1, B2)
+			b1, b2 = walk(assignment.n, assignment.sieve_depth)[bounds.index(args.pm1_bounds)]
+			adapter.info("Adding %s optimal P-1 bounds B1=%s, B2=%s to assignment", args.pm1_bounds, b1, b2)
+			p1, p2 = pm1(assignment.n, assignment.sieve_depth, b1, b2)
 			adapter.debug(
 				"Chance of finding a factor is an estimated %s (%s + %s)",
 				format(p1 + p2, "%"),
 				format(p1, ".3%"),
 				format(p2, ".3%"),
 			)
-			assignment.B1 = B1
-			assignment.B2 = B2
+			assignment.B1 = b1
+			assignment.B2 = b2
 			changed = True
+
+	if args.ecm_multiplier is not None and assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+		assignment.B1 = int(assignment.B1 * args.ecm_multiplier)
+		if assignment.B2:
+			assignment.B2 = int(assignment.B2 * args.ecm_multiplier)
+		changed = True
 
 	if changed:
 		adapter.debug("Original assignment: %r", task)
@@ -7338,6 +7596,14 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 		params["B1"] = assignment.B1
 		if assignment.B2:
 			params["B2"] = assignment.B2
+	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+		params["A"] = "{:.0f}".format(assignment.k)
+		params["b"] = assignment.b
+		params["C"] = assignment.c
+		params["B1"] = assignment.B1
+		if assignment.B2:
+			params["B2"] = assignment.B2
+		params["CR"] = assignment.curves_to_do
 	# elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
 	retry = False
 	adapter.info("Registering assignment: %s", exponent_to_text(assignment))
@@ -7410,6 +7676,7 @@ def register_exponents(dirs):
 	2 - Trial factoring (mfaktc/mfakto only) (Factor=)
 	3 - P-1 factoring with bounds (Mlucas only) (Pminus1=)
 	4 - P-1 factoring (with bounds for GpuOwl only) (Pfactor=)
+	5 - ECM factoring (PrMers only) (ECM2=)
 	100 - First time LL test (Test=)
 	101 - Double-check LL test (DoubleCheck=)
 	150 - First time PRP test (PRP=)
@@ -7426,6 +7693,7 @@ def register_exponents(dirs):
 					PRIMENET.WORK_TYPE_FACTOR,
 					PRIMENET.WORK_TYPE_PFACTOR,
 					PRIMENET.WORK_TYPE_PMINUS1,
+					PRIMENET.WORK_TYPE_ECM,
 				}:
 					break
 
@@ -7436,17 +7704,21 @@ def register_exponents(dirs):
 						break
 					print("This number is not prime, there is no need to test it.")
 
-			json = get_exponent(adapter, p)
-			sieve_depth = factor_to = pminus1ed = tests_saved = None
+			result = get_exponent(adapter, p)
+			sieve_depth = factor_to = pminus1ed = tests_saved = curves_to_do = None
+			b1 = b2 = 0
 			known_factors = []
-			if json is not None and int(json["exponent"]) == p:
-				actual = json["current"]["actual"]
+			if result is not None and int(result["exponent"]) == p:
+				actual = result["current"]["actual"]
 				sieve_depth = int(actual["tf"])
 				bound1 = actual["b1"] and int(actual["b1"])
 				bound2 = actual["b2"] and int(actual["b2"])
 				pminus1ed = bool(bound1) and bool(bound2)
-				if "factors_prime" in json:
-					known_factors = [int(factor["factor"]) for factor in json["factors_prime"]]
+				if "ecm_effort" in result:
+					b1 = next(r["b1"] for r in result["ecm_effort"] if r["fac_miss_chance"] >= 0.01)
+					b2 = b1 * 100
+				if "factors_prime" in result:
+					known_factors = [int(factor["factor"]) for factor in result["factors_prime"]]
 				print("\nThis exponent has been Trial Factored (TFed) to {:n} bits".format(sieve_depth))
 				if pminus1ed:
 					print("Existing P-1 bounds are B1={:n}, B2={:n}\n".format(bound1, bound2))
@@ -7469,38 +7741,43 @@ https://www.mersenne.ca/M{0}
 			if work_type == PRIMENET.WORK_TYPE_FACTOR:
 				sieve_depth = ask_int("Trial Factor (TF) starting bits", sieve_depth or 0, 0, 99)
 				factor_to = ask_int("Trial Factor (TF) ending bits", max(factor_limit(p), sieve_depth + 1), sieve_depth, 99)
-			else:
+			elif work_type != PRIMENET.WORK_TYPE_ECM:
 				sieve_depth = ask_float("Trial Factor (TF) bits", sieve_depth, 0, 99)
 
 			if work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
 				pminus1ed = ask_yn("Has it been P-1 factored before?", pminus1ed)
-			elif work_type not in {PRIMENET.WORK_TYPE_FACTOR, PRIMENET.WORK_TYPE_PMINUS1}:
+			elif work_type not in {PRIMENET.WORK_TYPE_FACTOR, PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM}:
 				tests_saved = ask_float("Primality tests saved if factor is found", 0.0 if pminus1ed else 1.3, 0)
 
 			if work_type == 151:
 				prp_base = ask_int("PRP base", 3, 2)
 				prp_residue_type = ask_int("PRP residue type", 1, 1, 5)
 
-			B1 = B2 = 0
 			if (
 				args.gpuowl
 				and ((work_type in {PRIMENET.WORK_TYPE_PRP, 151} and tests_saved) or work_type == PRIMENET.WORK_TYPE_PFACTOR)
 			) or work_type == PRIMENET.WORK_TYPE_PMINUS1:
 				print("\nOptimal P-1 bounds:")
 				_, (midB1, midB2), _ = bounds = walk(p, sieve_depth)
-				for (B1, B2), label in zip(bounds, ("MIN", "MID", "MAX")):
-					p1, p2 = pm1(p, sieve_depth, B1, B2)
-					print("\t{}: B1={:n}, B2={:n}, Probability {:%} ({:.3%} + {:.3%})".format(label, B1, B2, p1 + p2, p1, p2))
+				for (b1, b2), label in zip(bounds, ("MIN", "MID", "MAX")):
+					p1, p2 = pm1(p, sieve_depth, b1, b2)
+					print("\t{}: B1={:n}, B2={:n}, Probability {:%} ({:.3%} + {:.3%})".format(label, b1, b2, p1 + p2, p1, p2))
 				print("For more information, see: {}prob.php?exponent={}\n".format(mersenne_ca_baseurl, p))
 
-				B1 = ask_int("P-1 Bound #1", 0 if args.gpuowl else midB1, 100)
-				B2 = ask_int("P-1 Bound #2", 0 if args.gpuowl else midB2, 0)
+				b1 = ask_int("P-1 Bound #1", 0 if args.gpuowl else midB1, 100)
+				b2 = ask_int("P-1 Bound #2", 0 if args.gpuowl else midB2, 0)
+			elif work_type == PRIMENET.WORK_TYPE_ECM:
+				b1 = ask_int("ECM Bound #1", b1 or 250000, 100)
+				b2 = ask_int("ECM Bound #2", b2, 0)
+
+				curves_to_do = ask_int("Curves to test", 100, 1)
 
 			factors = []
 			if (work_type == 151 and prp_residue_type == 5) or work_type in {
 				PRIMENET.WORK_TYPE_PRP,
 				PRIMENET.WORK_TYPE_PFACTOR,
 				PRIMENET.WORK_TYPE_PMINUS1,
+				PRIMENET.WORK_TYPE_ECM,
 			}:
 				product = 1
 				for i in count():
@@ -7540,8 +7817,8 @@ https://www.mersenne.ca/M{0}
 			elif work_type in {PRIMENET.WORK_TYPE_PRP, 151}:
 				assignment.prp_dblchk = work_type == 151
 				assignment.work_type = PRIMENET.WORK_TYPE_PRP
-				assignment.B1 = B1
-				assignment.B2 = B2
+				assignment.B1 = b1
+				assignment.B2 = b2
 				assignment.sieve_depth = sieve_depth
 				assignment.tests_saved = tests_saved
 				if work_type == 151:
@@ -7554,16 +7831,22 @@ https://www.mersenne.ca/M{0}
 				assignment.factor_to = factor_to
 			elif work_type == PRIMENET.WORK_TYPE_PFACTOR:
 				assignment.work_type = work_type
-				assignment.B1 = B1
-				assignment.B2 = B2
+				assignment.B1 = b1
+				assignment.B2 = b2
 				assignment.sieve_depth = sieve_depth
 				assignment.tests_saved = tests_saved
 				assignment.known_factors = factors
 			elif work_type == PRIMENET.WORK_TYPE_PMINUS1:
 				assignment.work_type = work_type
-				assignment.B1 = B1
-				assignment.B2 = B2
+				assignment.B1 = b1
+				assignment.B2 = b2
 				assignment.sieve_depth = sieve_depth
+				assignment.known_factors = factors
+			elif work_type == PRIMENET.WORK_TYPE_ECM:
+				assignment.work_type = work_type
+				assignment.B1 = b1
+				assignment.B2 = b2
+				assignment.curves_to_do = curves_to_do
 				assignment.known_factors = factors
 
 			task = output_assignment(assignment)
@@ -7573,6 +7856,7 @@ https://www.mersenne.ca/M{0}
 			if not ask_yn("Do you want to register another exponent?", False):
 				break
 
+	with LockFile(workfile):
 		tasks = list(read_workfile(adapter, workfile))
 		register_assignments(adapter, adir, cpu_num, tasks)
 
@@ -7774,30 +8058,15 @@ def update_progress(adapter, cpu_num, assignment, progress, msec_per_iter, p, no
 	"""Update the progress of a given assignment."""
 	if not assignment:
 		return None
-	iteration, _, stage, _pct_complete, fftlen, bits, s2 = progress
-	percent, time_left, msec_per_iter = compute_progress(assignment, msec_per_iter, p, progress)
-	adapter.debug(
-		"M%s is %s done (%s / %s)",
-		assignment.n,
-		format(percent, ".4%"),
-		format(iteration, "n"),
-		format(
-			s2
-			or bits
-			or (
-				assignment.n
-				if assignment.work_type == PRIMENET.WORK_TYPE_PRP
-				else assignment.cert_squarings
-				if assignment.work_type == PRIMENET.WORK_TYPE_CERT
-				else tf_ghd_credit(assignment.n, int(assignment.sieve_depth), int(assignment.factor_to))
-				if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR
-				else assignment.n - 2
-			),
-			"n",
-		),
-	)
-	if stage is None and percent > 0:
-		if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
+	iteration, _, _, curve, astage, fftlen = progress
+	iterations, time_left, msec_per_iter = compute_progress(assignment, msec_per_iter, p, progress)
+	percent = iteration / iterations
+	adapter.debug("M%s is %s done (%s / %s)", assignment.n, format(percent, ".4%"), format(iteration, "n"), format(iterations, "n"))
+	stage = None
+	if percent > 0:
+		if astage is not None:
+			stage = "C{}S{}".format(curve, astage) if curve is not None else "S{}".format(astage)
+		elif assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
 			stage = "LL"
 		elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
 			stage = "PRP"
@@ -8019,7 +8288,7 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 	if assignment is None:
 		return None
 	result = get_progress_assignment(adapter, adir, assignment)
-	msec_per_iter = result[1]
+	msec_per_iter = result[2]
 	p = assignment.n
 	section = "Worker #{}".format(cpu_num + 1) if args.num_workers > 1 else SEC.Internals
 	modified = True
@@ -8031,10 +8300,12 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 		if args.mfakto
 		else "c{}".format(p)
 		if args.cudalucas
-		else "gpuowl.log"
-		if args.gpuowl
+		else "prmers.log"
+		if args.prmers
 		else "gpuowl-{}.log".format(cpu_num)
 		if args.prpll
+		else "gpuowl.log"
+		if args.gpuowl
 		else "p{}.stat".format(p),
 	)
 	if os.path.exists(file) and last_time is not None:
@@ -8253,7 +8524,7 @@ def program_version_check():
 		arch = None
 		logging.debug("Unknown architecture %r for version check", machine)
 
-	if aname not in {"prime95", "mlucas", "gpuowl", "prpll", "cudalucas", "cudapm1", "mfaktc", "mfakto", "cofact"}:
+	if aname not in {"prime95", "mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "cudapm1", "mfaktc", "mfakto", "cofact"}:
 		logging.warning("Unknown GIMPS program %r for version check", name)
 		return
 
@@ -8378,7 +8649,7 @@ def is_pyinstaller():
 
 parser = argparse.ArgumentParser(
 	# usage="%(prog)s [options]\nUse -h/--help to see all options\nUse --setup to configure this instance of the program",
-	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to give most of the arguments once. The first time it is run, it will register the current Mlucas/GpuOwl/PRPLL/CUDALucas/mfaktc/mfakto instance with PrimeNet (see the Registering Options below). Then, it will report assignment results and upload any proof files to PrimeNet immediately. It will get assignments on the --timeout interval, or only once if --timeout is 0. It will additionally report the progress on the --checkin interval."
+	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to give most of the arguments once. The first time it is run, it will register the current Mlucas/GpuOwl/PRPLL/PrMers/CUDALucas/mfaktc/mfakto instance with PrimeNet (see the Registering Options below). Then, it will report assignment results and upload any proof files to PrimeNet immediately. It will get assignments on the --timeout interval, or only once if --timeout is 0. It will additionally report the progress on the --checkin interval."
 )
 parser.suggest_on_error = True  # Python 3.14+
 parser.add_argument("--version", action="version", version="%(prog)s " + VERSION)
@@ -8443,6 +8714,8 @@ parser.add_argument(
 	help="""Work preference, Default: {}. Supported work preferences:
 2 (Trial factoring),
 4 (P-1 factoring),
+5 (ECM factoring),
+8 (ECM on Mersenne cofactors),
 12 (Trial factoring GPU),
 100 (First time LL tests),
 101 (Double-check LL tests),
@@ -8465,6 +8738,7 @@ Provide once to use the same work preference for all workers or once for each wo
 parser.add_argument(
 	"--cert-work",
 	action="store_true",
+	default=None,
 	help="Get PRP proof certification work, Default: %(default)r. Currently only supported by PRPLL.",
 )
 parser.add_argument("--no-cert-work", action="store_false", dest="cert_work")
@@ -8488,20 +8762,25 @@ parser.add_argument("--max-bit", type=int, help="Maximum bit level of TF assignm
 parser.add_argument(
 	"--force-target-bits",
 	action="store_true",
+	default=None,
 	help="Perform a depth first factor search by forcing TF assignments to factor to the target bit level (as listed on mersenne.ca)",
 )
 
 group = parser.add_mutually_exclusive_group()
-group.add_argument("-m", "--mlucas", action="store_true", help="Get assignments for Mlucas.")
-group.add_argument("-g", "--gpuowl", action="store_true", help="Get assignments for GpuOwl.")
+group.add_argument("-m", "--mlucas", action="store_true", default=None, help="Get assignments for Mlucas.")
+group.add_argument("-g", "--gpuowl", action="store_true", default=None, help="Get assignments for GpuOwl.")
 group.add_argument(
 	"--prpll",
 	action="store_true",
+	default=None,
 	help="Get assignments for PRPLL. Only PRPLL NTT is PrimeNet server compatible and thus is fully supported.",
 )
-group.add_argument("--cudalucas", action="store_true", help="Get assignments for CUDALucas.")
-group.add_argument("--mfaktc", action="store_true", help="Get assignments for mfaktc.")
-group.add_argument("--mfakto", action="store_true", help="Get assignments for mfakto.")
+group.add_argument(
+	"--prmers", action="store_true", default=None, help="Get assignments for PrMers. This is experimental and for testing only."
+)
+group.add_argument("--cudalucas", action="store_true", default=None, help="Get assignments for CUDALucas.")
+group.add_argument("--mfaktc", action="store_true", default=None, help="Get assignments for mfaktc.")
+group.add_argument("--mfakto", action="store_true", default=None, help="Get assignments for mfakto.")
 parser.add_argument("--prime95", action="store_true", help=argparse.SUPPRESS)
 parser.add_argument("--num-workers", type=int, default=1, help="Number of workers (CPU Cores/GPUs), Default: %(default)r")
 parser.add_argument(
@@ -8534,21 +8813,30 @@ parser.add_argument(
 	"--force-pminus1-bounds",
 	dest="pm1_bounds",
 	choices=("MIN", "MID", "MAX"),
-	help="Force using the 'MIN', 'MID' or 'MAX' optimal P-1 bounds (as listed on mersenne.ca) for P-1 tests. For Mlucas, this will rewrite Pfactor= assignments to Pminus1=. For GpuOwl, this will use a nonstandard Pfactor= format to add the bounds. Can be used in combination with the --force-pminus1 option.",
+	help="Force using the 'MIN', 'MID' or 'MAX' optimal P-1 bounds (as listed on mersenne.ca) for P-1 tests. For Mlucas and PrMers, this will rewrite Pfactor= assignments to Pminus1=. For GpuOwl, this will use a nonstandard Pfactor= format to add the bounds. Can be used in combination with the --force-pminus1 option.",
+)
+parser.add_argument(
+	"--ecm-bounds-multiplier",
+	dest="ecm_multiplier",
+	type=float,
+	help="Multiply the PrimeNet server assigned ECM bounds by this multiplier.",
 )
 parser.add_argument(
 	"--convert-ll-to-prp",
 	action="store_true",
+	default=None,
 	help="Convert all LL assignments to PRP. This is for use when registering assignments.",
 )
 parser.add_argument(
 	"--convert-prp-to-ll",
 	action="store_true",
+	default=None,
 	help="Convert all PRP assignments to LL. This is automatically enabled for first time PRP assignments when the --workpref option is for a first time LL worktype.",
 )
 parser.add_argument(
 	"--no-report-100m",
 	action="store_true",
+	default=None,
 	help="Do not report any prime results for exponents greater than or equal to 100 million digits. You must setup another method to notify yourself, such as setting the notification options below.",
 )
 parser.add_argument("--report-100m", action="store_false", dest="no_report_100m")
@@ -8618,6 +8906,7 @@ parser.add_argument(
 	"--no-version-check",
 	action="store_false",
 	dest="version_check",
+	default=None,
 	help="Disable the automatic AutoPrimeNet and GIMPS program version check",
 )
 parser.add_argument("--version-check", action="store_true")
@@ -8630,10 +8919,11 @@ parser.add_argument(
 	"--no-watch",
 	action="store_false",
 	dest="watch",
+	default=None,
 	help="Report assignment results and upload proof files on the --timeout interval instead of immediately. This may be needed if the filesystem is unsupported.",
 )
 parser.add_argument("--watch", action="store_true")
-parser.add_argument("--no-color", action="store_false", dest="color", help="Do not use color in output.")
+parser.add_argument("--no-color", action="store_false", dest="color", default=None, help="Do not use color in output.")
 parser.add_argument("--color", action="store_true")
 parser.add_argument(
 	"--setup", action="store_true", help="Prompt for all the options that are needed to setup this program and exit."
@@ -8724,9 +9014,9 @@ group.add_argument(
 	"--smtp",
 	help="SMTP server. Optionally include a port with the 'hostname:port' syntax. Defaults to port 465 with --tls and port 25 otherwise.",
 )
-group.add_argument("--tls", action="store_true", help="Use a secure connection with SSL/TLS")
+group.add_argument("--tls", action="store_true", default=None, help="Use a secure connection with SSL/TLS")
 group.add_argument("--no-tls", action="store_false", dest="tls")
-group.add_argument("--starttls", action="store_true", help="Upgrade to a secure connection with StartTLS")
+group.add_argument("--starttls", action="store_true", default=None, help="Upgrade to a secure connection with StartTLS")
 group.add_argument("--no-starttls", action="store_false", dest="starttls")
 group.add_argument("-U", "--email-username", help="SMTP server username")
 group.add_argument("-P", "--email-password", help="SMTP server password")
@@ -8854,7 +9144,19 @@ if args.days_of_work is None:
 RE = re.compile(r"[^A-Za-z0-9_@+,./:()<>=! -]")
 
 PROGRAM = PROGRAMS[
-	6 if args.mfakto else 5 if args.mfaktc else 4 if args.cudalucas else 3 if args.prpll else 2 if args.gpuowl else 1
+	7
+	if args.mfakto
+	else 6
+	if args.mfaktc
+	else 5
+	if args.cudalucas
+	else 4
+	if args.prmers
+	else 3
+	if args.prpll
+	else 2
+	if args.gpuowl
+	else 1
 ]
 
 # Convert mnemonic-form worktypes to corresponding numeric value, check
@@ -8883,10 +9185,11 @@ SUPPORTED = frozenset(
 			if args.cudalucas
 			else [PRIMENET.WP_PRP_FIRST, PRIMENET.WP_PRP_DBLCHK, PRIMENET.WP_PRP_WORLD_RECORD, PRIMENET.WP_PRP_100M]
 		)
-		+ ([106, PRIMENET.WP_PRP_DC_PROOF] if args.gpuowl or args.prpll else [])
+		+ ([106, PRIMENET.WP_PRP_DC_PROOF] if args.gpuowl or args.prpll or args.prmers else [])
 		+ ([PRIMENET.WP_PRP_NO_PMINUS1] if args.gpuowl or args.mlucas else [])
 		+ ([] if args.prpll else [PRIMENET.WP_PFACTOR])
-		+ ([PRIMENET.WP_PRP_COFACTOR, PRIMENET.WP_PRP_COFACTOR_DBLCHK] if args.mlucas else [])
+		+ ([PRIMENET.WP_ECM_SMALL, PRIMENET.WP_ECM_COFACTOR] if args.prmers else [])
+		+ ([PRIMENET.WP_PRP_COFACTOR, PRIMENET.WP_PRP_COFACTOR_DBLCHK] if args.mlucas or args.prmers else [])
 	)
 )
 
