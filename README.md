@@ -154,7 +154,7 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
                        [--recover-all] [--register-exponents]
                        [--unreserve EXPONENT] [--unreserve-all]
                        [--no-more-work] [--resume-work] [--ping] [--v6]
-                       [--no-version-check] [--version-check]
+                       [--debug-info] [--no-version-check] [--version-check]
                        [--version-check-channel {alpha,beta,stable}]
                        [--no-watch] [--watch] [--no-color] [--color] [--setup]
                        [-H COMPUTER_ID] [--cpu-model CPU_BRAND]
@@ -231,7 +231,7 @@ options:
                         once for each worker to use different work
                         preferences. Not all worktypes are supported by all
                         the GIMPS programs.
-  --cert-work           Get PRP proof certification work, Default: False.
+  --cert-work           Get PRP proof certification work, Default: None.
                         Currently only supported by PRPLL.
   --no-cert-work
   --cert-work-limit CERT_CPU_LIMIT
@@ -333,6 +333,8 @@ options:
                         exit.
   --v6                  Use the experimental PrimeNet v6 API. Currently only
                         works with the --ping option.
+  --debug-info          Output debugging information to include in bug reports
+                        and exit.
   --no-version-check    Disable the automatic AutoPrimeNet and GIMPS program
                         version check
   --version-check
@@ -371,7 +373,7 @@ Registering Options:
                         CPU frequency/speed (MHz), Default: 1000 MHz
   --memory MEMORY       Total physical memory (RAM) (MiB), Default: 1024 MiB
   --max-memory DAY_NIGHT_MEMORY
-                        Configured day/night P-1 stage 2 memory (MiB),
+                        Configured day/night P-1/ECM stage 2 memory (MiB),
                         Default: 921 MiB (90% of physical memory). Required
                         for P-1 assignments.
   --max-disk-space WORKER_DISK_SPACE
@@ -440,7 +442,6 @@ Pull requests welcome! Ideas for contributions:
 * Adapt Loïc Le Loarer's [test suite](https://github.com/llloic11/primenet/tree/main/tests).
 * Add an optional GUI using [Tk](https://en.wikipedia.org/wiki/Tk_(software)) and the [tkinter library](https://docs.python.org/3/library/tkinter.html)
 * Add docstrings to all functions
-* Add an option to show debugging information
 * Support encrypting passwords in the config file
 * Support submitting P-1 results for Fermat numbers
 

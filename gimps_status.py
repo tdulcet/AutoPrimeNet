@@ -554,12 +554,12 @@ def output_unit(number, ascale=scale.IEC_I):
 	anumber += 0.0005 if anumber < 10 else 0.005 if anumber < 100 else 0.05 if anumber < 1000 else 0.5
 
 	if number and anumber < 1000 and power > 0:
-		strm = "{0:.{prec}g}".format(number, prec=sys.float_info.dig)
+		strm = "{:.{prec}g}".format(number, prec=sys.float_info.dig)
 
 		length = 5 + (number < 0)
 		if len(strm) > length:
 			prec = 3 if anumber < 10 else 2 if anumber < 100 else 1
-			strm = "{0:.{prec}f}".format(number, prec=prec)
+			strm = "{:.{prec}f}".format(number, prec=prec)
 	else:
 		strm = "{:.0f}".format(number)
 
@@ -1272,7 +1272,7 @@ def read_residue_mlucas(file, nbytes, filename, check=False):
 	res64, res35m1, res36m1 = unpack("<Q5s5s", file)
 	res35m1 = from_bytes(res35m1)
 	res36m1 = from_bytes(res36m1)
-	# print("{0:016X}".format(res64), "{0:010X}".format(res35m1), "{0:010X}".format(res36m1))
+	# print("{:016X}".format(res64), "{:010X}".format(res35m1), "{:010X}".format(res36m1))
 	if args.check:
 		ares64 = residue & 0xFFFFFFFFFFFFFFFF
 		if res64 != ares64:
@@ -1283,7 +1283,7 @@ def read_residue_mlucas(file, nbytes, filename, check=False):
 		ares36m1 = residue % 0xFFFFFFFFF
 		if res36m1 != ares36m1:
 			logging.error("%r: Res36m1 checksum error. Expected %s, got %s.", filename, res36m1, ares36m1)
-		# print("{0:016X}".format(ares64), "{0:010X}".format(ares35m1), "{0:010X}".format(ares36m1))
+		# print("{:016X}".format(ares64), "{:010X}".format(ares35m1), "{:010X}".format(ares36m1))
 	return residue, res64, res35m1, res36m1
 
 
@@ -2336,7 +2336,7 @@ def one_line_status(file, num, index, wu):
 	elif wu.work_type == WORK_TEST:
 		# work_type_str = "Lucas-Lehmer"
 		work_type_str = "LL"
-		# temp = ["Iter: {0:n} / {1:n}".format(wu.counter, wu.n - 2)]
+		# temp = ["Iter: {:n} / {:n}".format(wu.counter, wu.n - 2)]
 		temp = ["Iter: {:n}".format(wu.counter), "", ""]
 		if wu.shift_count is not None:
 			temp.append("Shift: {:n}".format(wu.shift_count))
@@ -2346,7 +2346,7 @@ def one_line_status(file, num, index, wu):
 			temp.append("Jacobi: {:n} ({})".format(wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed"))
 	elif wu.work_type == WORK_PRP:
 		work_type_str = "PRP"
-		# temp = ["Iter: {0:n} / {1:n}".format(wu.counter, wu.n)]
+		# temp = ["Iter: {:n} / {:n}".format(wu.counter, wu.n)]
 		temp = ["Iter: {:n}".format(wu.counter) if wu.counter is not None else "", "", ""]
 		if wu.shift_count is not None:
 			temp.append("Shift: {:n}".format(wu.shift_count))

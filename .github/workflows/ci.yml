@@ -53,6 +53,7 @@ jobs:
         wget -qO - https://raw.github.com/tdulcet/Linux-System-Information/master/info.sh | bash -s --
         python3 -X dev -c 'import platform; print(platform.freedesktop_os_release())' || true
         python3 -X dev autoprimenet.py --help
+        python3 -X dev autoprimenet.py --debug-info
         python3 -X dev gimps_status.py --help
 
   Linux-old:
@@ -81,8 +82,10 @@ jobs:
       run: |
         set -x
         python autoprimenet.py --help
+        python autoprimenet.py --debug-info
         python gimps_status.py --help
         python3 autoprimenet.py --help
+        python3 autoprimenet.py --debug-info
         python3 gimps_status.py --help
 
   macOS:
@@ -109,6 +112,7 @@ jobs:
         sysctl -n hw.l1dcachesize hw.l2cachesize hw.l3cachesize
         python3 -X dev -c 'import platform; print(platform.mac_ver())'
         python3 -X dev autoprimenet.py --help
+        python3 -X dev autoprimenet.py --debug-info
         python3 -X dev gimps_status.py --help
 
   Windows:
@@ -143,4 +147,5 @@ jobs:
         Get-CimInstance Win32_CacheMemory | Select CacheType,InstalledSize,Level
         python -X dev -c "import platform; print(platform.win32_ver())"
         python -X dev autoprimenet.py --help
+        python -X dev autoprimenet.py --debug-info
         python -X dev gimps_status.py --help

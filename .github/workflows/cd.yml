@@ -47,9 +47,11 @@ jobs:
     - name: Script
       run: |
         python -X dev autoprimenet.py --help
+        python -X dev autoprimenet.py --debug-info
         curl -sSfO https://www.mersenne.org/favicon.ico
         python -OO -m PyInstaller -F -n autoprimenet -i favicon.ico wrapper.py
         .\dist\autoprimenet --help
+        .\dist\autoprimenet --debug-info
     - uses: actions/upload-artifact@v6
       with:
         name: AutoPrimeNet_Windows${{ matrix.python-version == '3.4' && '-XP' || matrix.python-version == '3.8' && '-Vista-7-8' || matrix.python-version == '3.13' && '-8.1' || '' }}_${{ matrix.architecture }}

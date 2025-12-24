@@ -213,6 +213,16 @@ except ImportError:
 		return math.exp(x) - 1
 
 
+try:
+	# Python 3.8+
+	from math import prod
+except ImportError:
+	from functools import reduce
+
+	def prod(iterable, start=1):
+		return reduce(operator.mul, iterable, start)
+
+
 # endregion
 # region OS
 if sys.platform == "win32":  # Windows
@@ -1255,8 +1265,8 @@ class timedelta(timedelta):
 			" {:2n}h".format(h) if d else "{:n}h".format(h) if h else "",
 			" {:2n}m".format(m) if h or d else "{:n}m".format(m) if m else "",
 			" {:2n}s".format(s) if m or h or d else "{:n}s".format(s),  # if s else "",
-			# " {0:3n}ms".format(ms) if s or m or h or d else "{0:n}ms".format(ms) if ms else "",
-			# " {0:3n}µs".format(us) if ms or s or m or h or d else "{0:n}µs".format(us),
+			# " {:3n}ms".format(ms) if s or m or h or d else "{:n}ms".format(ms) if ms else "",
+			# " {:3n}µs".format(us) if ms or s or m or h or d else "{:n}µs".format(us),
 		)
 
 
@@ -1547,7 +1557,7 @@ def exponent_to_str(assignment):
 	elif assignment.b == 2 and assignment.c == -1:
 		buf = "M{.n}".format(assignment)
 		if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
-			buf += " (TF:{0.sieve_depth:.0f}-{0.factor_to:.0f})".format(assignment)
+			buf += " (TF:{:.0f}-{:.0f})".format(assignment.sieve_depth, assignment.factor_to)
 	else:
 		cnt = 0
 		temp_n = assignment.n
@@ -1601,12 +1611,12 @@ def output_unit(number, scale=False):
 	anumber += 0.0005 if anumber < 10 else 0.005 if anumber < 100 else 0.05 if anumber < 1000 else 0.5
 
 	if number and anumber < 1000 and power > 0:
-		strm = "{0:.{prec}g}".format(number, prec=sys.float_info.dig)
+		strm = "{:.{prec}g}".format(number, prec=sys.float_info.dig)
 
 		length = 5 + (number < 0)
 		if len(strm) > length:
 			prec = 3 if anumber < 10 else 2 if anumber < 100 else 1
-			strm = "{0:.{prec}f}".format(number, prec=prec)
+			strm = "{:.{prec}f}".format(number, prec=prec)
 	else:
 		strm = "{:.0f}".format(number)
 
@@ -2126,9 +2136,12 @@ def setup(config, args):
 		if gpus:
 			print("Detected GPUs (some may be repeated):")
 			for i, (name, freq, memory, source) in enumerate(gpus):
-				print("\n{:n}. {!r} ({})".format(i + 1, name, source))
-				print("\tFrequency/Speed: {:n} MHz".format(freq))
-				print("\tTotal Memory: {:n} MiB ({}B)".format(memory, output_unit(memory << 20)))
+				print(
+					"""
+{:n}. {!r} ({})
+	Frequency/Speed: {:n} MHz
+	Total memory: {:n} MiB ({}B)""".format(i + 1, name, source, freq, memory, output_unit(memory << 20))
+				)
 			print()
 			gpu = ask_int("Which GPU are you using this GIMPS program with (0 to not report the GPU)", 0, 0, len(gpus))
 		else:
@@ -2335,7 +2348,7 @@ def setup(config, args):
 			args.worker_disk_space,
 			0,
 		)
-		day_night_memory = ask_float("Configured day/night P-1 stage 2 memory in GiB", args.day_night_memory / 1024, 0)
+		day_night_memory = ask_float("Configured day/night P-1/ECM stage 2 memory in GiB", args.day_night_memory / 1024, 0)
 		while True:
 			archive_dir = ask_str("Optional directory to archive PRP proof files after upload", args.archive_dir or "")
 			if not archive_dir:
@@ -2976,33 +2989,45 @@ def is_prime(n):
 	return not any(miller_rabin(n, nm1, a, d, r) for a in bases)
 
 
+def approximate_digits(assignment):
+	"""Calculate the number of decimal digits in the given assignment."""
+	adigits = Decimal(assignment.k).log10() + assignment.n * Decimal(assignment.b).log10()
+	if assignment.known_factors:
+		adigits -= sum(Decimal(factor).log10() for factor in assignment.known_factors)
+	return int(adigits) + 1
+
+
 if sys.version_info >= (3, 3):
 	import decimal
 
-	def digits(assignment):
+	def digits(assignment, exact=True):
 		"""Calculate the number of decimal digits in the given assignment."""
 		# Maximum exponent on 32-bit systems: 1,411,819,440 (425,000,000 digits)
-		exponent = exponent_to_str(assignment)
-		adigits = int(Decimal(assignment.k).log10() + assignment.n * Decimal(assignment.b).log10()) + 1
-		if adigits <= 300000000:
+		exponent = assignment_to_str(assignment)
+		adigits = approximate_digits(assignment)
+		if exact and adigits <= 300000000:
 			logging.debug("Calculating the number of digits for %s…", exponent)
 			with decimal.localcontext() as ctx:
-				ctx.prec = decimal.MAX_PREC
+				ctx.prec = 425000000  # decimal.MAX_PREC
 				ctx.Emax = decimal.MAX_EMAX
 				ctx.Emin = decimal.MIN_EMIN
 				ctx.traps[decimal.Inexact] = True
 
-				num = str(int(assignment.k) * Decimal(assignment.b) ** assignment.n + assignment.c)
-				adigits = len(num)
+				num = int(assignment.k) * Decimal(assignment.b) ** assignment.n + assignment.c
+				if assignment.known_factors:
+					num /= prod(assignment.known_factors)
+
+				anum = str(num)
+				adigits = len(anum)
 				logging.info(
-					"The exponent %s has %s decimal digits: %s",
+					"%s has %s decimal digits: %s",
 					exponent,
 					format(adigits, "n"),
-					"{}…{}".format(num[:20], num[-20:]) if adigits > 50 else num,
+					"{}…{}".format(anum[:20], anum[-20:]) if adigits > 50 else anum,
 				)
 		else:
 			logging.info(
-				"The exponent %s has approximately %s decimal digits (using formula log10(%s) + %s * log10(%s) + 1)",
+				"%s has approximately %s decimal digits (using formula log10(%s) + %s * log10(%s) + 1)",
 				exponent,
 				format(adigits, "n"),
 				assignment.k,
@@ -3013,12 +3038,12 @@ if sys.version_info >= (3, 3):
 
 else:
 
-	def digits(assignment):
+	def digits(assignment, _exact=True):
 		"""Calculate the number of decimal digits in the given assignment."""
-		adigits = int(Decimal(assignment.k).log10() + assignment.n * Decimal(assignment.b).log10()) + 1
+		adigits = approximate_digits(assignment)
 		logging.info(
-			"The exponent %s has approximately %s decimal digits (using formula log10(%s) + %s * log10(%s) + 1)",
-			exponent_to_str(assignment),
+			"%s has approximately %s decimal digits (using formula log10(%s) + %s * log10(%s) + 1)",
+			assignment_to_str(assignment),
 			format(adigits, "n"),
 			assignment.k,
 			assignment.n,
@@ -3537,7 +3562,7 @@ def generate_application_str():
 		else 1
 	]
 	if args.prime95:
-		return "{0},{1[name]},v{1[version]},build {1[build]}".format(aplatform, program)
+		return "{},{},v{},build {}".format(aplatform, program["name"], program["version"], program["build"])
 	name = program["name"]
 	version = program["version"]
 	build = program.get("build")
@@ -3551,7 +3576,7 @@ def generate_application_str():
 			version = version[1:] if version.startswith("v") else version
 		elif len(aprogram) == 1:
 			(name,) = aprogram
-	# return "{0},{1},v{2};Python {3},{4}".format(
+	# return "{},{},v{};Python {},{}".format(
 	# 	 aplatform, name, version, platform.python_version(), parser.get_version())
 	return "{},{},v{}{}".format(aplatform, name, version, ",build {}".format(build) if build else "")
 
@@ -3759,7 +3784,7 @@ def get_cpu_cache_sizes():
 		# raise ctypes.WinError()
 	elif sys.platform == "darwin":
 		for level, cache in enumerate((b"hw.l1dcachesize", b"hw.l2cachesize", b"hw.l3cachesize"), 1):
-			output = sysctl_value(cache, ctypes.c_int)
+			output = sysctl_value(cache, ctypes.c_int64)
 			if output:
 				cache_sizes[level] = output
 	elif sys.platform.startswith("linux"):
@@ -5015,7 +5040,7 @@ def parse_stat_file(adapter, adir, p):
 	statfile = os.path.join(adir, "p{}.stat".format(p))
 	if not os.path.isfile(statfile):
 		adapter.debug("stat file %r does not exist", statfile)
-		return iteration, iterations, None, stage, fftlen
+		return iteration, iterations, None, None, stage, fftlen
 
 	w = readonly_list_file(statfile)  # appended line by line, no lock needed
 	found = 0
@@ -5058,7 +5083,7 @@ def parse_stat_file(adapter, adir, p):
 			break
 	if not found:
 		# iteration is 0, but don't know the estimated speed yet
-		return iteration, iterations, None, stage, fftlen
+		return iteration, iterations, None, None, stage, fftlen
 	# take the median of the last grepped lines
 	msec_per_iter = median_low(list_msec_per_iter)
 	return iteration, iterations, msec_per_iter, None, stage, fftlen
@@ -5114,7 +5139,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 	logfile = os.path.join(adir, "gpuowl.log")
 	if not os.path.isfile(logfile):
 		adapter.debug("Log file %r does not exist", logfile)
-		return iteration, iterations, None, stage, fftlen
+		return iteration, iterations, None, None, stage, fftlen
 
 	w = readonly_list_file(logfile, errors="replace")
 	found = 0
@@ -5205,7 +5230,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 			break
 	if not found:
 		# iteration is 0, but don't know the estimated speed yet
-		return iteration, iterations, None, stage, fftlen
+		return iteration, iterations, None, None, stage, fftlen
 	# take the median of the last grepped lines
 	msec_per_iter = median_low(list_usec_per_iter) / 1000 if list_usec_per_iter else None
 	return iteration, iterations, msec_per_iter, None, stage, fftlen
@@ -5586,7 +5611,7 @@ def output_status(dirs, cpu_num=None):
 					format(int(1.0 / aprob), "n"),
 					format(aprob, "%"),
 				)
-			digits(assignment)
+			digits(assignment, args.status)
 	if ll_and_prp_cnt > 1:
 		logging.info(
 			"The chance that one of the %s exponents you are testing will yield a %sprime is about 1 in %s (%s).",
@@ -6096,16 +6121,16 @@ def register_instance(guid=None):
 	config_write(config)
 	logging.info(
 		"""GUID %s correctly registered with the following features:
-Username: %s
+User ID: %s
 Computer name: %s
-CPU/GPU model: %s
+Processor (CPU/GPU) model: %s
 CPU features: %s
 CPU L1 Cache size: %s KiB
 CPU L2 Cache size: %s KiB
 CPU cores: %s
 CPU threads per core: %s
 CPU/GPU frequency/speed: %s MHz
-Total RAM: %s MiB
+Total memory (RAM): %s MiB
 To change these values, please rerun the program with different options
 You can see the result in this page:
 https://www.mersenne.org/editcpu/?g=%s""",
@@ -7082,29 +7107,29 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				subject,
 				"""This is an automated message sent by AutoPrimeNet.
 
-User {0!r} (user ID: {1}) has allegedly found a new {2} prime on their {3!r} computer with the {4!r} GIMPS program!
+User {!r} (user ID: {}) has allegedly found a new {} prime on their {!r} computer with the {!r} GIMPS program!
 
-Exponent: {5}, Decimal digits: {6:n}{7}
+Exponent: {}, Decimal digits: {:n}{}
 
 Result text format:
 
-> {8}
+> {}
 
 Result JSON format:
 
-> {9}
+> {}
 
-Below is the last up to 100 lines of the log file for {10} (the program may have moved on to a different exponent):
+Below is the last up to 100 lines of the log file for {} (the program may have moved on to a different exponent):
 
-{11}
+{}
 
 Attached is a zipped copy of the full log file and last savefile/checkpoint file for the user’s GIMPS program and the log file for AutoPrimeNet.
 
-Exponent links: https://www.mersenne.org/M{12}, https://www.mersenne.ca/M{12}
+Exponent links: https://www.mersenne.org/M{}, https://www.mersenne.ca/M{}
 
-AutoPrimeNet version: {13}
-Requests/urllib3 library version: {14} / {15}
-Python version: {16}
+AutoPrimeNet version: {}
+Requests/urllib3 library version: {} / {}
+Python version: {}
 """.format(
 					user_name,
 					args.user_id,
@@ -7118,6 +7143,7 @@ Python version: {16}
 					message,
 					PROGRAM["name"],
 					"N/A" if args.cudalucas else tail(file),
+					assignment.n,
 					assignment.n,
 					VERSION,
 					requests.__version__,
@@ -7733,9 +7759,9 @@ def register_exponents(dirs):
 				)
 				print(
 					"""Here are the links to find this information:
-https://www.mersenne.org/M{0}
-https://www.mersenne.ca/M{0}
-""".format(p)
+https://www.mersenne.org/M{}
+https://www.mersenne.ca/M{}
+""".format(p, p)
 				)
 
 			if work_type == PRIMENET.WORK_TYPE_FACTOR:
@@ -8240,10 +8266,9 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 			"❌📥 Failed to get new assignments on {}".format(args.computer_id),
 			"""Failed to get new assignments for the {!r} file on your {!r} computer (worker #{}).
 
-Minimum exponent: {}
-Maximum exponent: {}
-Minimum bits: {}
-Maximum bits: {}
+Work preference: {}
+Minimum/Maximum exponent: {}/{}
+Minimum/Maximum bits: {}/{}
 
 Below is the last up to 10 lines of the {!r} log file for AutoPrimeNet:
 
@@ -8254,10 +8279,11 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 				workfile,
 				args.computer_id,
 				cpu_num + 1,
-				args.min_exp,
-				args.max_exp,
-				args.min_bit,
-				args.max_bit,
+				args.work_preference[cpu_num],
+				args.min_exp or "-",
+				args.max_exp or "-",
+				args.min_bit or "-",
+				args.max_bit or "-",
 				logfile,
 				tail(logfile, 10),
 			),
@@ -8459,18 +8485,30 @@ def autoprimenet_version_check():
 		if new_version is None or latest_version > parse_version(new_version):
 			send_msg(
 				"🆕 New version {} of AutoPrimeNet is available for {}".format(version, args.computer_id),
-				"""A new version {0} of AutoPrimeNet is available for your {1} computer as of {2:%Y-%m-%d}.
+				"""A new version {} of AutoPrimeNet is available for your {} computer as of {:%Y-%m-%d}.
 
-Information: {3[url_info]}
-Discuss/Forum: {3[url_discuss]}
-Download: {3[url_download]}
+Information: {}
+Discuss/Forum: {}
+Download: {}
 
-Current version: {4}
-Latest version: {0}
+Current version: {}
+Latest version: {}
 
-Requests/urllib3 library version: {5} / {6}
-Python version: {7}
-""".format(version, args.computer_id, date, release, VERSION, requests.__version__, urllib3.__version__, platform.python_version()),
+Requests/urllib3 library version: {} / {}
+Python version: {}
+""".format(
+					version,
+					args.computer_id,
+					date,
+					release["url_info"],
+					release["url_discuss"],
+					release["url_download"],
+					VERSION,
+					version,
+					requests.__version__,
+					urllib3.__version__,
+					platform.python_version(),
+				),
 			)
 			config.set(SEC.Internals, "autoprimenet_new_version", version)
 			config.set(SEC.Internals, "autoprimenet_new_date", date_release)
@@ -8583,15 +8621,25 @@ def program_version_check():
 		if new_version is None or latest_version > new_version or new_date is None or date > new_date:
 			send_msg(
 				"🆕 New version {} of {} is available for {}".format(version_str, name, args.computer_id),
-				"""A new version {0} of the {1} GIMPS program is available for your {2} computer as of {3:%Y-%m-%d}.
+				"""A new version {} of the {} GIMPS program is available for your {} computer as of {:%Y-%m-%d}.
 
-Information: {4[url_info]}
-Discuss/Forum: {4[url_discuss]}
-Download: {4[url_download]}
+Information: {}
+Discuss/Forum: {}
+Download: {}
 
-Current version: {5}
-Latest version: {0}
-""".format(version_str, name, args.computer_id, date, release, version + (" build {}".format(build) if build else "")),
+Current version: {}
+Latest version: {}
+""".format(
+					version_str,
+					name,
+					args.computer_id,
+					date,
+					release["url_info"],
+					release["url_discuss"],
+					release["url_download"],
+					version + (" build {}".format(build) if build else ""),
+					version_str,
+				),
 			)
 			config.set(SEC.Internals, option_version, aversion + (" {}".format(abuild) if abuild else ""))
 			config.set(SEC.Internals, option_date, date_release)
@@ -8636,6 +8684,180 @@ def is_pyinstaller():
 	"""Check if the script is running as a PyInstaller bundle."""
 	# Adapted from: https://pyinstaller.org/en/stable/runtime-information.html
 	return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+
+
+def debug_info():
+	print(
+		"""
+AutoPrimeNet executable:	{}
+AutoPrimeNet version:		{}
+Requests library version:	{}
+urllib3 library version:	{}
+Certifi version:		{}
+OpenSSL version:		{}
+Python implementation:		{}
+Python version:			{}
+""".format(
+			sys.argv[0],
+			VERSION,
+			requests.__version__,
+			urllib3.__version__,
+			certifi and certifi.__version__,
+			ssl.OPENSSL_VERSION,
+			platform.python_implementation(),
+			platform.python_version(),
+		)
+	)
+
+	arelease = machine = None
+	if sys.platform == "win32":
+		aos = "Windows"
+		release, version, _csd, _ptype = platform.win32_ver()
+		if release:
+			arelease = "{} ({})".format(release, version)
+	elif sys.platform == "darwin":
+		aos = "macOS"
+		release, _versioninfo, machine = platform.mac_ver()
+		if release:
+			arelease = release
+	elif sys.platform.startswith("linux"):
+		aos = "Linux"
+		try:
+			info = freedesktop_os_release()
+		except OSError:
+			pass
+		else:
+			if info:
+				arelease = info["PRETTY_NAME"]
+		# Python 2.6 - 3.7
+		if arelease is None and hasattr(platform, "linux_distribution"):
+			distname, version, _id = platform.linux_distribution()
+			if distname:
+				arelease = "{} {}".format(distname, version)
+	else:
+		aos = "Unknown ({})".format(sys.platform)
+
+	if not machine:
+		machine = platform.machine()
+	kernel = platform.release()
+
+	print(
+		"""\
+OS:				{}
+OS version:			{}
+OS kernel:			{}
+Architecture:			{}
+""".format(aos, arelease, kernel, machine)
+	)
+
+	program = PROGRAMS[
+		7
+		if args.mfakto
+		else 6
+		if args.mfaktc
+		else 5
+		if args.cudalucas
+		else 4
+		if args.prmers
+		else 3
+		if args.prpll
+		else 2
+		if args.gpuowl
+		else 1
+	]
+
+	rolling_average = config.getint(SEC.Internals, "RollingAverage") if config.has_option(SEC.Internals, "RollingAverage") else 1000
+
+	print(
+		"""\
+GIMPS software:			{}
+GIMPS software version:		{}
+Workers:			{:n}
+Work preference:		{}
+Proof certification work:	{}
+Days of work:			{:n} day{}
+Minimum/Maximum exponent:	{}/{}
+Minimum/Maximum bits:		{}/{}
+Hours per day:			{:n} / 24 hours
+Rolling average:		{:.1%}  {:n} / {:n}
+""".format(
+			program["name"],
+			config.get(SEC.Internals, "program") if config.has_option(SEC.Internals, "program") else None,
+			args.num_workers,
+			", ".join(args.work_preference) or "-",
+			"Yes" if args.cert_work else "No",
+			args.days_of_work,
+			"s" if args.days_of_work != 1 else "",
+			args.min_exp or "-",
+			args.max_exp or "-",
+			args.min_bit or "-",
+			args.max_bit or "-",
+			args.cpu_hours,
+			rolling_average / 1000,
+			rolling_average,
+			1000,
+		)
+	)
+
+	model = get_cpu_model()
+	cores, threads = get_cpu_cores_threads()
+	frequency = get_cpu_frequency()
+	memory = get_physical_memory()
+	cache_sizes = get_cpu_cache_sizes()
+	usage = disk_usage(workdir)
+
+	print(
+		"""\
+Processor (CPU):		{}
+CPU frequency/speed:		{:n} MHz
+CPU Cores/Threads:		{:n}/{:n}
+CPU Caches:			L1: {:n} KiB, L2: {:n} KiB, L3: {:n} KiB
+Total memory (RAM):		{}B
+Disk space usage:		{:.1%}  {}B / {}B
+""".format(
+			model or "Unknown",
+			frequency,
+			cores,
+			threads,
+			cache_sizes[1],
+			cache_sizes[2],
+			cache_sizes[3],
+			output_unit(memory << 20),
+			usage.used / usage.total,
+			output_unit(usage.used),
+			output_unit(usage.total),
+		)
+	)
+
+	gpus = get_gpus()
+	if gpus:
+		print("Detected Graphics Processors (GPUs):")
+		for i, (name, freq, memory, source) in enumerate(gpus):
+			print(
+				"""\
+{:n}. {} ({})
+	Frequency/Speed: {:n} MHz
+	Total memory: {}B""".format(i + 1, name, source, freq, output_unit(memory << 20))
+			)
+		print()
+	else:
+		print("No Graphics Processors (GPUs) were detected\n")
+
+	print("(Do not publicly post anything below this line)")
+	print("-" * 80)
+	print(
+		"""
+PrimeNet User ID:		{!r}
+User name:			{!r}
+Computer name:			{!r}
+Computer GUID:			{}
+""".format(
+			args.user_id,
+			config.get(SEC.PrimeNet, "user_name") if config.has_option(SEC.PrimeNet, "user_name") else None,
+			args.computer_id,
+			get_guid(config),
+		)
+	)
 
 
 # endregion
@@ -8902,6 +9124,7 @@ parser.add_argument("--ping", action="store_true", help="Ping the PrimeNet serve
 parser.add_argument(
 	"--v6", action="store_true", help="Use the experimental PrimeNet v6 API. Currently only works with the --ping option."
 )
+parser.add_argument("--debug-info", action="store_true", help="Output debugging information to include in bug reports and exit.")
 parser.add_argument(
 	"--no-version-check",
 	action="store_false",
@@ -8958,7 +9181,7 @@ group.add_argument(
 	dest="day_night_memory",
 	type=int,
 	default=int(0.9 * memory),
-	help="Configured day/night P-1 stage 2 memory (MiB), Default: %(default)r MiB (90%% of physical memory). Required for P-1 assignments.",
+	help="Configured day/night P-1/ECM stage 2 memory (MiB), Default: %(default)r MiB (90%% of physical memory). Required for P-1 assignments.",
 )
 group.add_argument(
 	"--max-disk-space",
@@ -9138,6 +9361,10 @@ if args.results_file is None:
 
 if args.days_of_work is None:
 	args.days_of_work = 1.0 if args.mfaktc or args.mfakto else 3.0
+
+if args.debug_info:
+	debug_info()
+	sys.exit(0)
 
 # check args after merging so that if prime.ini file is changed by hand,
 # values are also checked
