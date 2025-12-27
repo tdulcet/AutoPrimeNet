@@ -8167,12 +8167,12 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 			"s" if args.days_of_work != 1 else "",
 		)
 
-	amax = config.getint(SEC.PrimeNet, "MaxExponents")
+	max_exps = config.getint(SEC.PrimeNet, "MaxExponents")
 	days_work = timedelta(args.days_of_work)
 	new_tasks = []
 	while True:
+		time_left = timedelta(seconds=cur_time_left) if cur_time_left else None
 		if num_cache <= num_existing and cur_time_left:
-			time_left = timedelta(seconds=cur_time_left)
 			if time_left <= days_work:
 				num_cache += 1
 				adapter.debug(
@@ -8188,14 +8188,14 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 					days_work,
 				)
 
-		if amax < num_cache:
+		if max_exps < num_cache:
 			adapter.info(
 				"num_cache (%s) is greater than config option MaxExponents (%s), so num_cache decreased to %s",
 				num_cache,
-				amax,
-				amax,
+				max_exps,
+				max_exps,
 			)
-			num_cache = amax
+			num_cache = max_exps
 
 		if num_cache <= num_existing:
 			adapter.debug("%s ≥ %s assignments already in %r, not getting new work", num_existing, num_cache, workfile)
