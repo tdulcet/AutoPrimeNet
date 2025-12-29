@@ -512,7 +512,7 @@ elif sys.platform.startswith("linux"):
 
 cl_lib = find_library("OpenCL")
 if cl_lib:
-	cl = ctypes.CDLL("OpenCL" if sys.platform == "win32" else cl_lib)
+	cl = ctypes.WinDLL("OpenCL") if sys.platform == "win32" else ctypes.CDLL(cl_lib)
 
 	cl.clGetPlatformIDs.argtypes = (ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint))
 	# cl.clGetPlatformIDs.restype = ctypes.c_int
@@ -537,7 +537,7 @@ if cl_lib:
 
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
-	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
+	nvml = ctypes.WinDLL("nvml") if sys.platform == "win32" else ctypes.CDLL(nvml_lib)
 
 	class nvmlMemory_t(ctypes.Structure):
 		_fields_ = (("total", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong))
@@ -1162,7 +1162,7 @@ if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -1259,12 +1259,13 @@ class timedelta(timedelta):
 		m, s = divmod(self.seconds, 60)
 		h, m = divmod(m, 60)
 		d = self.days
-		# ms, us = divmod(self.microseconds, 1000)
-		return "{}{}{}{}".format(
+		ms, _us = divmod(self.microseconds, 1000)
+		return "{}{}{}{}{}".format(
 			"{:n}d".format(d) if d else "",
 			" {:2n}h".format(h) if d else "{:n}h".format(h) if h else "",
 			" {:2n}m".format(m) if h or d else "{:n}m".format(m) if m else "",
-			" {:2n}s".format(s) if m or h or d else "{:n}s".format(s),  # if s else "",
+			" {:2n}s".format(s) if m or h or d else "{:n}s".format(s) if s else "",
+			(" {:3n}ms".format(ms) if s else "{:n}ms".format(ms)) if not (m or h or d) else "",
 			# " {:3n}ms".format(ms) if s or m or h or d else "{:n}ms".format(ms) if ms else "",
 			# " {:3n}µs".format(us) if ms or s or m or h or d else "{:n}µs".format(us),
 		)
@@ -2583,7 +2584,7 @@ def config_read():
 	config.optionxform = lambda option: option
 	localfile = os.path.join(workdir, args.localfile)
 	try:
-		config.read([localfile])
+		config.read((localfile,), **({"encoding": "utf-8"} if sys.version_info >= (3, 2) else {}))
 	except ConfigParserError as e:
 		logging.exception("Error reading %r file: %s: %s", localfile, type(e).__name__, e, exc_info=args.debug)
 	for section in (SEC.PrimeNet, SEC.Email, SEC.Internals):
@@ -2599,7 +2600,7 @@ def config_write(config, guid=None):
 	if guid is not None:  # update the guid if necessary
 		config.set(SEC.PrimeNet, "ComputerGUID", guid)
 	localfile = os.path.join(workdir, args.localfile)
-	with open(localfile, "w") as configfile:
+	with io.open(localfile, "w", encoding="utf-8") as configfile:
 		config.write(configfile)
 
 
@@ -2716,9 +2717,9 @@ def check_options(parser, args):
 	if args.computer_id is not None:
 		if len(args.computer_id) > 20:
 			parser.error("Computer name must be less than or equal to 20 characters")
-		res = RE.search(args.computer_id)
-		if res:
-			logging.warning("Computer name has invalid character: %r", res.group())
+		# res = RE.search(args.computer_id)
+		# if res:
+		# 	logging.warning("Computer name has invalid character: %r", res.group())
 
 	if not 1 <= len(args.cpu_brand) <= 64:
 		parser.error("CPU model must be between 1 and 64 characters")
@@ -3055,7 +3056,7 @@ else:
 # endregion
 # region Worktodo Parsing
 WORK_PATTERN = re.compile(
-	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|ECM2?|Cert)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
+	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|ECM2?|Cert|CERT)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
 )
 
 Test_RE = re.compile(
@@ -3075,7 +3076,7 @@ ECM_RE = re.compile(
 	r'^(ECM2?)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)(?:,([0-9]+)(?:,([0-9]+)(?:,([0-9]+))?)?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
 Cert_RE = re.compile(
-	r"^(Cert)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)$"
+	r"^(Cert|CERT)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)$"
 )
 
 
@@ -3191,7 +3192,7 @@ def parse_assignment(task):
 					assignment.curve = int(curve)
 		if known_factors:
 			assignment.known_factors = tuple(map(int, known_factors.split(",")))
-	elif work_type == "Cert":
+	elif work_type in {"Cert", "CERT"}:
 		found = Cert_RE.match(task)
 		if not found:
 			return None
@@ -3850,8 +3851,8 @@ def send_request(adapter, guid, params):
 		r = session.get(primenet_v5_burl, params=params, timeout=180)
 		# adapter.debug("URL: " + r.url)
 		r.raise_for_status()
-		text = r.text
-	except RequestException as e:
+		text = r.content.decode(r.encoding or r.apparent_encoding)  # r.text
+	except (RequestException, UnicodeDecodeError) as e:
 		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -4997,21 +4998,23 @@ def get_stages_mfaktx_ini(adapter, adir):
 	if not os.path.isfile(ini_file):
 		adapter.debug("Configuration file %r does not exist", ini_file)
 		return stages
+	# Python 3.13+: allow_unnamed_section=True
 	config = ConfigParser()
+	section = "default"
 	try:
-		with io.open(ini_file) as file:
+		with io.open(ini_file, encoding="utf-8") as file:
 			if hasattr(config, "read_file"):  # Python 3.2+
-				config.read_file(chain(("[default]",), file))
+				config.read_file(chain(("[{}]".format(section),), file))
 			else:
 				with io.StringIO() as stream:
-					stream.write("[default]\n")
+					stream.write("[{}]\n".format(section))
 					stream.write(file.read())
 					stream.seek(0)
 					config.readfp(stream)
 	except ConfigParserError as e:
 		adapter.exception("Error reading %r configuration file: %s: %s", ini_file, type(e).__name__, e, exc_info=args.debug)
-	if config.has_option("default", "Stages"):
-		stages = config.getint("default", "Stages")
+	if config.has_option(section, "Stages"):
+		stages = config.getint(section, "Stages")
 	return stages
 
 
@@ -6307,6 +6310,7 @@ def download_certs(adapter, adir, cpu_num, tasks):
 								assignment_unreserve(adapter, assignment)
 								failed = True
 					else:
+						adapter.info("CERT starting value for %s already downloaded", exponent_to_str(assignment))
 						downloaded = True
 				else:
 					adapter.error("Non CERT assignment found in the %r file: %s", certwork_file, exponent_to_text(assignment))
@@ -7960,7 +7964,8 @@ def recover_assignments(dirs, recover_all=False):
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
 		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.worktodo_file)
-		with LockFile(workfile):
+		certwork_file = os.path.join(adir, "certwork-{}.txt".format(i) if args.prpll else "certwork.txt")
+		with LockFile(workfile), LockFile(certwork_file):
 			tasks = list(read_workfile(adapter, workfile))
 			submit_work(dirs, adapter, adir, i, tasks)
 			num_to_get = get_assignment(adapter, i, 0, recover_all=recover_all)
@@ -7986,7 +7991,19 @@ def recover_assignments(dirs, recover_all=False):
 
 			if len(tests) > 1:
 				adapter.info("Recovered %s assignment%s", len(tests), "s" if len(tests) != 1 else "")
-			write_workfile(adir, workfile, tests)
+
+			work = []
+			certwork = []
+			for test in tests:
+				if isinstance(test, Assignment) and test.work_type == PRIMENET.WORK_TYPE_CERT:
+					certwork.append(test)
+				else:
+					work.append(test)
+
+			write_workfile(adir, workfile, work)
+
+			if certwork or os.path.isfile(certwork_file):
+				write_workfile(adir, certwork_file, certwork)
 
 	# As of early 2018, here is the full list of assignment-type codes supported by the Primenet server; Mlucas
 	# v20 (and thus this script) supports only the subset of these indicated by an asterisk in the left column.
@@ -8705,7 +8722,7 @@ Python version:			{}
 			certifi and certifi.__version__,
 			ssl.OPENSSL_VERSION,
 			platform.python_implementation(),
-			platform.python_version(),
+			sys.version.replace("\n", ""),  # platform.python_version()
 		)
 	)
 
@@ -9659,6 +9676,10 @@ for j in count():
 			process_add_file(adapter, workfile)
 			tasks = list(read_workfile(adapter, workfile))  # deque
 			registered = register_assignments(adapter, adir, i, tasks)
+
+		certwork_file = os.path.join(adir, "certwork-{}.txt".format(i) if args.prpll else "certwork.txt")
+		with LockFile(certwork_file):
+			process_add_file(adapter, certwork_file)
 
 		if watching:
 			submit_work(dirs, adapter, adir, i, tasks)

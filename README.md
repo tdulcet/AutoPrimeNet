@@ -435,15 +435,15 @@ Pull requests welcome! Ideas for contributions:
 * Create icon/logo for standalone executables.
 * Support setting more of the program options.
 * Improve the error handling of PrimeNet API calls.
-* Improve the assignment ETA calculation, especially for P-1 and ECM
+* Improve the assignment ETA calculation, especially for P-1 and ECM.
 * Improve the performance.
 * Support reporting interim residues.
 * Localize the program and translate the output into other languages (see [here](https://mersenneforum.org/showthread.php?t=27046)).
 * Adapt Loïc Le Loarer's [test suite](https://github.com/llloic11/primenet/tree/main/tests).
-* Add an optional GUI using [Tk](https://en.wikipedia.org/wiki/Tk_(software)) and the [tkinter library](https://docs.python.org/3/library/tkinter.html)
-* Add docstrings to all functions
-* Support encrypting passwords in the config file
-* Support submitting P-1 results for Fermat numbers
+* Add an optional GUI using [Tk](https://en.wikipedia.org/wiki/Tk_(software)) and the [tkinter library](https://docs.python.org/3/library/tkinter.html).
+* Add docstrings to all functions.
+* Support encrypting passwords in the config file.
+* Support submitting P-1 results for Fermat numbers.
 
 Thanks to [Daniel Connelly](https://github.com/Danc2050) for updating the PrimeNet Python script from Mlucas to eliminate the password requirement by getting assignments using the [PrimeNet API](https://v5.mersenne.org/v5design/v5webAPI_0.97.html) and to support reporting the assignment results and progress for CUDALucas using the PrimeNet API!
 
