@@ -50,7 +50,7 @@ jobs:
         curl -sSfO https://www.mersenne.org/favicon.ico
         python -OO -m PyInstaller -F -n autoprimenet -i favicon.ico wrapper.py
         .\dist\autoprimenet --help
-    - uses: actions/upload-artifact@v5
+    - uses: actions/upload-artifact@v6
       with:
         name: AutoPrimeNet_Windows${{ matrix.python-version == '3.4' && '-XP' || matrix.python-version == '3.8' && '-Vista-7-8' || matrix.python-version == '3.13' && '-8.1' || '' }}_${{ matrix.architecture }}
         path: |
