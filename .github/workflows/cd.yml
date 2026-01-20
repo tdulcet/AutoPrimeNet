@@ -38,12 +38,12 @@ jobs:
       if: ${{ matrix.python-version != '3.4' }}
       run: |
         python -m pip install --upgrade pip
-        python -m pip install requests pyinstaller
+        python -m pip install "requests[socks]" pyinstaller
     - name: Install dependencies
       if: ${{ matrix.python-version == '3.4' }}
       run: |
         python -m pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org --upgrade pip==19.3
-        python -m pip install --ignore-requires-python certifi==2021.10.8 urllib3==1.26.16 idna==3.1 requests[use_chardet_on_py3]==2.26.0 pefile==2019.4.18 pywin32-ctypes==0.2.0 pyinstaller==3.5
+        python -m pip install --ignore-requires-python certifi==2021.10.8 urllib3==1.26.16 idna==3.1 "requests[socks,use_chardet_on_py3]==2.26.0" pefile==2019.4.18 pywin32-ctypes==0.2.0 pyinstaller==3.5
     - name: Script
       run: |
         python -X dev autoprimenet.py --help

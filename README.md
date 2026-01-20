@@ -49,6 +49,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Report results only
 		* Prime95/MPrime
 		* cofact
+		* gvtf
 * Supported worktypes
 	* LL
 	* PRP
@@ -444,6 +445,7 @@ Pull requests welcome! Ideas for contributions:
 * Add docstrings to all functions.
 * Support encrypting passwords in the config file.
 * Support submitting P-1 results for Fermat numbers.
+* Support configuring a proxy server and the DNS server.
 
 Thanks to [Daniel Connelly](https://github.com/Danc2050) for updating the PrimeNet Python script from Mlucas to eliminate the password requirement by getting assignments using the [PrimeNet API](https://v5.mersenne.org/v5design/v5webAPI_0.97.html) and to support reporting the assignment results and progress for CUDALucas using the PrimeNet API!
 

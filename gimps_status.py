@@ -593,7 +593,7 @@ else:
 
 gmp_lib = find_library("libgmp" if sys.platform == "win32" else "gmp")
 if gmp_lib:
-	gmp = ctypes.WinDLL(gmp_lib) if sys.platform == "win32" else ctypes.CDLL(gmp_lib)
+	gmp = ctypes.CDLL(gmp_lib)
 
 	class mpz_t(ctypes.Structure):
 		_fields_ = (("mp_alloc", ctypes.c_int), ("mp_size", ctypes.c_int), ("mp_d", ctypes.POINTER(ctypes.c_ulong)))

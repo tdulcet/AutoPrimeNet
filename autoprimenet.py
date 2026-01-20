@@ -8,7 +8,7 @@
 # ]
 # ///
 
-"""Automatic assignment handler for Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto and cofact.
+"""Automatic assignment handler for Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto, cofact and gvtf.
 
 [*] Python can be downloaded from https://www.python.org/downloads/
     * An .exe version of this script (not requiring Python) can be downloaded from:
@@ -537,7 +537,7 @@ if cl_lib:
 
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
-	nvml = ctypes.WinDLL("nvml") if sys.platform == "win32" else ctypes.CDLL(nvml_lib)
+	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
 
 	class nvmlMemory_t(ctypes.Structure):
 		_fields_ = (("total", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong))
@@ -1162,7 +1162,7 @@ if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -1216,18 +1216,21 @@ session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {} ({} 
 )
 session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))  # Disable cookies
 MAX_RETRIES = 3
-# urllib3 1.26+: allowed_methods=None, method_whitelist=None
 # urllib3 1.9+: urllib3.Retry
-retries = urllib3.Retry(
-	MAX_RETRIES,
-	backoff_factor=1,
-	respect_retry_after_header=False,
-	**(
-		{"allowed_methods": None}
-		if tuple(map(int, urllib3.__version__.split(".", 2)[:2])) >= (1, 26)
-		else {"method_whitelist": None}
-	)
-) if hasattr(urllib3, "Retry") else MAX_RETRIES  # fmt: skip
+if hasattr(urllib3, "Retry"):
+	version = tuple(map(int, urllib3.__version__.split(".", 2)[:2]))
+	kwargs = {}
+	# urllib3 1.19+: respect_retry_after_header=False
+	if version >= (1, 19):
+		kwargs["respect_retry_after_header"] = False
+	# urllib3 1.26+: allowed_methods=None, method_whitelist=None
+	if version >= (1, 26):
+		kwargs["allowed_methods"] = None
+	else:
+		kwargs["method_whitelist"] = None
+	retries = urllib3.Retry(MAX_RETRIES, backoff_factor=1, **kwargs)
+else:
+	retries = MAX_RETRIES
 session.mount("https://", HostHeaderSSLAdapter(max_retries=retries))
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
 atexit.register(session.close)
@@ -2820,7 +2823,7 @@ def check_options(parser, args):
 	if (
 		args.toemails or args.fromemail or args.smtp or args.tls or args.starttls or args.email_username or args.email_password
 	) and not (args.fromemail and args.smtp):
-		parser.error("Providing the E-mail args requires also setting the SMTP server and From e-mail address")
+		parser.error("Providing the E-mail options requires also setting the SMTP server and From e-mail address")
 
 	if args.fromemail and args.smtp:
 		if args.toemails:
@@ -3408,12 +3411,19 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 	# print(msg.as_string())
 	# print(msg)
 
+	host = args.smtp
+	port = 0
+	result = host.rsplit(":", 1)
+	if len(result) == 2:
+		host, port = result
+		port = int(port)
+
 	s = None
 	try:
 		if args.tls:
 			# Python 3.3+
-			# with smtplib.SMTP_SSL(args.smtp, context=context, timeout=30) as s:
-			s = smtplib.SMTP_SSL(args.smtp, timeout=30, **({"context": context} if sys.version_info >= (3, 3) else {}))
+			# with smtplib.SMTP_SSL(host, port context=context, timeout=30) as s:
+			s = smtplib.SMTP_SSL(host, port, timeout=30, **({"context": context} if sys.version_info >= (3, 3) else {}))
 			if args.debug > 1:
 				s.set_debuglevel(2)
 			if args.email_username:
@@ -3421,8 +3431,8 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 			s.sendmail(from_addr, to_addrs, msg.as_string())
 		else:
 			# Python 3.3+
-			# with smtplib.SMTP(args.smtp, timeout=30) as s:
-			s = smtplib.SMTP(args.smtp, timeout=30)
+			# with smtplib.SMTP(host, port, timeout=30) as s:
+			s = smtplib.SMTP(host, port, timeout=30)
 			if args.debug > 1:
 				s.set_debuglevel(2)
 			if args.starttls:
@@ -5814,7 +5824,7 @@ def upload_proof_file(adapter, filename):
 					return False
 
 				if pos:
-					adapter.info("Resuming from offset %s", pos)
+					adapter.info("Resuming from offset %s", format(pos, "n"))
 
 				bytessent = 0
 				buffer = bytearray(max_chunk_size)
@@ -6801,7 +6811,12 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 		result = r.json()
 	except HTTPError as e:
 		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
-		if retry_count < MAX_RETRIES and r.status_code in retries.RETRY_AFTER_STATUS_CODES:
+		# urllib3 1.19+
+		if (
+			retry_count < MAX_RETRIES
+			and hasattr(retries, "RETRY_AFTER_STATUS_CODES")
+			and r.status_code in retries.RETRY_AFTER_STATUS_CODES
+		):
 			try:
 				retry_after = retries.get_retry_after(r)
 			except urllib3.exceptions.InvalidHeader as e:
@@ -6860,7 +6875,7 @@ SCRIPT = {
 	},
 	"os": get_os(),
 }
-CUDA_RESULT_PATTERN = re.compile(r"CUDALucas v|CUDAPm1 v")
+CUDA_RESULT_PATTERN = re.compile(r"CUDA(?:Lucas|Pm1) v")
 
 
 def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
@@ -6873,9 +6888,6 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 		except JSONDecodeError as e:
 			adapter.error("%r", sendline)
 			adapter.exception("Unable to decode entry in %r: %s: %s", resultsfile, type(e).__name__, e, exc_info=args.debug)
-			# Mlucas
-			if "Program: E" in sendline:
-				adapter.info("Please upgrade to Mlucas v19 or greater.")
 			return None
 
 	program = ar["program"]
@@ -7182,7 +7194,7 @@ Python version: {}
 	return ar, message, assignment, result_type, no_report
 
 
-RESULT_PATTERN = re.compile(r"Prime95|Program: E|Mlucas|CUDALucas v|CUDAPm1 v|gpuowl|prpll|prmers|mfakt[co]|cofact")
+RESULT_PATTERN = re.compile(r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf)"|CUDA(?:Lucas|Pm1) v')
 
 
 def submit_work(dirs, adapter, adir, cpu_num, tasks):
@@ -8579,7 +8591,19 @@ def program_version_check():
 		arch = None
 		logging.debug("Unknown architecture %r for version check", machine)
 
-	if aname not in {"prime95", "mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "cudapm1", "mfaktc", "mfakto", "cofact"}:
+	if aname not in {
+		"prime95",
+		"mlucas",
+		"gpuowl",
+		"prpll",
+		"prmers",
+		"cudalucas",
+		"cudapm1",
+		"mfaktc",
+		"mfakto",
+		"cofact",
+		"gvtf",
+	}:
 		logging.warning("Unknown GIMPS program %r for version check", name)
 		return
 
@@ -9264,7 +9288,7 @@ group.add_argument("--test-email", action="store_true", help="Send a test e-mail
 
 args = parser.parse_args()
 args_no_defaults = argparse.Namespace(**{
-	key: value for key, value in args.__dict__.items() if parser.get_default(key) is not value
+	key: value for key, value in args.__dict__.items() if value is not None and parser.get_default(key) is not value
 })
 
 logger = logging.getLogger()
