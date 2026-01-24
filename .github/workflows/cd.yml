@@ -12,6 +12,9 @@ on:
     - cron:  '0 0 1 * *'
   workflow_dispatch:
 
+env:
+  PIP_BREAK_SYSTEM_PACKAGES: 1
+
 jobs:
   PyInstaller:
     name: Windows PyInstaller
@@ -30,10 +33,23 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python
+      if: ${{ matrix.python-version == '3.x' || matrix.python-version == '3.4' }}
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
         architecture: ${{ matrix.architecture }}
+    - name: Before Install
+      if: ${{ matrix.python-version != '3.x' && matrix.python-version != '3.4' }}
+      run: |
+        Join-Path $env:USERPROFILE ".local\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    - name: Install uv and Python
+      if: ${{ matrix.python-version != '3.x' && matrix.python-version != '3.4' }}
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install uv
+        python --version
+        uv python install cpython-${{ matrix.python-version }}-windows-${{ matrix.architecture == 'x64' && 'x86_64' || matrix.architecture == 'arm64' && 'aarch64' || matrix.architecture }}-none --default
+        python --version
     - name: Install dependencies
       if: ${{ matrix.python-version != '3.4' }}
       run: |
