@@ -539,15 +539,53 @@ if cl_lib:
 	)
 	# cl.clGetDeviceInfo.restype = ctype.c_int
 
+cuda_lib = find_library("nvcuda" if sys.platform == "win32" else "cuda")
+if cuda_lib:
+	cuda = ctypes.CDLL("nvcuda" if sys.platform == "win32" else cuda_lib)
+
+	cuda.cuInit.argtypes = (ctypes.c_uint,)
+	# cuda.cuInit.restype = ctypes.c_int
+
+	cuda.cuDeviceGetCount.argtypes = (ctypes.POINTER(ctypes.c_int),)
+	# cuda.cuDeviceGetCount.restype = ctypes.c_int
+
+	cuda.cuDeviceGet.argtypes = (ctypes.POINTER(ctypes.c_int), ctypes.c_int)
+	# cuda.cuDeviceGet.restype = ctypes.c_int
+
+	cuda.cuDeviceGetName.argtypes = (ctypes.c_char_p, ctypes.c_int, ctypes.c_int)
+	# cuda.cuDeviceGetName.restype = ctypes.c_int
+
+	if hasattr(cuda, "cuDeviceTotalMem_v2"):
+		cuDeviceTotalMem = cuda.cuDeviceTotalMem_v2
+		cuDeviceTotalMem.argtypes = (ctypes.POINTER(ctypes.c_size_t), ctypes.c_int)
+		# cuDeviceTotalMem.restype = ctypes.c_int
+	else:
+		cuDeviceTotalMem = cuda.cuDeviceTotalMem
+		cuDeviceTotalMem.argtypes = (ctypes.POINTER(ctypes.c_uint), ctypes.c_int)
+		# cuDeviceTotalMem.restype = ctypes.c_int
+
+	cuda.cuDeviceGetAttribute.argtypes = (ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int)
+	# cuda.cuDeviceGetAttribute.restype = ctypes.c_int
+
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
 	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
 
+	class nvmlMemory_v2_t(ctypes.Structure):
+		_fields_ = (
+			("version", ctypes.c_uint),
+			("total", ctypes.c_ulonglong),
+			("reserved", ctypes.c_ulonglong),
+			("free", ctypes.c_ulonglong),
+			("used", ctypes.c_ulonglong),
+		)
+
 	class nvmlMemory_t(ctypes.Structure):
 		_fields_ = (("total", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong))
 
-	# nvml.nvmlInit.argtypes = ()
-	# nvml.nvmlInit.restype = ctypes.c_int
+	nvmlInit = nvml.nvmlInit_v2 if hasattr(nvml, "nvmlInit_v2") else nvml.nvmlInit
+	# nvmlInit.argtypes = ()
+	# nvmlInit.restype = ctypes.c_int
 
 	nvml.nvmlSystemGetDriverVersion.argtypes = (ctypes.c_char_p, ctypes.c_uint)
 	# nvml.nvmlSystemGetDriverVersion.restype = ctypes.c_int
@@ -555,11 +593,15 @@ if nvml_lib:
 	nvml.nvmlSystemGetCudaDriverVersion.argtypes = (ctypes.POINTER(ctypes.c_int),)
 	# nvml.nvmlSystemGetCudaDriverVersion.restype = ctypes.c_int
 
-	nvml.nvmlDeviceGetCount.argtypes = (ctypes.POINTER(ctypes.c_uint),)
-	# nvml.nvmlDeviceGetCount.restype = ctypes.c_int
+	nvmlDeviceGetCount = nvml.nvmlDeviceGetCount_v2 if hasattr(nvml, "nvmlDeviceGetCount_v2") else nvml.nvmlDeviceGetCount
+	nvmlDeviceGetCount.argtypes = (ctypes.POINTER(ctypes.c_uint),)
+	# nvmlDeviceGetCount.restype = ctypes.c_int
 
-	nvml.nvmlDeviceGetHandleByIndex.argtypes = (ctypes.c_uint, ctypes.c_void_p)
-	# nvml.nvmlDeviceGetHandleByIndex.restype = ctypes.c_int
+	nvmlDeviceGetHandleByIndex = (
+		nvml.nvmlDeviceGetHandleByIndex_v2 if hasattr(nvml, "nvmlDeviceGetHandleByIndex_v2") else nvml.nvmlDeviceGetHandleByIndex
+	)
+	nvmlDeviceGetHandleByIndex.argtypes = (ctypes.c_uint, ctypes.c_void_p)
+	# nvmlDeviceGetHandleByIndex.restype = ctypes.c_int
 
 	nvml.nvmlDeviceGetName.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint)
 	# nvml.nvmlDeviceGetName.restype = ctypes.c_int
@@ -570,8 +612,14 @@ if nvml_lib:
 	nvml.nvmlDeviceGetMaxClockInfo.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_uint))
 	# nvml.nvmlDeviceGetMaxClockInfo.restype = ctypes.c_int
 
-	nvml.nvmlDeviceGetMemoryInfo.argtypes = (ctypes.c_void_p, ctypes.POINTER(nvmlMemory_t))
-	# nvml.nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
+	if hasattr(nvml, "nvmlDeviceGetMemoryInfo_v2"):
+		nvmlDeviceGetMemoryInfo = nvml.nvmlDeviceGetMemoryInfo_v2
+		nvmlDeviceGetMemoryInfo.argtypes = (ctypes.c_void_p, ctypes.POINTER(nvmlMemory_v2_t))
+		# nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
+	else:
+		nvmlDeviceGetMemoryInfo = nvml.nvmlDeviceGetMemoryInfo
+		nvmlDeviceGetMemoryInfo.argtypes = (ctypes.c_void_p, ctypes.POINTER(nvmlMemory_t))
+		# nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
 
 	# nvml.nvmlShutdown.argtypes = ()
 	# nvml.nvmlShutdown.restype = ctypes.c_int
@@ -2033,24 +2081,69 @@ def get_opencl_devices():
 		for device in devices:
 			name = get_device_str(device, 0x102B)  # CL_DEVICE_NAME
 
-			freq = get_device_value(device, 0x100C, ctypes.c_uint)  # CL_DEVICE_MAX_CLOCK_FREQUENCY
+			cores = get_device_value(device, 0x1002, ctypes.c_uint)  # CL_DEVICE_MAX_COMPUTE_UNITS
+
+			frequency = get_device_value(device, 0x100C, ctypes.c_uint)  # CL_DEVICE_MAX_CLOCK_FREQUENCY
 
 			mem = get_device_value(device, 0x101F, ctypes.c_uint64)  # CL_DEVICE_GLOBAL_MEM_SIZE
 			memory = mem >> 20
 
-			adevices.append((name.decode("utf-8"), freq, memory, "OpenCL"))
+			adevices.append((name.decode("utf-8"), cores, frequency, memory, "OpenCL"))
 
 	return adevices
 
 
-def get_nvidia_devices():
+def get_device_attr(attr, device):
+	value = ctypes.c_int()
+	cuda.cuDeviceGetAttribute(ctypes.byref(value), attr, device)
+	return value.value
+
+
+def get_cuda_devices():
+	if cuda.cuInit(0):
+		logging.error("Failed to initialize CUDA")
+		return []
+
+	device_count = ctypes.c_int()
+	if cuda.cuDeviceGetCount(ctypes.byref(device_count)):
+		logging.error("Failed to get the Nvidia device count")
+		return []
+	logging.debug("Total Devices: %s", device_count.value)
+
+	devices = []
+
+	for i in range(device_count.value):
+		device = ctypes.c_int()
+		if cuda.cuDeviceGet(ctypes.byref(device), i):
+			logging.error("Failed to get handle for Nvidia device %s", i)
+			continue
+
+		buf = ctypes.create_string_buffer(96)
+		cuda.cuDeviceGetName(buf, len(buf), device)
+		name = buf.value
+
+		cores = get_device_attr(16, device)  # CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT
+
+		clock = get_device_attr(13, device)  # CU_DEVICE_ATTRIBUTE_CLOCK_RATE
+		frequency = clock // 1000
+
+		mem = ctypes.c_size_t() if hasattr(cuda, "cuDeviceTotalMem_v2") else ctypes.c_uint()
+		cuDeviceTotalMem(ctypes.byref(mem), device)
+		memory = mem.value >> 20
+
+		devices.append((name.decode("utf-8"), cores, frequency, memory, "CUDA"))
+
+	return devices
+
+
+def get_nvml_devices():
 	"""Retrieve a list of Nvidia GPU devices with their names, maximum clock frequencies, and total memory."""
-	if nvml.nvmlInit():
+	if nvmlInit():
 		logging.error("Failed to initialize NVML")
 		return []
 	try:
 		device_count = ctypes.c_uint()
-		if nvml.nvmlDeviceGetCount(ctypes.byref(device_count)):
+		if nvmlDeviceGetCount(ctypes.byref(device_count)):
 			logging.error("Failed to get the Nvidia device count")
 			return []
 		logging.debug("Total Devices: %s", device_count.value)
@@ -2059,7 +2152,7 @@ def get_nvidia_devices():
 
 		for i in range(device_count.value):
 			device = ctypes.c_void_p()
-			if nvml.nvmlDeviceGetHandleByIndex(i, ctypes.byref(device)):
+			if nvmlDeviceGetHandleByIndex(i, ctypes.byref(device)):
 				# raise Exception
 				logging.error("Failed to get handle for Nvidia device %s", i)
 				continue
@@ -2069,14 +2162,18 @@ def get_nvidia_devices():
 			name = buf.value
 
 			clock = ctypes.c_uint()
-			nvml.nvmlDeviceGetMaxClockInfo(device, 0, ctypes.byref(clock))
-			freq = clock.value
+			nvml.nvmlDeviceGetMaxClockInfo(device, 1, ctypes.byref(clock))  # NVML_CLOCK_SM
+			frequency = clock.value
 
-			mem = nvmlMemory_t()
-			nvml.nvmlDeviceGetMemoryInfo(device, ctypes.byref(mem))
+			mem = (
+				nvmlMemory_v2_t(ctypes.sizeof(nvmlMemory_v2_t) | (2 << 24))
+				if hasattr(nvml, "nvmlDeviceGetMemoryInfo_v2")
+				else nvmlMemory_t()
+			)
+			nvmlDeviceGetMemoryInfo(device, ctypes.byref(mem))
 			memory = mem.total >> 20
 
-			devices.append((name.decode("utf-8"), freq, memory, "NVML"))
+			devices.append((name.decode("utf-8"), None, frequency, memory, "NVML"))
 	finally:
 		nvml.nvmlShutdown()
 
@@ -2093,11 +2190,14 @@ def get_gpus():
 	else:
 		logging.debug("OpenCL library not found on this system.")
 
-	if nvml_lib:
-		logging.debug("Nvidia")
-		gpus.extend(get_nvidia_devices())
+	if cuda_lib:
+		logging.debug("Nvidia (CUDA)")
+		gpus.extend(get_cuda_devices())
+	elif nvml_lib:
+		logging.debug("Nvidia (NVML)")
+		gpus.extend(get_nvml_devices())
 	else:
-		logging.debug("NVML library not found on this system.")
+		logging.debug("CUDA and NVML libraries not found on this system.")
 
 	return gpus
 
@@ -2375,24 +2475,32 @@ def setup(config, args):
 		args.computer_id = compid
 		config.set(SEC.PrimeNet, "ComputerID", compid)
 
-	program = ask_int(
-		"Which GIMPS program are you getting assignments for (1=Mlucas, 2=GpuOwl, 3=PRPLL, 4=PrMers, 5=CUDALucas, 6=mfaktc, 7=mfakto)",
-		7
-		if args.mfakto
-		else 6
-		if args.mfaktc
-		else 5
-		if args.cudalucas
-		else 4
-		if args.prmers
-		else 3
-		if args.prpll
-		else 2
-		if args.gpuowl
-		else 1,
-		1,
-		7,
-	)
+	programs = ("mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "mfaktc", "mfakto")
+	while True:
+		program = ask_int(
+			"Which GIMPS program are you getting assignments for ({})".format(
+				", ".join("{}={}".format(i, program["name"]) for i, program in enumerate(PROGRAMS[1:], 1))
+			),
+			7
+			if args.mfakto
+			else 6
+			if args.mfaktc
+			else 5
+			if args.cudalucas
+			else 4
+			if args.prmers
+			else 3
+			if args.prpll
+			else 2
+			if args.gpuowl
+			else 1
+			if args.mlucas
+			else None,
+			1,
+			len(programs),
+		)
+		if program is not None:
+			break
 	if program == 4:
 		print("Warning: PrMers support is experimental and for testing only. At the time of this release, PrMers was still alpha.")
 		ask_ok()
@@ -2408,12 +2516,13 @@ def setup(config, args):
 		gpus = get_gpus()
 		if gpus:
 			print("Detected GPUs (some may be repeated):")
-			for i, (name, freq, memory, source) in enumerate(gpus):
+			for i, (name, cores, frequency, memory, source) in enumerate(gpus):
 				print(
 					"""
 {:n}. {!r} ({})
+	Cores: {}
 	Frequency/Speed: {:n} MHz
-	Total memory: {:n} MiB ({}B)""".format(i + 1, name, source, freq, memory, output_unit(memory << 20))
+	Total memory: {:n} MiB ({}B)""".format(i + 1, name, source, cores or "(Unknown)", frequency, memory, output_unit(memory << 20))
 				)
 			print()
 			gpu = ask_int("Which GPU are you using this GIMPS program with (0 to not report the GPU)", 0, 0, len(gpus))
@@ -2428,7 +2537,7 @@ def setup(config, args):
 		config.set(SEC.PrimeNet, "CPUHours", str(hours))
 		config.set(SEC.Internals, "RollingAverage", str(1000))
 
-	for i, option in enumerate(("mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "mfaktc", "mfakto"), 1):
+	for i, option in enumerate(programs, 1):
 		if program == i:
 			if not getattr(args, option):
 				setattr(args, option, True)
@@ -2444,11 +2553,16 @@ def setup(config, args):
 			config.remove_option(SEC.PrimeNet, option)
 
 	if gpu:
-		name, freq, memory, _ = gpus[gpu - 1]
+		name, cores, frequency, memory, _ = gpus[gpu - 1]
 		args.cpu_brand = name
 		config.set(SEC.PrimeNet, "CpuBrand", name)
-		args.cpu_speed = freq
-		config.set(SEC.PrimeNet, "CpuSpeed", str(freq))
+		if cores:
+			args.num_cores = cores
+			config.set(SEC.PrimeNet, "NumCores", str(cores))
+			args.cpu_hyperthreads = 1
+			config.set(SEC.PrimeNet, "CpuNumHyperthreads", str(1))
+		args.cpu_speed = frequency
+		config.set(SEC.PrimeNet, "CpuSpeed", str(frequency))
 		args.memory = memory
 		config.set(SEC.PrimeNet, "memory", str(memory))
 		args.day_night_memory = int(memory * 0.9)
@@ -6533,7 +6647,7 @@ Processor (CPU/GPU) model: %s
 CPU features: %s
 CPU L1 Cache size: %s KiB
 CPU L2 Cache size: %s KiB
-CPU cores: %s
+CPU/GPU cores: %s
 CPU threads per core: %s
 CPU/GPU frequency/speed: %s MHz
 Total memory (RAM): %s MiB
@@ -9275,12 +9389,13 @@ Disk space usage:		{:.1%}  {}B / {}B
 	gpus = get_gpus()
 	if gpus:
 		print("Detected Graphics Processors (GPUs):")
-		for i, (name, freq, memory, source) in enumerate(gpus):
+		for i, (name, cores, frequency, memory, source) in enumerate(gpus):
 			print(
 				"""\
 {:n}. {} ({})
+	Cores: {}
 	Frequency/Speed: {:n} MHz
-	Total memory: {}B""".format(i + 1, name, source, freq, output_unit(memory << 20))
+	Total memory: {}B""".format(i + 1, name, source, cores or "(Unknown)", frequency, output_unit(memory << 20))
 			)
 		print()
 	else:
