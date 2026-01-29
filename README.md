@@ -157,10 +157,14 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
                        [--no-more-work] [--resume-work] [--ping] [--v6]
                        [--debug-info] [--no-version-check] [--version-check]
                        [--version-check-channel {alpha,beta,stable}]
-                       [--no-watch] [--watch] [--no-color] [--color] [--setup]
-                       [-H COMPUTER_ID] [--cpu-model CPU_BRAND]
-                       [--features CPU_FEATURES] [--frequency CPU_SPEED]
-                       [--memory MEMORY] [--max-memory DAY_NIGHT_MEMORY]
+                       [--no-watch] [--watch] [--no-encrypt] [--encrypt]
+                       [--no-color] [--color] [--setup]
+                       [--proxy-type {http,https,socks5,socks5h}] [-x PROXY]
+                       [--proxy-username PROXY_USERNAME]
+                       [--proxy-password PROXY_PASSWORD] [-H COMPUTER_ID]
+                       [--cpu-model CPU_BRAND] [--features CPU_FEATURES]
+                       [--frequency CPU_SPEED] [--memory MEMORY]
+                       [--max-memory DAY_NIGHT_MEMORY]
                        [--max-disk-space WORKER_DISK_SPACE]
                        [--l1 CPU_L1_CACHE_SIZE] [--l2 CPU_L2_CACHE_SIZE]
                        [--l3 CPU_L3_CACHE_SIZE] [--cores NUM_CORES]
@@ -348,10 +352,33 @@ options:
                         the --timeout interval instead of immediately. This
                         may be needed if the filesystem is unsupported.
   --watch
+  --no-encrypt          Do not encrypt any passwords in the configuration
+                        file.
+  --encrypt             Encrypt any passwords from the --proxy-password and
+                        --email-password options in the configuration file.
+                        Uses AES-256-GCM encryption with PBKDF2-HMAC-SHA256
+                        key derivation. Requires the OpenSSL library. Does
+                        opportunistic encryption by default. Provide this
+                        option to enable strict encryption.
   --no-color            Do not use color in output.
   --color
   --setup               Prompt for all the options that are needed to setup
                         this program and exit.
+
+Connection Options:
+  Optionally configure a proxy server.
+
+  --proxy-type {http,https,socks5,socks5h}
+                        Proxy server type, 'http', 'https', 'socks5' or
+                        'socks5h', Default 'http'. SOCKS proxies require the
+                        Requests 2.10 or greater and PySocks libraries.
+  -x PROXY, --proxy PROXY
+                        Proxy server. Optionally include a port with the
+                        'hostname:port' syntax.
+  --proxy-username PROXY_USERNAME
+                        Proxy server username
+  --proxy-password PROXY_PASSWORD
+                        Proxy server password
 
 Registering Options:
   Sent to PrimeNet/GIMPS when registering. It will automatically send the
@@ -443,9 +470,8 @@ Pull requests welcome! Ideas for contributions:
 * Adapt Loïc Le Loarer's [test suite](https://github.com/llloic11/primenet/tree/main/tests).
 * Add an optional GUI using [Tk](https://en.wikipedia.org/wiki/Tk_(software)) and the [tkinter library](https://docs.python.org/3/library/tkinter.html).
 * Add docstrings to all functions.
-* Support encrypting passwords in the config file.
 * Support submitting P-1 results for Fermat numbers.
-* Support configuring a proxy server and the DNS server.
+* Support configuring the DNS server.
 
 Thanks to [Daniel Connelly](https://github.com/Danc2050) for updating the PrimeNet Python script from Mlucas to eliminate the password requirement by getting assignments using the [PrimeNet API](https://v5.mersenne.org/v5design/v5webAPI_0.97.html) and to support reporting the assignment results and progress for CUDALucas using the PrimeNet API!
 

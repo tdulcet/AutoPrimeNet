@@ -60,6 +60,8 @@ from __future__ import division, print_function, unicode_literals
 
 import argparse
 import atexit
+import base64
+import binascii
 import ctypes
 import errno
 import getpass
@@ -111,9 +113,11 @@ except ImportError:
 
 try:
 	# Python 3+
-	from urllib.parse import urlencode
+	from urllib.parse import urlencode, urlparse, urlunparse
 except ImportError:
 	from urllib import urlencode
+
+	from urlparse import urlparse, urlunparse
 
 try:
 	# Python 3+
@@ -571,6 +575,232 @@ if nvml_lib:
 
 	# nvml.nvmlShutdown.argtypes = ()
 	# nvml.nvmlShutdown.restype = ctypes.c_int
+
+if sys.platform == "win32":
+	for file in glob.iglob(os.path.join(os.path.dirname(sys.executable), "DLLs", "libcrypto*.dll")):
+		libcrypto = file
+		break
+	else:
+		libcrypto = find_library("libcrypto") or find_library("libeay32")
+else:
+	libcrypto = find_library("crypto") or find_library("eay32")
+
+if libcrypto:
+	crypto = ctypes.CDLL(libcrypto)
+
+	OpenSSL_version_num = crypto.OpenSSL_version_num if hasattr(crypto, "OpenSSL_version_num") else crypto.SSLeay
+	# OpenSSL_version_num.argtypes = ()
+	OpenSSL_version_num.restype = ctypes.c_ulong
+
+	OPENSSL_VERSION_NUMBER = OpenSSL_version_num()
+	OPENSSL_VERSION_INFO = (
+		OPENSSL_VERSION_NUMBER >> 28 & 0xFF,
+		OPENSSL_VERSION_NUMBER >> 20 & 0xFF,
+		OPENSSL_VERSION_NUMBER >> 12 & 0xFF,
+		OPENSSL_VERSION_NUMBER >> 4 & 0xFF,
+		OPENSSL_VERSION_NUMBER & 0xF,
+	)
+
+	OpenSSL_version = crypto.OpenSSL_version if hasattr(crypto, "OpenSSL_version") else crypto.SSLeay_version
+	OpenSSL_version.argtypes = (ctypes.c_int,)
+	OpenSSL_version.restype = ctypes.c_char_p
+
+	OPENSSL_VERSION = OpenSSL_version(0).decode("utf-8")  # OPENSSL_VERSION
+
+	if hasattr(crypto, "OPENSSL_add_all_algorithms_noconf"):
+		# OPENSSL_INIT_ADD_ALL_CIPHERS | OPENSSL_INIT_ADD_ALL_DIGESTS
+		# crypto.OPENSSL_init_crypto(0x00000004 | 0x00000008, None)
+		crypto.OPENSSL_add_all_algorithms_noconf()
+
+	try:
+		# Python 2.7.8 and 3.4+
+		from hashlib import pbkdf2_hmac
+	except ImportError:
+		crypto.EVP_get_digestbyname.argtypes = (ctypes.c_char_p,)
+		crypto.EVP_get_digestbyname.restype = ctypes.c_void_p
+
+		EVP_MD_get_size = crypto.EVP_MD_get_size if hasattr(crypto, "EVP_MD_get_size") else crypto.EVP_MD_size
+		EVP_MD_get_size.argtypes = (ctypes.c_void_p,)
+		# EVP_MD_get_size.restype = ctypes.c_int
+
+		crypto.PKCS5_PBKDF2_HMAC.argtypes = (
+			ctypes.c_char_p,
+			ctypes.c_int,
+			ctypes.c_char_p,
+			ctypes.c_int,
+			ctypes.c_int,
+			ctypes.c_void_p,
+			ctypes.c_int,
+			ctypes.c_char_p,
+		)
+		# crypto.PKCS5_PBKDF2_HMAC.restype = ctypes.c_int
+
+		def pbkdf2_hmac(hash_name, password, salt, iterations, dklen=None):
+			digest = crypto.EVP_get_digestbyname(hash_name.encode("utf-8"))
+			if not digest:
+				msg = "EVP_get_digestbyname failed"
+				raise ssl_error(msg)
+
+			if dklen is None:
+				dklen = EVP_MD_get_size(digest)
+				if dklen < 0:
+					msg = "EVP_MD_get_size failed"
+					raise ssl_error(msg)
+
+			buffer = ctypes.create_string_buffer(dklen)
+			if crypto.PKCS5_PBKDF2_HMAC(password, len(password), salt, len(salt), iterations, digest, dklen, buffer) != 1:
+				msg = "PKCS5_PBKDF2_HMAC failed"
+				raise ssl_error(msg)
+
+			return buffer.raw
+
+	# crypto.EVP_CIPHER_CTX_new.argtypes = ()
+	crypto.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
+
+	crypto.EVP_CIPHER_CTX_free.argtypes = (ctypes.c_void_p,)
+	# crypto.EVP_CIPHER_CTX_free.restype = None
+
+	# crypto.EVP_aes_256_gcm.argtypes = ()
+	crypto.EVP_aes_256_gcm.restype = ctypes.c_void_p
+
+	crypto.EVP_EncryptInit_ex.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
+	# crypto.EVP_EncryptInit_ex.restype = ctypes.c_int
+
+	crypto.EVP_EncryptUpdate.argtypes = (
+		ctypes.c_void_p,
+		ctypes.c_char_p,
+		ctypes.POINTER(ctypes.c_int),
+		ctypes.c_char_p,
+		ctypes.c_int,
+	)
+	# crypto.EVP_EncryptUpdate.restype = ctypes.c_int
+
+	crypto.EVP_EncryptFinal_ex.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_int))
+	# crypto.EVP_EncryptFinal_ex.restype = ctypes.c_int
+
+	crypto.EVP_DecryptInit_ex.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
+	# crypto.EVP_DecryptInit_ex.restype = ctypes.c_int
+
+	crypto.EVP_DecryptUpdate.argtypes = (
+		ctypes.c_void_p,
+		ctypes.c_char_p,
+		ctypes.POINTER(ctypes.c_int),
+		ctypes.c_char_p,
+		ctypes.c_int,
+	)
+	# crypto.EVP_DecryptUpdate.restype = ctypes.c_int
+
+	crypto.EVP_DecryptFinal_ex.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_int))
+	# crypto.EVP_DecryptFinal_ex.restype = ctypes.c_int
+
+	crypto.EVP_CIPHER_CTX_ctrl.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_void_p)
+	# crypto.EVP_CIPHER_CTX_ctrl.restype = ctypes.c_int
+
+	# crypto.ERR_get_error.argtypes = ()
+	crypto.ERR_get_error.restype = ctypes.c_ulong
+
+	# crypto.ERR_error_string.argtypes = (ctypes.c_ulong, ctypes.c_char_p)
+	# crypto.ERR_error_string.restype = ctypes.c_char_p
+
+	crypto.ERR_lib_error_string.argtypes = (ctypes.c_ulong,)
+	crypto.ERR_lib_error_string.restype = ctypes.c_char_p
+
+	crypto.ERR_reason_error_string.argtypes = (ctypes.c_ulong,)
+	crypto.ERR_reason_error_string.restype = ctypes.c_char_p
+
+	def ssl_error(errstr):
+		errcode = crypto.ERR_get_error()
+		lib_str = crypto.ERR_lib_error_string(errcode)
+		reason_str = crypto.ERR_reason_error_string(errcode)
+
+		if reason_str and lib_str:
+			msg = "[{}: {}] {}".format(lib_str, reason_str, errstr)
+		elif lib_str:
+			msg = "[{}] {}".format(lib_str, errstr)
+		else:
+			msg = errstr
+
+		return ssl.SSLError(errcode & 0xFFF, msg)
+
+	SALT_LEN = 16
+	IV_LEN = 12
+	TAG_LEN = 16
+	KDF_ITERS = 100000
+
+	def aes_gcm_encrypt(plaintext, password):
+		salt = os.urandom(SALT_LEN)
+		iv = os.urandom(IV_LEN)
+		key = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, KDF_ITERS)
+
+		ctx = crypto.EVP_CIPHER_CTX_new()
+		if not ctx:
+			msg = "EVP_CIPHER_CTX_new failed"
+			raise ssl_error(msg)
+		try:
+			if crypto.EVP_EncryptInit_ex(ctx, crypto.EVP_aes_256_gcm(), None, key, iv) != 1:
+				msg = "EVP_EncryptInit_ex failed"
+				raise ssl_error(msg)
+
+			outbuf = ctypes.create_string_buffer(len(plaintext))
+			outlen = ctypes.c_int()
+			if crypto.EVP_EncryptUpdate(ctx, outbuf, ctypes.byref(outlen), plaintext, len(plaintext)) != 1:
+				msg = "EVP_EncryptUpdate failed"
+				raise ssl_error(msg)
+
+			tmplen = ctypes.c_int()
+			if crypto.EVP_EncryptFinal_ex(ctx, ctypes.c_char_p(ctypes.addressof(outbuf) + outlen.value), ctypes.byref(tmplen)) != 1:
+				msg = "EVP_EncryptFinal_ex failed"
+				raise ssl_error(msg)
+
+			tagbuf = ctypes.create_string_buffer(TAG_LEN)
+			if crypto.EVP_CIPHER_CTX_ctrl(ctx, 0x10, TAG_LEN, tagbuf) != 1:  # EVP_CTRL_GCM_GET_TAG
+				msg = "EVP_CIPHER_CTX_ctrl failed"
+				raise ssl_error(msg)
+		finally:
+			crypto.EVP_CIPHER_CTX_free(ctx)
+
+		return salt + iv + outbuf[: outlen.value + tmplen.value] + tagbuf.raw
+
+	def aes_gcm_decrypt(blob, password):
+		if len(blob) < SALT_LEN + IV_LEN + TAG_LEN:
+			msg = "ciphertext too short"
+			raise ValueError(msg)
+
+		salt = blob[:SALT_LEN]
+		iv = blob[SALT_LEN : SALT_LEN + IV_LEN]
+		ciphertext = blob[SALT_LEN + IV_LEN : -TAG_LEN]
+		tag = blob[-TAG_LEN:]
+
+		key = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, KDF_ITERS)
+
+		ctx = crypto.EVP_CIPHER_CTX_new()
+		if not ctx:
+			msg = "EVP_CIPHER_CTX_new failed"
+			raise ssl_error(msg)
+		try:
+			if crypto.EVP_DecryptInit_ex(ctx, crypto.EVP_aes_256_gcm(), None, key, iv) != 1:
+				msg = "EVP_DecryptInit_ex failed"
+				raise ssl_error(msg)
+
+			outbuf = ctypes.create_string_buffer(len(ciphertext))
+			outlen = ctypes.c_int()
+			if crypto.EVP_DecryptUpdate(ctx, outbuf, ctypes.byref(outlen), ciphertext, len(ciphertext)) != 1:
+				msg = "EVP_DecryptUpdate failed"
+				raise ssl_error(msg)
+
+			if crypto.EVP_CIPHER_CTX_ctrl(ctx, 0x11, TAG_LEN, tag) != 1:  # EVP_CTRL_GCM_SET_TAG
+				msg = "EVP_CIPHER_CTX_ctrl failed"
+				raise ssl_error(msg)
+
+			tmplen = ctypes.c_int()
+			if crypto.EVP_DecryptFinal_ex(ctx, ctypes.c_char_p(ctypes.addressof(outbuf) + outlen.value), ctypes.byref(tmplen)) != 1:
+				# raise ValueError("Decryption failed (likely wrong key or corrupted data)")
+				msg = "EVP_DecryptFinal_ex failed"
+				raise ssl_error(msg)
+		finally:
+			crypto.EVP_CIPHER_CTX_free(ctx)
+
+		return outbuf[: outlen.value + tmplen.value]
 
 
 try:
@@ -1106,6 +1336,7 @@ try:
 	from requests.exceptions import HTTPError, RequestException
 except ImportError as e:
 	executable = os.path.basename(sys.executable) if sys.executable else "python3"
+	executable = executable[:-4] if executable.endswith(".exe") else executable
 	print(
 		"""{}: {}
 
@@ -1113,7 +1344,11 @@ Please run the below command to install the Requests library:
 
 	{} -m pip install requests
 
-Then, run AutoPrimeNet again.""".format(type(e).__name__, e, executable[:-4] if executable.endswith(".exe") else executable)
+If you need SOCKS proxies support, run this command instead:
+
+	{} -m pip install "requests[socks]"
+
+Then, run AutoPrimeNet again.""".format(type(e).__name__, e, executable, executable)
 	)
 	sys.exit(1)
 else:
@@ -1263,7 +1498,7 @@ class timedelta(timedelta):
 		h, m = divmod(m, 60)
 		d = self.days
 		ms, _us = divmod(self.microseconds, 1000)
-		return "{}{}{}{}{}".format(
+		return "".join((
 			"{:n}d".format(d) if d else "",
 			" {:2n}h".format(h) if d else "{:n}h".format(h) if h else "",
 			" {:2n}m".format(m) if h or d else "{:n}m".format(m) if m else "",
@@ -1271,7 +1506,7 @@ class timedelta(timedelta):
 			(" {:3n}ms".format(ms) if s else "{:n}ms".format(ms)) if not (m or h or d) else "",
 			# " {:3n}ms".format(ms) if s or m or h or d else "{:n}ms".format(ms) if ms else "",
 			# " {:3n}µs".format(us) if ms or s or m or h or d else "{:n}µs".format(us),
-		)
+		))
 
 
 # region console IO
@@ -1946,9 +2181,12 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 			(("{}/.well-known/autoconfig/mail/config-v1.1.xml".format(domain), None),) if use_optional_url else ()
 		):
 			try:
-				r = requests.get(scheme + url, params=params, timeout=5)
-				r.raise_for_status()
-				result = r.content
+				with requests.Session() as s:
+					if PROXIES:
+						s.proxies.update(PROXIES)
+					r = s.get(scheme + url, params=params, timeout=5)
+					r.raise_for_status()
+					result = r.content
 			except RequestException as e:
 				logging.debug("%s: %s", type(e).__name__, e)
 			else:
@@ -1965,9 +2203,12 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 	# https://github.com/thunderbird/autoconfig
 	print("Looking up configuration for {!r} in the Mozilla ISP database…".format(domain))
 	try:
-		r = requests.get("https://autoconfig.thunderbird.net/v1.1/{}".format(adomain), timeout=5)
-		r.raise_for_status()
-		result = r.content
+		with requests.Session() as s:
+			if PROXIES:
+				s.proxies.update(PROXIES)
+			r = s.get("https://autoconfig.thunderbird.net/v1.1/{}".format(adomain), timeout=5)
+			r.raise_for_status()
+			result = r.content
 	except RequestException as e:
 		logging.debug("%s: %s", type(e).__name__, e)
 	else:
@@ -2091,13 +2332,41 @@ def setup(config, args):
 	)
 	userid = ask_str('Your GIMPS/PrimeNet user ID or "ANONYMOUS"', args.user_id or "ANONYMOUS", 20)
 	compid = ask_str("Optional computer name", args.computer_id, 20)
-	if ask_yn("Use a proxy server", False):
-		print(
-			"Use of a proxy is supported, but not (yet) configurable. Please let us know that you need this feature and we can make it configurable."
+	proxies = ("http", "https", "socks5", "socks5h")
+	proxy_server = None
+	if ask_yn("Use a proxy server", args.proxy):
+		print("SOCKS proxies require the Requests 2.10 or greater and PySocks libraries.")
+		proxy_type = ask_int(
+			"Proxy server type ({})".format(", ".join(starmap("{}={}".format, enumerate(proxies, 1)))),
+			proxies.index(args.proxy_type.lower()) + 1 if args.proxy_type else 1,
+			1,
+			len(proxies),
 		)
+		proxy_server = ask_str("Proxy server (hostname and optional port), e.g., 'example.com:8080'", args.proxy or "")
+		username = ask_str("Optional username", args.proxy_username or "")
+		password = ask_pass("Optional password", args.proxy_password or "")
 
 	# if not ask_ok_cancel():
 	# 	return None
+	if proxy_server:
+		args.proxy_type = proxies[proxy_type - 1]
+		config.set(SEC.PrimeNet, "proxy_type", proxies[proxy_type - 1])
+		args.proxy = proxy_server
+		config.set(SEC.PrimeNet, "ProxyHost", proxy_server)
+		args.proxy_username = username
+		config.set(SEC.PrimeNet, "ProxyUser", username)
+		args.proxy_password = password
+		config.set(SEC.PrimeNet, "ProxyPass", password)
+	else:
+		args.proxy_type = None
+		config.remove_option(SEC.PrimeNet, "proxy_type")
+		args.proxy = None
+		config.remove_option(SEC.PrimeNet, "ProxyHost")
+		args.proxy_username = None
+		config.remove_option(SEC.PrimeNet, "ProxyUser")
+		args.proxy_password = None
+		config.remove_option(SEC.PrimeNet, "ProxyPass")
+
 	if args.user_id != userid:
 		args.user_id = userid
 		config.set(SEC.PrimeNet, "username", userid)
@@ -2527,6 +2796,7 @@ attr_to_copy = {
 		"version_check": "version_check",
 		"version_check_channel": "version_check_channel",
 		"watch": "watch",
+		"encrypt": "encrypt",
 		"color": "color",
 		"computer_id": "ComputerID",
 		"cpu_brand": "CpuBrand",
@@ -2541,6 +2811,10 @@ attr_to_copy = {
 		"num_cores": "NumCores",
 		"cpu_hyperthreads": "CpuNumHyperthreads",
 		"cpu_hours": "CPUHours",
+		"proxy_type": "proxy_type",
+		"proxy": "ProxyHost",
+		"proxy_username": "ProxyUser",
+		"proxy_password": "ProxyPass",
 	},
 	SEC.Email: {
 		"toemails": "toemails",
@@ -2580,6 +2854,8 @@ OPTIONS_TYPE_HINTS = {
 	SEC.Email: {"toemails": list, "tls": bool, "starttls": bool},
 }
 
+OPTIONS_ENCRYPT = {SEC.PrimeNet: {"password": "password", "proxy_password": "ProxyPass"}, SEC.Email: {"email_password": "password"}}
+
 
 def config_read():
 	"""Reads and returns the configuration from the local file, ensuring required sections exist."""
@@ -2597,11 +2873,9 @@ def config_read():
 	return config
 
 
-def config_write(config, guid=None):
-	"""Writes the configuration to a prime.ini file, optionally updating the ComputerGUID."""
+def config_write(config):
+	"""Writes the configuration to a prime.ini file."""
 	# generate a new prime.ini file
-	if guid is not None:  # update the guid if necessary
-		config.set(SEC.PrimeNet, "ComputerGUID", guid)
 	localfile = os.path.join(workdir, args.localfile)
 	with io.open(localfile, "w", encoding="utf-8") as configfile:
 		config.write(configfile)
@@ -2614,9 +2888,37 @@ def get_guid(config):
 	return None
 
 
-def create_new_guid():
+def calc_hardware_guid():
+	hardware_guid = md5((args.cpu_brand + str(uuid.getnode())).encode("utf-8")).hexdigest()  # similar as MPrime
+	if config.has_option(SEC.PrimeNet, "HardwareGUID"):
+		guid = config.get(SEC.PrimeNet, "HardwareGUID")
+		if guid != hardware_guid:
+			logging.warning("The hardware GUID changed from %r to %r, using GUID in %r", guid, hardware_guid, args.localfile)
+		hardware_guid = guid
+	else:
+		config.set(SEC.PrimeNet, "HardwareGUID", hardware_guid)
+	return hardware_guid
+
+
+def calc_windows_guid():
+	windows_guid = (
+		md5((get_windows_serial_number() + get_windows_sid()).encode("utf-8")).hexdigest() if sys.platform == "win32" else None
+	)
+	if config.has_option(SEC.PrimeNet, "WindowsGUID"):
+		guid = config.get(SEC.PrimeNet, "WindowsGUID")
+		if guid != windows_guid:
+			logging.warning("The Windows GUID changed from %r to %r, using GUID in %r", guid, windows_guid, args.localfile)
+		windows_guid = guid
+	elif windows_guid:
+		config.set(SEC.PrimeNet, "WindowsGUID", windows_guid)
+	return windows_guid
+
+
+def generate_computer_guid():
 	"""Generate a new GUID (Globally Unique Identifier) as a hexadecimal string."""
-	return uuid.uuid4().hex
+	computer_guid = uuid.uuid4().hex
+	config.set(SEC.PrimeNet, "ComputerGUID", computer_guid)
+	return computer_guid
 
 
 def merge_config_and_options(config, args):
@@ -2676,11 +2978,11 @@ def merge_options_and_config(config, args):
 					new_val = str(attr_val)
 				if not config.has_option(section, option) or config.get(section, option) != new_val:
 					logging.debug(
-						"update %r section %r with %s=%s",
+						"Updating %r section %r with %s=%s",
 						args.localfile,
 						section,
 						option,
-						"*" * len(new_val) if "password" in option else new_val,
+						"*" * len(new_val) if "password" in attr else new_val,
 					)
 					config.set(section, option, new_val)
 					updated = True
@@ -2692,11 +2994,96 @@ def merge_options_and_config(config, args):
 			if attr_val is not None:
 				new_val = attr_val[i]
 				if not config.has_option(section, option) or config.get(section, option) != new_val:
-					logging.debug("update %r section %r with %s=%s", args.localfile, section, option, new_val)
+					logging.debug("Updating %r section %r with %s=%s", args.localfile, section, option, new_val)
 					config.set(section, option, new_val)
 					updated = True
 
 	return updated
+
+
+def encrypt(config, args):
+	if args.encrypt is not None and not args.encrypt:
+		return
+	guid = config.get(SEC.PrimeNet, "HardwareGUID") if config.has_option(SEC.PrimeNet, "HardwareGUID") else calc_hardware_guid()
+	for section, value in OPTIONS_ENCRYPT.items():
+		for attr, option in value.items():
+			attr_val = getattr(args, attr)
+			if attr_val is not None and (hasattr(args_no_defaults, attr) or config.has_option(section, option)):
+				if libcrypto:
+					logging.debug("Encrypting option %s in section %r in %r", option, section, args.localfile)
+					try:
+						new_val = base64.b64encode(aes_gcm_encrypt(attr_val.encode("utf-8"), guid)).decode()
+					except (ValueError, ssl.SSLError) as e:
+						logging.exception(
+							"Failed to encrypt option %s in section %r in %r: %s: %s",
+							option,
+							section,
+							args.localfile,
+							type(e).__name__,
+							e,
+							exc_info=args.debug,
+						)
+						if args.encrypt:
+							logging.critical("Strict encryption requested")
+							sys.exit(1)
+					else:
+						new_option = "encrypted_{}".format(option)
+						config.set(section, new_option, new_val)
+						config.remove_option(section, option)
+						attr_to_copy[section].pop(attr, None)
+				else:
+					logging.warning(
+						"OpenSSL library not found, so unable to encrypt option %s in section %r in %r",
+						option,
+						section,
+						args.localfile,
+					)
+					if args.encrypt:
+						logging.critical("Strict encryption requested")
+						sys.exit(1)
+
+
+def decrypt(config, args):
+	guid = config.get(SEC.PrimeNet, "HardwareGUID") if config.has_option(SEC.PrimeNet, "HardwareGUID") else calc_hardware_guid()
+	for section, value in OPTIONS_ENCRYPT.items():
+		for attr, option in value.items():
+			attr_val = getattr(args, attr)
+			new_option = "encrypted_{}".format(option)
+			if attr_val is None and config.has_option(section, new_option):
+				if libcrypto:
+					option_val = config.get(section, new_option)
+					logging.debug("Decrypting option %s in section %r in %r", new_option, section, args.localfile)
+					try:
+						# Python 3+: validate=True
+						new_val = aes_gcm_decrypt(base64.b64decode(option_val), guid).decode("utf-8")
+					# Python 3+: binascii.Error, Python 2: TypeError
+					except (ValueError, binascii.Error, TypeError, ssl.SSLError) as e:
+						logging.critical(
+							"Failed to decrypt option %s in section %r in %r: %s: %s",
+							new_option,
+							section,
+							args.localfile,
+							type(e).__name__,
+							e,
+							exc_info=args.debug,
+						)
+						logging.critical("Encrypted passwords cannot be moved between systems")
+						sys.exit(1)
+
+					setattr(args, attr, new_val)
+					if args.encrypt is not None and not args.encrypt:
+						config.remove_option(section, new_option)
+					else:
+						attr_to_copy[section].pop(attr, None)
+				else:
+					logging.critical(
+						"Unable to decrypt option %s in section %r in %r, as OpenSSL library not found",
+						new_option,
+						section,
+						args.localfile,
+					)
+					logging.critical("Encrypted passwords cannot be moved between systems")
+					sys.exit(1)
 
 
 def check_options(parser, args):
@@ -2814,11 +3201,25 @@ def check_options(parser, args):
 	if not 1 <= args.cpu_hours <= 24:
 		parser.error("Hours per day must be between 1 and 24 hours")
 
+	if args.pm1_bounds and args.pm1_bounds not in {"MIN", "MID", "MAX"}:
+		parser.error("Optimal P-1 bounds ({!r}) must be one of 'MIN', 'MID' or 'MAX'".format(args.pm1_bounds))
+
 	if args.convert_ll_to_prp and args.convert_prp_to_ll:
 		parser.error("Cannot convert LL assignments to PRP and PRP assignments to LL at the same time")
 
 	if not 1 <= args.hours_between_checkins <= 7 * 24:
 		parser.error("Hours between checkins must be between 1 and 168 hours (7 days)")
+
+	if args.version_check_channel and args.version_check_channel not in {"alpha", "beta", "stable"}:
+		parser.error(
+			"Version check channel/branch ({!r}) must be one of 'alpha', 'beta' or 'stable'".format(args.version_check_channel)
+		)
+
+	if args.proxy_type and args.proxy_type.lower() not in {"http", "https", "socks5", "socks5h"}:
+		parser.error("Proxy server type ({!r}) must be one of 'http', 'https', 'socks5' or 'socks5h'".format(args.proxy_type))
+
+	if (args.proxy_type or args.proxy or args.proxy_username or args.proxy_password) and not args.proxy:
+		parser.error("Providing the Proxy options requires also setting the Proxy server")
 
 	if (
 		args.toemails or args.fromemail or args.smtp or args.tls or args.starttls or args.email_username or args.email_password
@@ -3411,12 +3812,9 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 	# print(msg.as_string())
 	# print(msg)
 
-	host = args.smtp
-	port = 0
-	result = host.rsplit(":", 1)
-	if len(result) == 2:
-		host, port = result
-		port = int(port)
+	url = urlparse("")._replace(netloc=args.smtp)
+	host = url.hostname
+	port = url.port or 0
 
 	s = None
 	try:
@@ -5505,12 +5903,17 @@ def adjust_rolling_average(dirs):
 				arolling_average = min(2 * rolling_average, max(rolling_average // 2, arolling_average))
 
 				pct = delta / (30 * 24 * 60 * 60)
-				rolling_average = int((1.0 - pct) * rolling_average + pct * arolling_average + 0.5)
+				temp = int((1.0 - pct) * rolling_average + pct * arolling_average + 0.5)
 				logging.info(
-					"Updating 30-day rolling average to %s (using %s of %s)", rolling_average, format(pct, "%"), arolling_average
+					"Updating 30-day rolling average to %s (using %s of %s and %s of %s)",
+					temp,
+					format(pct, ".2%"),
+					arolling_average,
+					format(1.0 - pct, ".2%"),
+					rolling_average,
 				)
 
-				rolling_average = min(4000, max(20, rolling_average))
+				rolling_average = min(4000, max(20, temp))
 			else:
 				logging.debug("The rolling average is too large (%s > 50000), not updating 30-day value", arolling_average)
 		else:
@@ -5816,7 +6219,8 @@ def upload_proof_file(adapter, filename):
 					return False
 
 				origurl = result["URLToUse"]
-				baseurl = "https" + origurl[4:] if origurl.startswith("http:") else origurl
+				url = urlparse(origurl)
+				baseurl = url._replace(scheme="https").geturl() if url.scheme == "http" else origurl
 				pos, end = next((int(a), b) for a, b in result["need"].items())
 				if pos > end or end >= filesize:
 					adapter.error("For proof %r, need list entry bad:", filename)
@@ -6064,25 +6468,13 @@ def program_options(send=False, start=-1, retry_count=0):
 def register_instance(guid=None):
 	"""Register the computer with the PrimeNet server."""
 	# register the instance to server, guid is the instance identifier
-	hardware_guid = md5((args.cpu_brand + str(uuid.getnode())).encode("utf-8")).hexdigest()  # similar as MPrime
-	if config.has_option(SEC.PrimeNet, "HardwareGUID"):
-		hardware_guid = config.get(SEC.PrimeNet, "HardwareGUID")
-	else:
-		config.set(SEC.PrimeNet, "HardwareGUID", hardware_guid)
-	windows_guid = (
-		md5((get_windows_serial_number() + get_windows_sid()).encode("utf-8")).hexdigest() if sys.platform == "win32" else None
-	)
-	if config.has_option(SEC.PrimeNet, "WindowsGUID"):
-		windows_guid = config.get(SEC.PrimeNet, "WindowsGUID")
-	elif windows_guid:
-		config.set(SEC.PrimeNet, "WindowsGUID", windows_guid)
 	params = primenet_v5_bargs.copy()
 	params["t"] = "uc"  # update compute command
 	if guid is None:
-		guid = create_new_guid()
+		guid = generate_computer_guid()
 	params["g"] = guid
-	params["hg"] = hardware_guid  # 32 hex char (128 bits)
-	params["wg"] = windows_guid  # only filled on Windows by MPrime
+	params["hg"] = calc_hardware_guid()  # 32 hex char (128 bits)
+	params["wg"] = calc_windows_guid()  # only filled on Windows by MPrime
 	params["a"] = generate_application_str()
 	if config.has_option(SEC.PrimeNet, "sw_version"):
 		params["a"] = config.get(SEC.PrimeNet, "sw_version")
@@ -6125,7 +6517,8 @@ def register_instance(guid=None):
 	config.set(SEC.PrimeNet, "user_name", result["un"])
 	options_counter = int(result["od"])
 	guid = result["g"]
-	config_write(config, guid)
+	config.set(SEC.PrimeNet, "ComputerGUID", guid)
+	config_write(config)
 	# if options_counter == 1:
 	# program_options()
 	program_options(True)
@@ -7052,13 +7445,16 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			user_name = config.get(SEC.PrimeNet, "user_name")
 			# Backup notification
 			try:
-				# "https://maker.ifttt.com/trigger/result_submitted/with/key/cIhVJKbcWgabfVaLuRjVsR"
-				r = requests.post(
-					"https://hook.us1.make.com/n16ouxwmfxts1o8154i9kfpqq1rwof53",
-					json={"value1": user_name, "value2": buf, "value3": message},
-					timeout=30,
-				)
-				text = r.text
+				with requests.Session() as s:
+					if PROXIES:
+						s.proxies.update(PROXIES)
+					# "https://maker.ifttt.com/trigger/result_submitted/with/key/cIhVJKbcWgabfVaLuRjVsR"
+					r = s.post(
+						"https://hook.us1.make.com/n16ouxwmfxts1o8154i9kfpqq1rwof53",
+						json={"value1": user_name, "value2": buf, "value3": message},
+						timeout=30,
+					)
+					text = r.text
 			except RequestException as e:
 				logging.exception("Backup notification failed: %s: %s", type(e).__name__, e, exc_info=args.debug)
 			else:
@@ -8735,7 +9131,8 @@ AutoPrimeNet version:		{}
 Requests library version:	{}
 urllib3 library version:	{}
 Certifi version:		{}
-OpenSSL version:		{}
+Python OpenSSL version:		{}
+External OpenSSL version:	{}
 Python implementation:		{}
 Python version:			{}
 """.format(
@@ -8745,6 +9142,7 @@ Python version:			{}
 			urllib3.__version__,
 			certifi and certifi.__version__,
 			ssl.OPENSSL_VERSION,
+			OPENSSL_VERSION if libcrypto else "None found",
 			platform.python_implementation(),
 			sys.version.replace("\n", ""),  # platform.python_version()
 		)
@@ -8821,6 +9219,8 @@ Minimum/Maximum exponent:	{}/{}
 Minimum/Maximum bits:		{}/{}
 Hours per day:			{:n} / 24 hours
 Rolling average:		{:.1%}  {:n} / {:n}
+User name:			{!r}
+Computer name:			{!r}
 """.format(
 			program["name"],
 			config.get(SEC.Internals, "program") if config.has_option(SEC.Internals, "program") else None,
@@ -8837,6 +9237,8 @@ Rolling average:		{:.1%}  {:n} / {:n}
 			rolling_average / 1000,
 			rolling_average,
 			1000,
+			config.get(SEC.PrimeNet, "user_name") if config.has_option(SEC.PrimeNet, "user_name") else None,
+			args.computer_id,
 		)
 	)
 
@@ -8889,15 +9291,8 @@ Disk space usage:		{:.1%}  {}B / {}B
 	print(
 		"""
 PrimeNet User ID:		{!r}
-User name:			{!r}
-Computer name:			{!r}
 Computer GUID:			{}
-""".format(
-			args.user_id,
-			config.get(SEC.PrimeNet, "user_name") if config.has_option(SEC.PrimeNet, "user_name") else None,
-			args.computer_id,
-			get_guid(config),
-		)
+""".format(args.user_id, get_guid(config))
 	)
 
 
@@ -9187,11 +9582,33 @@ parser.add_argument(
 	help="Report assignment results and upload proof files on the --timeout interval instead of immediately. This may be needed if the filesystem is unsupported.",
 )
 parser.add_argument("--watch", action="store_true")
+parser.add_argument(
+	"--no-encrypt",
+	action="store_false",
+	dest="encrypt",
+	default=None,
+	help="Do not encrypt any passwords in the configuration file.",
+)
+parser.add_argument(
+	"--encrypt",
+	action="store_true",
+	help="Encrypt any passwords from the --proxy-password and --email-password options in the configuration file. Uses AES-256-GCM encryption with PBKDF2-HMAC-SHA256 key derivation. Requires the OpenSSL library. Does opportunistic encryption by default. Provide this option to enable strict encryption.",
+)
 parser.add_argument("--no-color", action="store_false", dest="color", default=None, help="Do not use color in output.")
 parser.add_argument("--color", action="store_true")
 parser.add_argument(
 	"--setup", action="store_true", help="Prompt for all the options that are needed to setup this program and exit."
 )
+
+group = parser.add_argument_group("Connection Options", "Optionally configure a proxy server.")
+group.add_argument(
+	"--proxy-type",
+	choices=("http", "https", "socks5", "socks5h"),
+	help="Proxy server type, 'http', 'https', 'socks5' or 'socks5h', Default 'http'. SOCKS proxies require the Requests 2.10 or greater and PySocks libraries.",
+)
+group.add_argument("-x", "--proxy", help="Proxy server. Optionally include a port with the 'hostname:port' syntax.")
+group.add_argument("--proxy-username", help="Proxy server username")
+group.add_argument("--proxy-password", help="Proxy server password")
 
 # TODO: add detection for most parameter, including automatic change of the hardware
 memory = get_physical_memory() or 1024
@@ -9343,6 +9760,7 @@ workdir = os.path.expanduser(os.path.normpath(args.workdir))
 # load prime.ini and update args
 config = config_read()
 merge_config_and_options(config, args)
+decrypt(config, args)
 
 if COLOR:
 	if "NO_COLOR" in os.environ:
@@ -9351,6 +9769,21 @@ if COLOR:
 		COLOR = False
 	if "FORCE_COLOR" in os.environ:
 		COLOR = True
+
+PROXIES = None
+if args.proxy:
+	url = urlparse(args.proxy, args.proxy_type or "http")
+	proxy = urlunparse((
+		url.scheme,
+		(args.proxy_username + (":" + args.proxy_password if args.proxy_password else "") + "@" if args.proxy_username else "")
+		+ (url.netloc or args.proxy),
+		"",
+		"",
+		"",
+		"",
+	))
+	PROXIES = {"http": proxy, "https": proxy}
+	session.proxies.update(PROXIES)
 
 args.localfile = os.path.normpath(args.localfile)
 
@@ -9364,12 +9797,13 @@ if not args_no_defaults.__dict__ and not os.path.exists(os.path.join(workdir, ar
 	adir = os.getcwd()
 	if adir != os.path.dirname(file):
 		parser.error(
-			"No command line arguments provided or {!r} file found in {!r}. You are running {!r} from outside its directory and would need to either use the --workdir or --setup options to continue.".format(
+			"No command line arguments provided or {!r} configuration file found in {!r}. You are running {!r} from outside its directory and would need to either use the --workdir or --setup options to continue.".format(
 				args.localfile, adir, file
 			)
 		)
 	logging.info(
-		"No command line arguments provided or %r file found, now running --setup to configure the program.", args.localfile
+		"No command line arguments provided or %r configuration file found, now running --setup to configure the program.",
+		args.localfile,
 	)
 	args.setup = True
 
@@ -9384,7 +9818,10 @@ logging.info("AutoPrimeNet assignment handler version %s, Python %s", VERSION, p
 
 if args.setup:
 	test_email = setup(config, args)
+	encrypt(config, args)
 	config_write(config)
+else:
+	encrypt(config, args)
 
 if not args.work_preference:
 	args.work_preference = [
@@ -9503,12 +9940,12 @@ if args.num_workers > 1:
 config_updated = merge_options_and_config(config, args)
 
 if not config.has_option(SEC.PrimeNet, "MaxExponents"):
-	amax = (10000 if args.min_exp and args.min_exp >= MAX_PRIMENET_EXP else 1000) if args.mfaktc or args.mfakto else 15
-	config.set(SEC.PrimeNet, "MaxExponents", str(amax))
+	max_exps = (10000 if args.min_exp and args.min_exp >= MAX_PRIMENET_EXP else 1000) if args.mfaktc or args.mfakto else 15
+	config.set(SEC.PrimeNet, "MaxExponents", str(max_exps))
 
 # write back prime.ini if necessary
 if config_updated:
-	logging.debug("write %r", args.localfile)
+	logging.debug("Writing %r", args.localfile)
 	config_write(config)
 
 # if guid already exist, recover it, this way, one can (re)register to change
