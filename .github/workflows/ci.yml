@@ -54,6 +54,8 @@ jobs:
         python3 -X dev -c 'import platform; print(platform.freedesktop_os_release())' || true
         python3 -X dev autoprimenet.py --help
         python3 -X dev autoprimenet.py --debug-info
+        python3 -X dev autoprimenet.py -u ANONYMOUS --mlucas --ping
+        python3 -X dev autoprimenet.py -u ANONYMOUS --mlucas --v6 --ping
         python3 -X dev gimps_status.py --help
 
   Linux-old:
@@ -83,9 +85,13 @@ jobs:
         set -x
         python autoprimenet.py --help
         python autoprimenet.py --debug-info
+        python autoprimenet.py -u ANONYMOUS --mlucas --ping || true
+        python autoprimenet.py -u ANONYMOUS --mlucas --v6 --ping || true
         python gimps_status.py --help
         python3 autoprimenet.py --help
         python3 autoprimenet.py --debug-info
+        python3 autoprimenet.py -u ANONYMOUS --mlucas --ping
+        python3 autoprimenet.py -u ANONYMOUS --mlucas --v6 --ping
         python3 gimps_status.py --help
 
   macOS:
@@ -113,6 +119,8 @@ jobs:
         python3 -X dev -c 'import platform; print(platform.mac_ver())'
         python3 -X dev autoprimenet.py --help
         python3 -X dev autoprimenet.py --debug-info
+        python3 -X dev autoprimenet.py -u ANONYMOUS --mlucas --ping
+        python3 -X dev autoprimenet.py -u ANONYMOUS --mlucas --v6 --ping
         python3 -X dev gimps_status.py --help
 
   Windows:
@@ -148,6 +156,8 @@ jobs:
         python -X dev -c "import platform; print(platform.win32_ver())"
         python -X dev autoprimenet.py --help
         python -X dev autoprimenet.py --debug-info
+        python -X dev autoprimenet.py -u ANONYMOUS --mlucas --ping
+        python -X dev autoprimenet.py -u ANONYMOUS --mlucas --v6 --ping
         python -X dev gimps_status.py --help
 
   Python:
@@ -176,4 +186,6 @@ jobs:
       run: |
         python autoprimenet.py --help
         python autoprimenet.py --debug-info
+        python autoprimenet.py -u ANONYMOUS --mlucas --ping
+        python autoprimenet.py -u ANONYMOUS --mlucas --v6 --ping
         python gimps_status.py --help
