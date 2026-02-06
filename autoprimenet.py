@@ -63,6 +63,7 @@ import atexit
 import base64
 import binascii
 import ctypes
+import datetime as dt
 import errno
 import getpass
 import glob
@@ -94,7 +95,7 @@ import zipfile
 from array import array
 from collections import deque, namedtuple
 from ctypes.util import find_library
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from email import charset, encoders
 from email.header import Header
@@ -624,12 +625,29 @@ if nvml_lib:
 	# nvml.nvmlShutdown.argtypes = ()
 	# nvml.nvmlShutdown.restype = ctypes.c_int
 
+base_exec_prefix = getattr(sys, "base_exec_prefix", sys.exec_prefix)  # Python 3.3+
 if sys.platform == "win32":
-	for file in glob.iglob(os.path.join(os.path.dirname(sys.executable), "DLLs", "libcrypto*.dll")):
+	# sys.platlibdir
+	for file in chain.from_iterable(
+		map(
+			glob.iglob, (os.path.join(base_exec_prefix, "libcrypto*.dll"), os.path.join(base_exec_prefix, "DLLs", "libcrypto*.dll"))
+		)
+	):
 		libcrypto = file
 		break
 	else:
 		libcrypto = find_library("libcrypto") or find_library("libeay32")
+elif sys.platform == "darwin":
+	for file in chain.from_iterable(
+		map(
+			glob.iglob,
+			(os.path.join(base_exec_prefix, "libcrypto*.dylib"), os.path.join(base_exec_prefix, "lib", "libcrypto*.dylib")),
+		)
+	):
+		libcrypto = file
+		break
+	else:
+		libcrypto = find_library("crypto") or find_library("eay32")
 else:
 	libcrypto = find_library("crypto") or find_library("eay32")
 
@@ -763,9 +781,9 @@ if libcrypto:
 		reason_str = crypto.ERR_reason_error_string(errcode)
 
 		if reason_str and lib_str:
-			msg = "[{}: {}] {}".format(lib_str, reason_str, errstr)
+			msg = "[{}: {}] {}".format(lib_str.decode(), reason_str.decode(), errstr)
 		elif lib_str:
-			msg = "[{}] {}".format(lib_str, errstr)
+			msg = "[{}] {}".format(lib_str.decode(), errstr)
 		else:
 			msg = errstr
 
@@ -776,9 +794,9 @@ if libcrypto:
 	TAG_LEN = 16
 	KDF_ITERS = 100000
 
-	def aes_gcm_encrypt(plaintext, password):
+	def aead_encrypt(plaintext, authdata, password):
 		salt = os.urandom(SALT_LEN)
-		iv = os.urandom(IV_LEN)
+		nonce = os.urandom(IV_LEN)
 		key = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, KDF_ITERS)
 
 		ctx = crypto.EVP_CIPHER_CTX_new()
@@ -786,12 +804,16 @@ if libcrypto:
 			msg = "EVP_CIPHER_CTX_new failed"
 			raise ssl_error(msg)
 		try:
-			if crypto.EVP_EncryptInit_ex(ctx, crypto.EVP_aes_256_gcm(), None, key, iv) != 1:
+			if crypto.EVP_EncryptInit_ex(ctx, crypto.EVP_aes_256_gcm(), None, key, nonce) != 1:
 				msg = "EVP_EncryptInit_ex failed"
 				raise ssl_error(msg)
 
-			outbuf = ctypes.create_string_buffer(len(plaintext))
 			outlen = ctypes.c_int()
+			if authdata and crypto.EVP_EncryptUpdate(ctx, None, ctypes.byref(outlen), authdata, len(authdata)) != 1:
+				msg = "EVP_EncryptUpdate failed"
+				raise ssl_error(msg)
+
+			outbuf = ctypes.create_string_buffer(len(plaintext))
 			if crypto.EVP_EncryptUpdate(ctx, outbuf, ctypes.byref(outlen), plaintext, len(plaintext)) != 1:
 				msg = "EVP_EncryptUpdate failed"
 				raise ssl_error(msg)
@@ -808,15 +830,15 @@ if libcrypto:
 		finally:
 			crypto.EVP_CIPHER_CTX_free(ctx)
 
-		return salt + iv + outbuf[: outlen.value + tmplen.value] + tagbuf.raw
+		return salt + nonce + outbuf[: outlen.value + tmplen.value] + tagbuf.raw
 
-	def aes_gcm_decrypt(blob, password):
+	def aead_decrypt(blob, authdata, password):
 		if len(blob) < SALT_LEN + IV_LEN + TAG_LEN:
-			msg = "ciphertext too short"
+			msg = "ciphertext is too short"
 			raise ValueError(msg)
 
 		salt = blob[:SALT_LEN]
-		iv = blob[SALT_LEN : SALT_LEN + IV_LEN]
+		nonce = blob[SALT_LEN : SALT_LEN + IV_LEN]
 		ciphertext = blob[SALT_LEN + IV_LEN : -TAG_LEN]
 		tag = blob[-TAG_LEN:]
 
@@ -827,18 +849,22 @@ if libcrypto:
 			msg = "EVP_CIPHER_CTX_new failed"
 			raise ssl_error(msg)
 		try:
-			if crypto.EVP_DecryptInit_ex(ctx, crypto.EVP_aes_256_gcm(), None, key, iv) != 1:
+			if crypto.EVP_DecryptInit_ex(ctx, crypto.EVP_aes_256_gcm(), None, key, nonce) != 1:
 				msg = "EVP_DecryptInit_ex failed"
-				raise ssl_error(msg)
-
-			outbuf = ctypes.create_string_buffer(len(ciphertext))
-			outlen = ctypes.c_int()
-			if crypto.EVP_DecryptUpdate(ctx, outbuf, ctypes.byref(outlen), ciphertext, len(ciphertext)) != 1:
-				msg = "EVP_DecryptUpdate failed"
 				raise ssl_error(msg)
 
 			if crypto.EVP_CIPHER_CTX_ctrl(ctx, 0x11, TAG_LEN, tag) != 1:  # EVP_CTRL_GCM_SET_TAG
 				msg = "EVP_CIPHER_CTX_ctrl failed"
+				raise ssl_error(msg)
+
+			outlen = ctypes.c_int()
+			if authdata and crypto.EVP_DecryptUpdate(ctx, None, ctypes.byref(outlen), authdata, len(authdata)) != 1:
+				msg = "EVP_DecryptUpdate failed"
+				raise ssl_error(msg)
+
+			outbuf = ctypes.create_string_buffer(len(ciphertext))
+			if crypto.EVP_DecryptUpdate(ctx, outbuf, ctypes.byref(outlen), ciphertext, len(ciphertext)) != 1:
+				msg = "EVP_DecryptUpdate failed"
 				raise ssl_error(msg)
 
 			tmplen = ctypes.c_int()
@@ -1022,10 +1048,9 @@ if sys.platform == "win32":
 		results_files = ["results-{}.txt".format(i) for i in range(args.num_workers)] if args.prpll else [args.results_file]
 		logging.info("Watching the directory: %r.", os.path.abspath(adir))
 
-		size = FILE_NOTIFY_INFORMATION.FileName.offset
 		try:
+			buffer = ctypes.create_string_buffer(1024 * ctypes.sizeof(FILE_NOTIFY_INFORMATION))
 			while True:
-				buffer = ctypes.create_string_buffer(1024)
 				bytes_returned = wintypes.DWORD()
 				if not kernel32.ReadDirectoryChangesW(
 					handle,
@@ -1043,7 +1068,7 @@ if sys.platform == "win32":
 				offset = 0
 				while offset < bytes_returned.value:  # len(data)
 					record = FILE_NOTIFY_INFORMATION.from_buffer(buffer, offset)
-					filename = buffer[offset + size : offset + size + record.FileNameLength].decode("utf-16")
+					filename = ctypes.wstring_at(record.FileName, record.FileNameLength)
 					file = os.path.join(adir, filename)
 					if record.Action == 0x00000001:  # FILE_ACTION_ADDED
 						aadir, afile = os.path.split(filename)
@@ -1053,6 +1078,7 @@ if sys.platform == "win32":
 					if record.Action == 0x00000003 and filename in results_files:  # FILE_ACTION_MODIFIED
 						logging.debug("The results file %r was modified.", file)
 						results_queue.put((adir, results_files.index(filename) if args.prpll else cpu_num))
+
 					if not record.NextEntryOffset:
 						break
 					offset += record.NextEntryOffset
@@ -1140,7 +1166,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		proof = os.path.join(adir, "proof")
 
 		for i in range(num_events):
-			path = ctypes.string_at(event_paths[i]).decode("utf-8")
+			path = event_paths[i].decode("utf-8")
 			flag = event_flags[i]
 			# aid = event_ids[i]
 			if flag & 0x00000800:  # kFSEventStreamEventFlagItemRenamed
@@ -1277,16 +1303,16 @@ elif sys.platform.startswith("linux"):
 
 	# IN_ISDIR = 0x40000000  # event occurred against dir
 
-	class InotifyEvent(ctypes.Structure):
+	class inotify_event(ctypes.Structure):
 		_fields_ = (
 			("wd", ctypes.c_int),
 			("mask", ctypes.c_uint32),
 			("cookie", ctypes.c_uint32),
 			("len", ctypes.c_uint32),
-			# ("name", ctypes.c_char_p)
+			("name", ctypes.c_char * 0),
 		)
 
-	BUF_LEN = 1024 * (ctypes.sizeof(InotifyEvent) + 16)
+	BUF_LEN = 1024 * ctypes.sizeof(inotify_event)
 
 	# libc.inotify_init.argtypes = ()
 	# libc.inotify_init.restype = ctypes.c_int
@@ -1333,14 +1359,15 @@ elif sys.platform.startswith("linux"):
 				wds[proof_wd] = proof
 				logging.debug("Watching the directory: %r.", proof)
 
-			size = ctypes.sizeof(InotifyEvent)
+			size = ctypes.sizeof(inotify_event)
 			while True:
+				# Python 3.14+: os.readinto
 				buffer = os.read(inotify_fd, BUF_LEN)
 
 				offset = 0
 				while offset < len(buffer):
-					event = InotifyEvent.from_buffer_copy(buffer, offset)
-					name = buffer[offset + size : offset + size + event.len].rstrip(b"\0").decode("utf-8")
+					event = inotify_event.from_buffer_copy(buffer, offset)
+					name = ctypes.string_at(event.name, event.len).rstrip(b"\0").decode("utf-8")
 					file = wds[event.wd] + (os.sep + name if name else "")
 					if event.mask & IN_CLOSE_WRITE and event.wd in result_wds:
 						logging.debug("The results file %r was modified.", file)
@@ -1372,12 +1399,35 @@ elif sys.platform.startswith("linux"):
 							del result_wds[event.wd]
 						elif event.wd == proof_wd:
 							proof_wd = None
+
 					offset += size + event.len
 		finally:
 			for wd in wds:
 				libc.inotify_rm_watch(inotify_fd, wd)
 			os.close(inotify_fd)
 
+
+# Adapted from: https://github.com/urllib3/urllib3/blob/main/src/urllib3/util/connection.py
+def has_ipv6(host="::1"):
+	has_ipv6 = False
+
+	if socket.has_ipv6:
+		sock = None
+		try:
+			sock = socket.socket(socket.AF_INET6)
+			sock.bind((host, 0))
+		except OSError:
+			pass
+		else:
+			has_ipv6 = True
+		finally:
+			if sock:
+				sock.close()
+
+	return has_ipv6
+
+
+HAS_IPV6 = has_ipv6()
 
 try:
 	import requests
@@ -1437,11 +1487,15 @@ else:
 
 	def punycode(hostname):
 		"""Converts a given hostname to its Punycode representation."""
-		return idna.encode(hostname.lower(), uts46=True).decode("utf-8")
+		try:
+			return idna.encode(hostname.lower(), uts46=True).decode("utf-8")
+		except idna.IDNAError:
+			return hostname.lower().encode("idna").decode("utf-8")
 
 
 # region Constants and Globals
 locale.setlocale(locale.LC_ALL, "")
+conventions = locale.localeconv()
 if hasattr(sys, "set_int_max_str_digits"):
 	sys.set_int_max_str_digits(0)
 charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
@@ -1519,11 +1573,11 @@ session.mount("https://", HostHeaderSSLAdapter(max_retries=retries))
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
 atexit.register(session.close)
 # Python 2.7.9 and 3.4+
-context = (
-	ssl.create_default_context(cafile=certifi.where() if certifi is not None else certifi)
-	if hasattr(ssl, "create_default_context")
-	else None
-)
+if hasattr(ssl, "create_default_context"):
+	context = ssl.create_default_context(cafile=certifi.where() if certifi is not None else certifi)
+	context.options |= getattr(ssl, "OP_ENABLE_KTLS", 0x8)  # Python 3.12+
+else:
+	context = None
 
 # Mlucas constants
 
@@ -1536,26 +1590,55 @@ MODULUS_TYPE_FERMAT = 3
 
 
 # endregion
-class timedelta(timedelta):
+class timedelta(dt.timedelta):
 	"""Custom timedelta class with a formatted string representation."""
 
 	__slots__ = ()
 
 	def __str__(self):
 		"""Return a formatted string representation of the timedelta."""
-		m, s = divmod(self.seconds, 60)
+		sign = self.days >= 0
+		delta = self if sign else -self
+		m, s = divmod(delta.seconds, 60)
 		h, m = divmod(m, 60)
-		d = self.days
-		ms, _us = divmod(self.microseconds, 1000)
+		d = delta.days
+		ms, _us = divmod(delta.microseconds, 1000)
 		return "".join((
-			"{:n}d".format(d) if d else "",
-			" {:2n}h".format(h) if d else "{:n}h".format(h) if h else "",
-			" {:2n}m".format(m) if h or d else "{:n}m".format(m) if m else "",
-			" {:2n}s".format(s) if m or h or d else "{:n}s".format(s) if s else "",
-			(" {:3n}ms".format(ms) if s else "{:n}ms".format(ms)) if not (m or h or d) else "",
-			# " {:3n}ms".format(ms) if s or m or h or d else "{:n}ms".format(ms) if ms else "",
-			# " {:3n}µs".format(us) if ms or s or m or h or d else "{:n}µs".format(us),
+			"{:n}d".format(d if sign else -d) if d else "",
+			" {:2n}h".format(h) if d else "{:n}h".format(h if sign else -h) if h else "",
+			" {:2n}m".format(m) if h or d else "{:n}m".format(m if sign else -m) if m else "",
+			" {:2n}s".format(s) if m or h or d else "{:n}s".format(s if sign else -s) if s else "",
+			(" {:3n}ms".format(ms) if s else "{:n}ms".format(ms if sign else -ms)) if not (m or h or d) else "",
+			# " {:3n}ms".format(ms) if s or m or h or d else "{:n}ms".format(ms if sign else -ms) if ms else "",
+			# " {:3n}µs".format(us) if ms or s or m or h or d else "{:n}µs".format(us if sign else -us),
 		))
+
+
+# dt.timedelta = timedelta
+
+try:
+	# Python 3.2+
+	from datetime import timezone
+except ImportError:
+	from datetime import tzinfo
+
+	class UTC(tzinfo):
+		__slots__ = ()
+
+		ZERO = timedelta()
+
+		def utcoffset(self, _dt):
+			return self.ZERO
+
+		def tzname(self, _dt):
+			return "UTC"
+
+		def dst(self, _dt):
+			return self.ZERO
+
+	utc = UTC()
+else:
+	utc = timezone.utc
 
 
 # region console IO
@@ -1563,6 +1646,8 @@ class Formatter(logging.Formatter):
 	"""Custom logging formatter to include worker information if available."""
 
 	__slots__ = ()
+
+	default_msec_format = "%s{}%03d".format(conventions["decimal_point"])
 
 	def format(self, record):
 		"""Format log record to include worker number if 'cpu_num' attribute is present."""
@@ -1611,6 +1696,22 @@ class ColorFormatter(Formatter):
 		return fmt
 
 
+if sys.platform == "win32":
+	import msvcrt
+
+	def lock_file(file, blocking=False):
+		msvcrt.locking(file.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+
+else:
+	import fcntl
+
+	def lock_file(file, blocking=False):
+		operation = fcntl.LOCK_EX
+		if not blocking:
+			operation |= fcntl.LOCK_NB
+		fcntl.flock(file, operation)
+
+
 class LockFile:
 	"""Context manager for creating and managing a lock file."""
 
@@ -1637,7 +1738,9 @@ class LockFile:
 						logging.warning("%r lockfile already exists, waiting…", self.lockfile)
 					time.sleep(min(1 << i, 60 * 1000) / 1000)
 				else:
-					logging.exception("Error opening %r lockfile: %s: %s", self.lockfile, type(e).__name__, e, exc_info=args.debug)
+					logging.exception(
+						"Failed to open the %r lockfile: %s: %s", self.lockfile, type(e).__name__, e, exc_info=args.debug
+					)
 					raise
 		if i:
 			logging.info("Locked %r", self.filename)
@@ -1646,7 +1749,11 @@ class LockFile:
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		"""Release the lock by removing the lock file."""
 		# logging.debug("Unlocking %r", self.filename)
-		os.remove(self.lockfile)
+		try:
+			os.remove(self.lockfile)
+		except OSError as e:
+			logging.exception("Failed to remove the %r lockfile: %s: %s", self.lockfile, type(e).__name__, e, exc_info=args.debug)
+			raise
 
 
 class SEC:
@@ -2339,7 +2446,7 @@ def get_dns_config(domain, aemail_domain):
 					priority, weight, port, target = fields
 					records.append((int(priority), int(weight), int(port), target))
 				else:
-					logging.error("Error parsing DNS SRV Record for the %r domain: %r", domain, answer["data"])
+					logging.error("Failed to parse the DNS SRV Record for the %r domain: %r", domain, answer["data"])
 
 		for _, _, port, target in sorted(records, key=lambda x: (x[0], -x[1])):
 			if target != ".":
@@ -2390,7 +2497,7 @@ def email_autoconfig(email):
 					preference, exchange = fields
 					records.append((int(preference), exchange))
 				else:
-					logging.error("Error parsing DNS MX Record for the %r domain: %r", email_domain, answer["data"])
+					logging.error("Failed to parse the DNS MX Record for the %r domain: %r", email_domain, answer["data"])
 
 		for _, exchange in sorted(records, key=operator.itemgetter(0)):
 			mx_hostname = exchange.rstrip(".").lower()
@@ -2529,7 +2636,7 @@ def setup(config, args):
 {:n}. {!r} ({})
 	Cores: {}
 	Frequency/Speed: {:n} MHz
-	Total memory: {:n} MiB ({}B)""".format(i + 1, name, source, cores or "(Unknown)", frequency, memory, output_unit(memory << 20))
+	Total memory: {:n} MiB ({}B)""".format(i + 1, name, source, cores or "Unknown", frequency, memory, output_unit(memory << 20))
 				)
 			print()
 			gpu = ask_int("Which GPU are you using this GIMPS program with (0 to not report the GPU)", 0, 0, len(gpus))
@@ -2753,7 +2860,7 @@ def setup(config, args):
 			try:
 				os.makedirs(archive)
 			except OSError as e:
-				print("The directory does not exist and we were unable to create it:", e)
+				print("The directory does not exist and we were unable to create it: {}: {}".format(type(e).__name__, e))
 			else:
 				break
 	if args.prpll and cert_work:
@@ -2846,7 +2953,7 @@ def setup(config, args):
 		# if not ask_ok_cancel():
 		# 	return None
 		args.smtp = smtp_server
-		config.set(SEC.Email, "smtp", smtp_server)
+		config.set(SEC.Email, "smtp_server", smtp_server)
 		if tls:
 			args.tls = tls
 			config.set(SEC.Email, "tls", str(tls))
@@ -2854,13 +2961,13 @@ def setup(config, args):
 			args.starttls = starttls
 			config.set(SEC.Email, "starttls", str(starttls))
 		args.fromemail = fromemail
-		config.set(SEC.Email, "fromemail", fromemail)
+		config.set(SEC.Email, "from_email", fromemail)
 		args.email_username = username
 		config.set(SEC.Email, "username", username)
 		args.email_password = password
 		config.set(SEC.Email, "password", password)
 		args.toemails = toemails
-		config.set(SEC.Email, "toemails", ",".join(toemails))
+		config.set(SEC.Email, "to_emails", ",".join(toemails))
 
 	if not ask_ok_cancel():
 		sys.exit(1)
@@ -2875,16 +2982,17 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 		with io.open(filename, mode, encoding=encoding, errors=errors) as file:
 			for line in file:
 				yield line.rstrip("\n")
-	except (IOError, OSError):
-		# logging.debug("Error reading %r file: %s", filename, e)
-		pass
+	# Python 3.3+: FileNotFoundError
+	except (IOError, OSError) as e:
+		if e.errno != errno.ENOENT:
+			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 
 
 # region Config
 attr_to_copy = {
 	SEC.PrimeNet: {
-		"worktodo_file": "workfile",
-		"results_file": "resultsfile",
+		"work_file": "work_file",
+		"results_file": "results_file",
 		"logfile": "logfile",
 		"archive_dir": "ProofArchiveDir",
 		"user_id": "username",
@@ -2893,8 +3001,8 @@ attr_to_copy = {
 		"cert_cpu_limit": "CertDailyCPULimit",
 		"min_exp": "GetMinExponent",
 		"max_exp": "GetMaxExponent",
-		"min_bit": "bit_min",
-		"max_bit": "bit_max",
+		"min_bit": "min_bit",
+		"max_bit": "max_bit",
 		"force_target_bits": "force_target_bits",
 		"mlucas": "mlucas",
 		"gpuowl": "gpuowl",
@@ -2938,9 +3046,9 @@ attr_to_copy = {
 		"proxy_password": "ProxyPass",
 	},
 	SEC.Email: {
-		"toemails": "toemails",
-		"fromemail": "fromemail",
-		"smtp": "smtp",
+		"toemails": "to_emails",
+		"fromemail": "from_email",
+		"smtp": "smtp_server",
 		"tls": "tls",
 		"starttls": "starttls",
 		"email_username": "username",
@@ -2972,7 +3080,7 @@ OPTIONS_TYPE_HINTS = {
 		"watch": bool,
 		"color": bool,
 	},
-	SEC.Email: {"toemails": list, "tls": bool, "starttls": bool},
+	SEC.Email: {"to_emails": list, "tls": bool, "starttls": bool},
 }
 
 OPTIONS_ENCRYPT = {SEC.PrimeNet: {"password": "password", "proxy_password": "ProxyPass"}, SEC.Email: {"email_password": "password"}}
@@ -2986,11 +3094,13 @@ def config_read():
 	try:
 		config.read((localfile,), **({"encoding": "utf-8"} if sys.version_info >= (3, 2) else {}))
 	except ConfigParserError as e:
-		logging.exception("Error reading %r file: %s: %s", localfile, type(e).__name__, e, exc_info=args.debug)
+		logging.exception("Failed to read the %r file: %s: %s", localfile, type(e).__name__, e, exc_info=args.debug)
+
 	for section in (SEC.PrimeNet, SEC.Email, SEC.Internals):
 		if not config.has_section(section):
 			# Create the section to avoid having to test for it later
 			config.add_section(section)
+
 	return config
 
 
@@ -2998,7 +3108,7 @@ def config_write(config):
 	"""Writes the configuration to a prime.ini file."""
 	# generate a new prime.ini file
 	localfile = os.path.join(workdir, args.localfile)
-	with io.open(localfile, "w", encoding="utf-8") as configfile:
+	with open(localfile, "w", **({"encoding": "utf-8"} if sys.version_info >= (3,) else {})) as configfile:
 		config.write(configfile)
 
 
@@ -3133,7 +3243,9 @@ def encrypt(config, args):
 				if libcrypto:
 					logging.debug("Encrypting option %s in section %r in %r", option, section, args.localfile)
 					try:
-						new_val = base64.b64encode(aes_gcm_encrypt(attr_val.encode("utf-8"), guid)).decode()
+						new_val = base64.b64encode(
+							aead_encrypt(attr_val.encode("utf-8"), (section + option).encode("utf-8"), guid)
+						).decode()
 					except (ValueError, ssl.SSLError) as e:
 						logging.exception(
 							"Failed to encrypt option %s in section %r in %r: %s: %s",
@@ -3176,7 +3288,9 @@ def decrypt(config, args):
 					logging.debug("Decrypting option %s in section %r in %r", new_option, section, args.localfile)
 					try:
 						# Python 3+: validate=True
-						new_val = aes_gcm_decrypt(base64.b64decode(option_val), guid).decode("utf-8")
+						new_val = aead_decrypt(base64.b64decode(option_val), (section + option).encode("utf-8"), guid).decode(
+							"utf-8"
+						)
 					# Python 3+: binascii.Error, Python 2: TypeError
 					except (ValueError, binascii.Error, TypeError, ssl.SSLError) as e:
 						logging.critical(
@@ -3212,7 +3326,7 @@ def check_options(parser, args):
 	if os.path.dirname(args.localfile):
 		parser.error("Configuration file filename should not include a directory/path")
 
-	if os.path.dirname(args.worktodo_file):
+	if os.path.dirname(args.work_file):
 		parser.error("Work file filename should not include a directory/path")
 
 	if os.path.dirname(args.results_file):
@@ -3232,8 +3346,8 @@ def check_options(parser, args):
 		# if res:
 		# 	logging.warning("Computer name has invalid character: %r", res.group())
 
-	if not 1 <= len(args.cpu_brand) <= 64:
-		parser.error("CPU model must be between 1 and 64 characters")
+	if not 4 <= len(args.cpu_brand) <= 64:
+		parser.error("CPU model must be between 4 and 64 characters")
 	res = RE.search(args.cpu_brand)
 	if res:
 		logging.warning("CPU model has invalid character: %r", res.group())
@@ -3743,7 +3857,11 @@ def process_add_file(adapter, workfile):
 		for task in add:
 			adapter.debug("Adding %r line to the %r file", task, workfile)
 			file.write(task + "\n")
-		os.remove(addfile)
+		try:
+			os.remove(addfile)
+		except OSError as e:
+			adapter.exception("Failed to remove the %r file: %s: %s", addfile, type(e).__name__, e, exc_info=args.debug)
+			raise
 
 
 def read_workfile(adapter, workfile):
@@ -3860,7 +3978,13 @@ def write_workfile(adir, workfile, assignments):
 		pass
 	with io.open(f.name, "w", encoding="utf-8") as file:
 		file.writelines(task + "\n" for task in tasks)
-	replace(f.name, workfile)
+	try:
+		replace(f.name, workfile)
+	except OSError as e:
+		logging.exception(
+			"Failed to replace the file %r with %r: %s: %s", f.name, workfile, type(e).__name__, e, exc_info=args.debug
+		)
+		raise
 
 
 # endregion
@@ -4345,6 +4469,8 @@ def parse_v5_resp(r):
 			break
 		option, _, value = line.partition("=")
 		ans[option] = value.replace("\r", "\n")
+	else:
+		logging.warning("Did not find END line in server response")
 	return ans
 
 
@@ -5023,7 +5149,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 	except EOFError:
 		return None
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
 	return iteration, fftlen
@@ -5039,10 +5165,10 @@ def parse_work_unit_cudalucas(adapter, filename, p):
 
 			q, n, j, _offset, total_time, _time_adj, _iter_adj, _, magic_number, _checksum = unpack("=IIIIIIIIII", f)
 			if p != q:
-				adapter.debug("Error: Expecting the exponent %s, but found %s", p, q)
+				adapter.debug("Expecting the exponent %s, but found %s", p, q)
 				return None
 			if magic_number:
-				adapter.debug("Error: savefile with unknown magic_number = %s", magic_number)
+				adapter.debug("savefile with unknown magic_number = %s", magic_number)
 				return None
 			total_time <<= 15
 			# _time_adj <<= 15
@@ -5053,7 +5179,7 @@ def parse_work_unit_cudalucas(adapter, filename, p):
 	except EOFError:
 		return None
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
 	return iteration, avg_msec_per_iter, fftlen
@@ -5110,7 +5236,7 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
 	if not header.startswith(b"OWL "):
@@ -5193,10 +5319,11 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 
 		stage = 2
 	else:
-		adapter.debug("Error: Unknown save/checkpoint file header: %r", header)
+		adapter.debug("Unknown save/checkpoint file header: %r", header)
 		return None
 
 	if p != int(exponent):
+		adapter.debug("Expecting the exponent %s, but found %s", p, exponent)
 		return None
 
 	return counter, iterations, stage
@@ -5215,7 +5342,7 @@ def parse_work_unit_prpll(adapter, filename, p):
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
 	if not header.startswith(b"OWL "):
@@ -5244,10 +5371,11 @@ def parse_work_unit_prpll(adapter, filename, p):
 		counter = int(iteration)
 		avg_msec_per_iter = (float(elapsed) / counter) * 1000
 	else:
-		adapter.debug("Error: Unknown save/checkpoint file header: %r", header)
+		adapter.debug("Unknown save/checkpoint file header: %r", header)
 		return None
 
 	if p != int(exponent):
+		adapter.debug("Expecting the exponent %s, but found %s", p, exponent)
 		return None
 
 	return counter, avg_msec_per_iter
@@ -5373,7 +5501,7 @@ def parse_work_unit_prmers(adapter, filename, exponent):
 	except EOFError:
 		return None
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
 	if exponent != p:
@@ -5454,9 +5582,9 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 	"""Parses a mfaktc work unit file, extracting important information."""
 	try:
 		with open(filename, "rb") as f:
-			header = f.readline().rstrip(b"\n")
+			header = f.readline().rstrip(b"\r\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
 	mfaktc_tf = MFAKTC_TF_RE.match(header)
@@ -5466,6 +5594,7 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 			mfaktc_tf.groups()
 		)
 	else:
+		adapter.debug("Failed to parse checkpoint file header: %s", header)
 		return None
 
 	n = int(exp)
@@ -5473,6 +5602,7 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 	ms_elapsed = int(bit_level_time)
 
 	if p != n:
+		adapter.debug("Expecting the exponent %s, but found %s", p, n)
 		return None
 
 	pct_complete = pct_complete_mfakt(n, bits, int(num_classes), int(cur_class))
@@ -5491,9 +5621,9 @@ def parse_work_unit_mfakto(adapter, filename, p):
 	"""Parses a mfakto work unit file, extracting important information."""
 	try:
 		with open(filename, "rb") as f:
-			header = f.readline().rstrip(b"\n")
+			header = f.readline().rstrip(b"\r\n")
 	except (IOError, OSError) as e:
-		adapter.exception("Error reading %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
 	mfakto_tf = MFAKTO_TF_RE.match(header)
@@ -5503,6 +5633,7 @@ def parse_work_unit_mfakto(adapter, filename, p):
 			mfakto_tf.groups()
 		)
 	else:
+		adapter.debug("Failed to parse checkpoint file header: %s", header)
 		return None
 
 	n = int(exp)
@@ -5510,6 +5641,7 @@ def parse_work_unit_mfakto(adapter, filename, p):
 	ms_elapsed = int(bit_level_time)
 
 	if p != n:
+		adapter.debug("Expecting the exponent %s, but found %s", p, n)
 		return None
 
 	pct_complete = pct_complete_mfakt(n, bits, int(num_classes), int(cur_class))
@@ -5541,7 +5673,7 @@ def get_stages_mfaktx_ini(adapter, adir):
 					stream.seek(0)
 					config.readfp(stream)
 	except ConfigParserError as e:
-		adapter.exception("Error reading %r configuration file: %s: %s", ini_file, type(e).__name__, e, exc_info=args.debug)
+		adapter.exception("Failed to read the %r configuration file: %s: %s", ini_file, type(e).__name__, e, exc_info=args.debug)
 	if config.has_option(section, "Stages"):
 		stages = config.getint(section, "Stages")
 	return stages
@@ -5566,6 +5698,7 @@ def parse_stat_file(adapter, adir, p):
 		if result is not None:
 			iteration, fftlen = result
 			break
+		adapter.error("Unable to parse the %r save/checkpoint file", savefile)
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
@@ -5632,6 +5765,8 @@ def parse_cuda_output_file(adapter, adir, p):
 		result = parse_work_unit_cudalucas(adapter, savefile, p)
 		if result is not None:
 			iteration, avg_msec_per_iter, fftlen = result
+		else:
+			adapter.error("Unable to parse the %r save/checkpoint file", savefile)
 	else:
 		adapter.debug("Save/Checkpoint file %r does not exist", savefile)
 
@@ -5664,6 +5799,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 		if result is not None:
 			iteration, iterations, stage = result
 			break
+		adapter.error("Unable to parse the %r save/checkpoint file", savefile)
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
@@ -5785,6 +5921,7 @@ def parse_prpll_log_file(adapter, adir, p):
 		if result is not None:
 			iteration, avg_msec_per_iter = result
 			break
+		adapter.error("Unable to parse the %r save/checkpoint file", savefile)
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
@@ -5818,6 +5955,7 @@ def parse_prmers_log_file(adapter, adir, p):
 			if acurve >= 0:
 				curve = acurve + 1
 			break
+		adapter.error("Unable to parse the %r save/checkpoint file", savefile)
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
@@ -5843,6 +5981,8 @@ def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
 		result = parse_work_unit_mfaktc(adapter, savefile, p)
 		if result is not None:
 			iteration, iterations, avg_msec_per_iter = result
+		else:
+			adapter.error("Unable to parse the %r checkpoint file", savefile)
 	# else:
 	# 	adapter.debug("Checkpoint file %r does not exist", savefile)
 
@@ -5859,6 +5999,8 @@ def parse_mfakto_output_file(adapter, adir, p):
 		result = parse_work_unit_mfakto(adapter, savefile, p)
 		if result is not None:
 			iteration, iterations, avg_msec_per_iter = result
+		else:
+			adapter.error("Unable to parse the %r checkpoint file", savefile)
 	# else:
 	# 	adapter.debug("Checkpoint file %r does not exist", savefile)
 
@@ -5991,7 +6133,7 @@ def adjust_rolling_average(dirs):
 	time_to_complete = 0
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.work_file)
 		with LockFile(workfile):
 			tasks = read_workfile(adapter, workfile)
 			assignment = next((assignment for assignment in tasks if isinstance(assignment, Assignment)), None)
@@ -6057,9 +6199,7 @@ def output_status(dirs, cpu_num=None):
 	for i, adir in enumerate(dirs):
 		if args.status and args.num_workers > 1:
 			logging.info("[Worker #%s]", i + 1)
-		workfile = os.path.join(
-			adir, "worktodo-{}.txt".format(i if cpu_num is None else cpu_num) if args.prpll else args.worktodo_file
-		)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i if cpu_num is None else cpu_num) if args.prpll else args.work_file)
 		tasks = read_workfile(adapter, workfile)
 		assignments = OrderedDict(
 			((assignment.uid, assignment.n), assignment) for assignment in tasks if isinstance(assignment, Assignment)
@@ -6138,7 +6278,8 @@ def output_status(dirs, cpu_num=None):
 			else:
 				cur_time_left += time_left
 				time_left = timedelta(seconds=cur_time_left)
-				adapter.info("%s, %s, %s (%s)", buf, work_type_str, time_left, (now + time_left).strftime("%c"))
+				# "%F %T"
+				adapter.info("%s, %s, %s (%s)", buf, work_type_str, time_left, (now + time_left).strftime("%Y-%m-%d %H:%M:%S"))
 			if all_and_prp_cnt:
 				ll_and_prp_cnt += 1
 				adapter.info(
@@ -6237,7 +6378,7 @@ Total limit usage: {}
 				"🚨🗃️ Only {:.1%} of the disk space available on {}".format(precent, args.computer_id),
 				"""Only {:%} or {}B of the total {}B disk space is available on your {!r} computer.
 
-If the computer runs out of space, the program will likely be unable to generate the PRP proof files.
+If the computer runs out of space, the program will likely be unable to generate any PRP proof files.
 
 Disk space available: {}
 """.format(precent, output_unit(usage.free), output_unit(usage.total), args.computer_id, output_available(usage.free, usage.total)),
@@ -6247,16 +6388,52 @@ Disk space available: {}
 	else:
 		config.remove_option(SEC.Internals, "storage_available_critical")
 
+	if args.archive_dir and os.stat(workdir).st_dev != os.stat(args.archive_dir).st_dev:
+		usage = disk_usage(args.archive_dir)
+		logging.debug("Disk space available for the proof file archive: %s", output_available(usage.free, usage.total))
+		precent = usage.free / usage.total
+		if precent * 100 <= critical:
+			logging.warning(
+				"Less than %s%% or only %s of the total disk space available (%sB / %sB)",
+				critical,
+				format(precent, "%"),
+				output_unit(usage.free),
+				output_unit(usage.total),
+			)
+			if not config.has_option(SEC.Internals, "proof_archive_storage_available_critical"):
+				send_msg(
+					"🚨🗃️ Only {:.1%} of the disk space available on {} for the proof file archive".format(
+						precent, args.computer_id
+					),
+					"""Only {:%} or {}B of the total {}B disk space is available on your {!r} computer for the {!r} proof file archive directory.
+
+If the proof file archive runs out of space, the program will be unable to upload any PRP proof files.
+
+Disk space available for the proof file archive: {}
+""".format(
+						precent,
+						output_unit(usage.free),
+						output_unit(usage.total),
+						args.computer_id,
+						args.archive_dir,
+						output_available(usage.free, usage.total),
+					),
+					priority="1 (Highest)",
+				)
+				config.set(SEC.Internals, "proof_archive_storage_available_critical", str(True))
+		else:
+			config.remove_option(SEC.Internals, "proof_archive_storage_available_critical")
+
 
 # endregion
 # region Proof Upload
 def checksum_md5(filename):
 	"""Calculate and return the MD5 checksum of a given file."""
 	amd5 = md5()
-	buf = bytearray(amd5.block_size * 4096)
-	view = memoryview(buf)
+	buffer = bytearray(amd5.block_size * 4096)
+	view = memoryview(buffer)
 	with open(filename, "rb") as f:
-		for size in iter(lambda: f.readinto(buf), 0):
+		for size in iter(lambda: f.readinto(buffer), 0):
 			amd5.update(view[:size])
 	return amd5.hexdigest()
 
@@ -6276,43 +6453,40 @@ def upload_proof_file(adapter, filename):
 				return False
 			header, _, version = f.readline().rstrip(b"\n").partition(b"=")
 			if header != b"VERSION" or int(version) not in {1, 2}:
-				adapter.error("Error getting version number from proof header")
+				adapter.error("Failed to get the version number from proof header")
 				return False
 			header, _, hashlen = f.readline().rstrip(b"\n").partition(b"=")
 			if header != b"HASHSIZE" or not 32 <= int(hashlen) <= 64:
-				adapter.error("Error getting hash size from proof header")
+				adapter.error("Failed to get the hash size from proof header")
 				return False
 			header, _, power = f.readline().rstrip(b"\n").partition(b"=")
 			power, _, _power_mult = power.partition(b"x")
 			if header != b"POWER" or not 0 < int(power) < 16:
-				adapter.error("Error getting power from proof header")
+				adapter.error("Failed to get the power from proof header")
 				return False
 			header = f.readline().rstrip(b"\n")
 			if header.startswith(b"BASE="):
 				header = f.readline().rstrip(b"\n")
 			header, _, number = header.partition(b"=")
 			if header != b"NUMBER":
-				adapter.error("Error getting number from proof header")
+				adapter.error("Failed to get the number from proof header")
 				return False
 			proof_number = PROOF_NUMBER_RE.match(number)
 			if not proof_number:
-				adapter.error("Error parsing number: %r", number)
+				adapter.error("Failed to parse the number: %r", number)
 				return False
 			_, number, exponent, _k, _b, _n, _c, _factors = proof_number.groups()
 			if not exponent or not number.startswith(b"M"):
 				adapter.error("Only proof files for Mersenne numbers are supported")
 				return False
 			exponent = int(exponent)
-			adapter.info("Proof file exponent is %s", exponent)
+			adapter.info("Proof file %r exponent is %s", filename, exponent)
 			filesize = os.path.getsize(filename)
 			adapter.info(
-				"Filesize of %r is %sB%s",
-				filename,
-				output_unit(filesize),
-				" ({}B)".format(output_unit(filesize, True)) if filesize >= 1000 else "",
+				"Filesize is %sB%s", output_unit(filesize), " ({}B)".format(output_unit(filesize, True)) if filesize >= 1000 else ""
 			)
 			filehash = checksum_md5(filename)
-			adapter.info("MD5 of %r is %s", filename, filehash)
+			adapter.info("MD5 checksum is %s", filehash)
 
 			while True:
 				r = session.get(
@@ -6356,8 +6530,8 @@ def upload_proof_file(adapter, filename):
 				view = memoryview(buffer)
 				while pos < end:
 					f.seek(pos)
-					size = f.readinto(buffer)
-					size = min(size, end - pos + 1)
+					chunk_size = min(end - pos + 1, max_chunk_size)
+					size = f.readinto(view[:chunk_size])
 					chunk = view[:size]
 					bytessent += size
 					response = session.post(
@@ -6411,15 +6585,26 @@ def upload_proof(adapter, cpu_num, file):
 	if config.has_option(SEC.PrimeNet, "ProofUploads") and not config.getboolean(SEC.PrimeNet, "ProofUploads"):
 		return True
 	if not os.path.isfile(file):
+		adapter.debug("Proof file %r does not exist", file)
 		return True
 
 	filename = os.path.basename(file)
 	if upload_proof_file(adapter, file):
 		if args.archive_dir:
-			archive = os.path.join(workdir, args.archive_dir)
-			shutil.move(file, os.path.join(archive, filename))
+			archive = os.path.join(workdir, args.archive_dir, filename)
+			try:
+				shutil.move(file, archive)
+			except OSError as e:
+				adapter.exception(
+					"Failed to move the proof file from %r to %r: %s: %s", file, archive, type(e).__name__, e, exc_info=args.debug
+				)
+				raise
 		else:
-			os.remove(file)
+			try:
+				os.remove(file)
+			except OSError as e:
+				adapter.exception("Failed to remove the %r proof file: %s: %s", file, type(e).__name__, e, exc_info=args.debug)
+				raise
 		return True
 
 	send_msg(
@@ -6515,7 +6700,7 @@ def program_options(send=False, start=-1, retry_count=0):
 			logging.info("Exchanging program options with server")
 			result = send_request(adapter, guid, params)
 			if result is None:
-				logging.critical("Error while setting program options on mersenne.org")
+				logging.critical("Failed to set the program options on mersenne.org")
 				sys.exit(1)
 			else:
 				rc = int(result["pnErrorResult"])
@@ -6529,7 +6714,7 @@ def program_options(send=False, start=-1, retry_count=0):
 						register_instance(guid)
 						retry = True
 					if not retry:
-						logging.critical("Error while setting program options on mersenne.org")
+						logging.critical("Failed to set the program options on mersenne.org")
 						sys.exit(1)
 			if retry:
 				if retry_count >= MAX_RETRIES:
@@ -6621,14 +6806,14 @@ def register_instance(guid=None):
 	adapter = logging.LoggerAdapter(logger, None)
 	result = send_request(adapter, guid, params)
 	if result is None:
-		logging.critical("Error while registering on mersenne.org")
+		logging.critical("Failed to register on mersenne.org")
 		sys.exit(1)
 	else:
 		rc = int(result["pnErrorResult"])
 		if rc == PRIMENET_ERROR.OK:
 			pass
 		else:
-			logging.critical("Error while registering on mersenne.org")
+			logging.critical("Failed to register on mersenne.org")
 			sys.exit(1)
 	# Save program options in case they are changed by the PrimeNet server.
 	args.user_id = result["u"]
@@ -6716,7 +6901,7 @@ def unreserve(dirs, p):
 	"""Unreserve a specific exponent from the workfile."""
 	adapter = logging.LoggerAdapter(logger, None)
 	for i, adir in enumerate(dirs):
-		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.work_file)
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
 			found = changed = False
@@ -6737,7 +6922,7 @@ def unreserve(dirs, p):
 					write_workfile(adir, workfile, tasks)
 				break
 	else:
-		logging.error("Error unreserving exponent: %s not found in workfile%s", p, "s" if len(dirs) != 1 else "")
+		logging.error("Failed to unreserve the exponent: %s not found in workfile%s", p, "s" if len(dirs) != 1 else "")
 
 
 def get_proof_data(adapter, assignment_aid, file):
@@ -6784,16 +6969,30 @@ def download_cert(adapter, adir, filename, assignment):
 	with tempfile.NamedTemporaryFile("wb", dir=adir, delete=False) as f:
 		amd5 = get_proof_data(adapter, assignment.uid, f)
 	if not amd5 or not IS_HEX_RE.match(amd5):
-		adapter.error("Error getting CERT starting value")
-		os.remove(f.name)
+		adapter.error("Failed to get the CERT starting value")
+		try:
+			os.remove(f.name)
+		except OSError as e:
+			adapter.exception("Failed to remove the %r file: %s: %s", f.name, type(e).__name__, e, exc_info=args.debug)
+			raise
 		return False
 	amd5 = amd5.decode("utf-8").upper()
 	residue_md5 = checksum_md5(f.name).upper()
 	if amd5 != residue_md5:
 		adapter.error("MD5 of downloaded starting value %s does not match %s", residue_md5, amd5)
-		os.remove(f.name)
+		try:
+			os.remove(f.name)
+		except OSError as e:
+			adapter.exception("Failed to remove the %r file: %s: %s", f.name, type(e).__name__, e, exc_info=args.debug)
+			raise
 		return False
-	os.rename(f.name, filename)
+	try:
+		os.rename(f.name, filename)
+	except OSError as e:
+		adapter.exception(
+			"Failed to rename the file from %r to %r: %s: %s", f.name, filename, type(e).__name__, e, exc_info=args.debug
+		)
+		raise
 	adapter.info("CERT starting value %r successfully downloaded", filename)
 	return True
 
@@ -6804,7 +7003,7 @@ def download_certs(adapter, adir, cpu_num, tasks):
 	if not os.path.isfile(certwork_file):
 		adapter.debug("CERT work file %r does not exist", certwork_file)
 		return
-	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.work_file)
 	changed = False
 	with LockFile(certwork_file):
 		certwork = list(read_workfile(adapter, certwork_file))
@@ -7034,7 +7233,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	cert_assignments = sum(
 		1 for assignment in tasks if isinstance(assignment, Assignment) and assignment.work_type == PRIMENET_WORK_TYPE.CERT
 	)
-	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.work_file)
 	if cert_assignments >= max_cert_assignments:
 		adapter.debug(
 			"%s ≥ %s CERT assignments already in %r, not getting new work", cert_assignments, max_cert_assignments, workfile
@@ -7281,7 +7480,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 				ghd = float(ghzdays.group(1))
 			else:
 				adapter.warning("Unable to find GHz-days credit value in response")
-			adapter.debug("Result correctly send to server")
+			adapter.debug("Result correctly sent to server")
 			return rc, ghd
 		if rc == PRIMENET_ERROR.UNREGISTERED_CPU:
 			# should register again and retry
@@ -7711,7 +7910,7 @@ Python version: {}
 	return ar, message, assignment, result_type, no_report
 
 
-RESULT_PATTERN = re.compile(r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf)"|CUDA(?:Lucas|Pm1) v')
+RESULT_PATTERN = re.compile(r'"(?:Prime95|Mlucas|gpuowl|(?:frey-)?prpll|prmers|mfakt[co]|cofact|gvtf)"|CUDA(?:Lucas|Pm1) v')
 
 
 def submit_work(dirs, adapter, adir, cpu_num, tasks):
@@ -7909,7 +8108,7 @@ def results_worker(dirs):
 
 		for cpu_num, adir in sorted({cpu_num: adir for adir, cpu_num in results}.items()):
 			adapter = logging.LoggerAdapter(logger, {"cpu_num": cpu_num} if args.num_workers > 1 else None)
-			workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.worktodo_file)
+			workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.work_file)
 			with LockFile(workfile):
 				tasks = list(read_workfile(adapter, workfile))
 			if not submit_work(dirs, adapter, adir, cpu_num, tasks):
@@ -7969,7 +8168,7 @@ def unreserve_all(dirs):
 	logging.info("Unreserving all assignments.")
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.work_file)
 		any_tf1g = tf1g_unreserved = False
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
@@ -8209,7 +8408,7 @@ def register_assignments(adapter, adir, cpu_num, tasks):
 			tasks[i] = assignment
 			changed = True
 	if changed:
-		workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.work_file)
 		write_workfile(adir, workfile, tasks)
 	return registered_assignment
 
@@ -8226,7 +8425,7 @@ def register_exponents(dirs):
 
 	cpu_num = ask_int("Worker number", 1, 1, args.num_workers) - 1 if args.num_workers > 1 else 0
 	adir = dirs[cpu_num]
-	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.work_file)
 	adapter = logging.LoggerAdapter(logger, None)
 
 	with LockFile(workfile), io.open(workfile, "a", encoding="utf-8") as file:
@@ -8492,7 +8691,7 @@ def recover_assignments(dirs, recover_all=False):
 		return
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.work_file)
 		certwork_file = os.path.join(adir, "certwork-{}.txt".format(i) if args.prpll else "certwork.txt")
 		with LockFile(workfile), LockFile(certwork_file):
 			tasks = list(read_workfile(adapter, workfile))
@@ -8595,7 +8794,10 @@ def send_progress(adapter, cpu_num, assignment, percent, stage, time_left, now, 
 	retry = False
 	delta = timedelta(seconds=time_left)
 	adapter.info(
-		"Sending expected completion date for %s: %12s (%s)", exponent_to_str(assignment), delta, (now + delta).strftime("%c")
+		"Sending expected completion date for %s: %12s (%s)",
+		exponent_to_str(assignment),
+		delta,
+		(now + delta).strftime("%Y-%m-%d %H:%M:%S"),  # "%F %T"
 	)
 	result = send_request(adapter, guid, params)
 	if result is None:
@@ -8666,7 +8868,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 	if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS"):
 		return
 	now = datetime.now()
-	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.worktodo_file)
+	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.work_file)
 	assignments = OrderedDict(
 		((assignment.uid, assignment.n), assignment) for assignment in tasks if isinstance(assignment, Assignment)
 	).values()
@@ -8722,16 +8924,18 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 			if time_left <= days_work:
 				num_cache += 1
 				adapter.debug(
-					"Time left (%s) is less than the days of work option (%s), so num_cache increased by one to %s",
+					"Time left (%s) is less than the days of work option (%s day%s), so num_cache increased by one to %s",
 					time_left,
-					days_work,
+					args.days_of_work,
+					"s" if args.days_of_work != 1 else "",
 					num_cache,
 				)
 			else:
 				adapter.debug(
-					"Time left (%s) is greater than the days of work option (%s), so num_cache has not been changed",
+					"Time left (%s) is greater than the days of work option (%s day%s), so num_cache has not been changed",
 					time_left,
-					days_work,
+					args.days_of_work,
+					"s" if args.days_of_work != 1 else "",
 				)
 
 		if max_exps < num_cache:
@@ -8746,7 +8950,13 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		if num_cache <= num_existing:
 			adapter.debug("%s ≥ %s assignments already in %r, not getting new work", num_existing, num_cache, workfile)
 			if cur_time_left and ((not checkin and not new_tasks) or (args.min_exp and args.min_exp >= MAX_PRIMENET_EXP)):
-				adapter.info("Estimated time to complete queued work is %s, days of work requested is %s", time_left, days_work)
+				adapter.info(
+					"Estimated %s to complete queued work, %s day%s of work requested (%s)",
+					time_left,
+					args.days_of_work,
+					"s" if args.days_of_work != 1 else "",
+					days_work,
+				)
 			if not new_tasks:
 				return
 			break
@@ -8770,10 +8980,8 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 				ghd_to_request = max(10, ((args.days_of_work * 24 * 60 * 60) - cur_time_left) * 1000 / msec_per_iter)
 			assignments = tf1g_fetch(adapter, adir, cpu_num, num_to_get, ghd_to_request)
 		else:
-			assignments = []
 			assignment = get_assignment(adapter, cpu_num, min_exp=args.min_exp, max_exp=args.max_exp)
-			if assignment is not None:
-				assignments.append(assignment)
+			assignments = [assignment] if assignment is not None else []
 
 		num_fetched = len(assignments)
 		if not assignments:
@@ -8887,13 +9095,13 @@ def update_progress_all(adapter, adir, cpu_num, last_time, tasks, checkin=True):
 			adapter.warning(
 				"Stall detected: Log/Save file %r has not been modified since the last progress update (%s)",
 				file,
-				date.strftime("%c"),
+				date.strftime("%Y-%m-%d %H:%M:%S"),  # "%F %T"
 			)
 			if not config.has_option(section, "stalled"):
 				logfile = os.path.join(adir, "mfaktc.log" if args.mfaktc else "mfakto.log") if args.mfaktc or args.mfakto else file
 				send_msg(
 					"⚠️ {} on {} has stalled".format(PROGRAM["name"], args.computer_id),
-					"""The {} program on your {!r} computer (worker #{}) has not made any progress for {} ({:%c}).
+					"""The {} program on your {!r} computer (worker #{}) has not made any progress for {} ({:%Y-%m-%d %H:%M:%S}).
 
 Below is the last up to 100 lines of the {!r} log file:
 
@@ -8943,7 +9151,7 @@ def ping_server(ping_type=1):
 	logging.info("Contacting PrimeNet Server.")
 	if args.v6:
 		for family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
-			"mersenne.org", HTTP_PORT, urllib3.util.connection.allowed_gai_family(), socket.SOCK_STREAM
+			"mersenne.org", HTTP_PORT, socket.AF_UNSPEC if HAS_IPV6 else socket.AF_INET, socket.SOCK_STREAM
 		):
 			try:
 				r = session.post(
@@ -9019,10 +9227,17 @@ def autoprimenet_version_check():
 	release = releases[0]
 	version = release["version"]
 	date_release = release["date_release"]
-	date = datetime.strptime(date_release, "%Y-%m-%d")  # "%F"
+	date = datetime.strptime(date_release, "%Y-%m-%d").replace(tzinfo=utc)  # "%F"
+	delta = datetime.now(utc) - date
 	latest_version = parse_version(version)
 	if latest_version > parse_version(VERSION):
-		logging.warning("New version %s of AutoPrimeNet is available as of %s", version, date.strftime("%Y-%m-%d"))
+		logging.warning(
+			"New version %s of AutoPrimeNet is available as of %s (%s day%s ago)",
+			version,
+			date.strftime("%Y-%m-%d"),
+			delta.days,
+			"s" if delta.days != 1 else "",
+		)
 		new_version = (
 			config.get(SEC.Internals, "autoprimenet_new_version")
 			if config.has_option(SEC.Internals, "autoprimenet_new_version")
@@ -9145,7 +9360,8 @@ def program_version_check():
 	aversion = release["version"]
 	abuild = release["build"]
 	date_release = release["date_release"]
-	date = datetime.strptime(date_release, "%Y-%m-%d")  # "%F"
+	date = datetime.strptime(date_release, "%Y-%m-%d").replace(tzinfo=utc)  # "%F"
+	delta = datetime.now(utc) - date
 	latest_version = parse_version(aversion, abuild)
 	if not latest_version:
 		logging.warning("Unable to parse new version number %r for %s", aversion, name)
@@ -9159,7 +9375,12 @@ def program_version_check():
 	if latest_version > current_version:
 		version_str = aversion + (" build {}".format(abuild) if abuild else "")
 		logging.warning(
-			"New version %s of the GIMPS program %s is available as of %s", version_str, name, date.strftime("%Y-%m-%d")
+			"New version %s of the GIMPS program %s is available as of %s (%s day%s ago)",
+			version_str,
+			name,
+			date.strftime("%Y-%m-%d"),
+			delta.days,
+			"s" if delta.days != 1 else "",
 		)
 		new_version = None
 		if config.has_option(SEC.Internals, option_version):
@@ -9172,7 +9393,7 @@ def program_version_check():
 				aaversion = program
 			new_version = parse_version(aaversion, aabuild)
 		new_date = (
-			datetime.strptime(config.get(SEC.Internals, option_date), "%Y-%m-%d")
+			datetime.strptime(config.get(SEC.Internals, option_date), "%Y-%m-%d").replace(tzinfo=utc)
 			if config.has_option(SEC.Internals, option_date)
 			else None
 		)
@@ -9248,22 +9469,31 @@ def debug_info():
 	print(
 		"""
 AutoPrimeNet executable:	{}
-AutoPrimeNet version:		{}
+AutoPrimeNet version:		{} ({})
 Requests library version:	{}
 urllib3 library version:	{}
-Certifi version:		{}
+Certifi library version:	{}
 Python OpenSSL version:		{}
+External OpenSSL library:	{!r}
 External OpenSSL version:	{}
+OpenCL library:			{!r}
+CUDA library:			{!r}
+NVML library:			{!r}
 Python implementation:		{}
 Python version:			{}
 """.format(
 			sys.argv[0],
 			VERSION,
+			datetime.fromtimestamp(os.path.getmtime(sys.executable if is_pyinstaller() else __file__), utc),
 			requests.__version__,
 			urllib3.__version__,
 			certifi and certifi.__version__,
 			ssl.OPENSSL_VERSION,
-			OPENSSL_VERSION if libcrypto else "None found",
+			libcrypto,
+			libcrypto and OPENSSL_VERSION,
+			cl_lib,
+			cuda_lib,
+			nvml_lib,
 			platform.python_implementation(),
 			sys.version.replace("\n", ""),  # platform.python_version()
 		)
@@ -9402,7 +9632,7 @@ Disk space usage:		{:.1%}  {}B / {}B
 {:n}. {} ({})
 	Cores: {}
 	Frequency/Speed: {:n} MHz
-	Total memory: {}B""".format(i + 1, name, source, cores or "(Unknown)", frequency, output_unit(memory << 20))
+	Total memory: {}B""".format(i + 1, name, source, cores or "Unknown", frequency, output_unit(memory << 20))
 			)
 		print()
 	else:
@@ -9458,11 +9688,7 @@ parser.add_argument(
 	help="Directories relative to --workdir with the work and results files from the GIMPS program. Provide once for each worker. This is incompatible with PRPLL.",
 )
 parser.add_argument(
-	"-i",
-	"--work-file",
-	dest="worktodo_file",
-	default="worktodo.txt",
-	help="Work file filename, Default: %(default)r. Not used with PRPLL.",
+	"-i", "--work-file", default="worktodo.txt", help="Work file filename, Default: %(default)r. Not used with PRPLL."
 )
 parser.add_argument(
 	"-r",
@@ -9728,7 +9954,9 @@ group.add_argument(
 	choices=("http", "https", "socks5", "socks5h"),
 	help="Proxy server type, 'http', 'https', 'socks5' or 'socks5h', Default 'http'. SOCKS proxies require the Requests 2.10 or greater and PySocks libraries.",
 )
-group.add_argument("-x", "--proxy", help="Proxy server. Optionally include a port with the 'hostname:port' syntax.")
+group.add_argument(
+	"-x", "--proxy-server", dest="proxy", help="Proxy server. Optionally include a port with the 'hostname:port' syntax."
+)
 group.add_argument("--proxy-username", help="Proxy server username")
 group.add_argument("--proxy-password", help="Proxy server password")
 
@@ -9742,18 +9970,21 @@ group = parser.add_argument_group(
 	"Sent to PrimeNet/GIMPS when registering. It will automatically send the progress, which allows the program to then be monitored on the GIMPS website CPUs page (https://www.mersenne.org/cpus/), just like with Prime95/MPrime. This also allows the program to get much smaller Category 0 and 1 exponents, if it meets the other requirements (https://www.mersenne.org/thresholds/). AutoPrimeNet should automatically detect most of this system information. When using the --setup option and a GPU based GIMPS program, it can optionally report the GPU instead of the CPU.",
 )
 group.add_argument(
-	"-H", "--hostname", dest="computer_id", default=platform.node()[:20], help="Optional computer name, Default: %(default)r"
+	"-H", "--computer-name", dest="computer_id", default=platform.node()[:20], help="Optional computer name, Default: %(default)r"
 )
 group.add_argument(
-	"--cpu-model", dest="cpu_brand", default=get_cpu_model() or "cpu.unknown", help="Processor (CPU) model, Default: %(default)r"
+	"--processor-model",
+	dest="cpu_brand",
+	default=get_cpu_model() or "cpu.unknown",
+	help="Processor (CPU/GPU) model, Default: %(default)r",
 )
-group.add_argument("--features", dest="cpu_features", default="", help="CPU features, Default: %(default)r")
+group.add_argument("--processor-features", dest="cpu_features", default="", help="Processor features, Default: %(default)r")
 group.add_argument(
-	"--frequency",
+	"--processor-frequency",
 	dest="cpu_speed",
 	type=int,
 	default=get_cpu_frequency() or 1000,
-	help="CPU frequency/speed (MHz), Default: %(default)r MHz",
+	help="Processor frequency/speed (MHz), Default: %(default)r MHz",
 )
 group.add_argument("--memory", type=int, default=memory, help="Total physical memory (RAM) (MiB), Default: %(default)r MiB")
 group.add_argument(
@@ -9771,27 +10002,39 @@ group.add_argument(
 	help="Configured disk space limit per worker to store the proof interim residues files for PRP tests (GiB/worker), Default: %(default)r GiB/worker. Use 0 to not send.",
 )
 group.add_argument(
-	"--l1",
+	"--processor-l1-size",
 	dest="cpu_l1_cache_size",
 	type=int,
 	default=cache_sizes[1] or 8,
-	help="L1 Data Cache size (KiB), Default: %(default)r KiB",
+	help="Processor L1 Data Cache size (KiB), Default: %(default)r KiB",
 )
 group.add_argument(
-	"--l2", dest="cpu_l2_cache_size", type=int, default=cache_sizes[2] or 512, help="L2 Cache size (KiB), Default: %(default)r KiB"
+	"--processor-l2-size",
+	dest="cpu_l2_cache_size",
+	type=int,
+	default=cache_sizes[2] or 512,
+	help="Processor L2 Cache size (KiB), Default: %(default)r KiB",
 )
 group.add_argument(
-	"--l3", dest="cpu_l3_cache_size", type=int, default=cache_sizes[3], help="L3 Cache size (KiB), Default: %(default)r KiB"
+	"--processor-l3-size",
+	dest="cpu_l3_cache_size",
+	type=int,
+	default=cache_sizes[3],
+	help="Processor L3 Cache size (KiB), Default: %(default)r KiB",
 )
 group.add_argument(
-	"--cores", dest="num_cores", type=int, default=cores or 1, help="Number of physical CPU cores, Default: %(default)r"
+	"--processor-cores",
+	dest="num_cores",
+	type=int,
+	default=cores or 1,
+	help="Number of physical processor cores, Default: %(default)r",
 )
 group.add_argument(
-	"--hyperthreads",
+	"--processor-hyperthreads",
 	dest="cpu_hyperthreads",
 	type=int,
 	default=-(threads // -cores) if cores else 0,
-	help="Number of CPU threads per core (0 is unknown), Default: %(default)r. Choose 1 for non-hyperthreaded and 2 or more for hyperthreaded.",
+	help="Number of processor threads per core (0 is unknown), Default: %(default)r. Choose 1 for non-hyperthreaded and 2 or more for hyperthreaded.",
 )
 group.add_argument(
 	"--hours",
@@ -9806,15 +10049,16 @@ group = parser.add_argument_group(
 	"Optionally configure this program to automatically send an e-mail/text message notification if there is an error, if the GIMPS program has stalled, if the available disk space is low, if it found a new Mersenne prime or if there is a new version of the GIMPS program. Send text messages by using your mobile providers e-mail to SMS or MMS gateway. Use the --test-email option to verify the configuration. When using the --setup option, it will automatically lookup the configuration.",
 )
 group.add_argument(
-	"--to",
+	"--to-email",
 	dest="toemails",
 	action="append",
-	help="To e-mail address. Use multiple times for multiple To/recipient e-mail addresses. Defaults to the --from value if not provided.",
+	help="To e-mail address. Use multiple times for multiple To/recipient e-mail addresses. Defaults to the --from-email value if not provided.",
 )
-group.add_argument("-f", "--from", dest="fromemail", help="From e-mail address")
+group.add_argument("-f", "--from-email", dest="fromemail", help="From e-mail address")
 group.add_argument(
 	"-S",
-	"--smtp",
+	"--smtp-server",
+	dest="smtp",
 	help="SMTP server. Optionally include a port with the 'hostname:port' syntax. Defaults to port 465 with --tls and port 25 otherwise.",
 )
 group.add_argument("--tls", action="store_true", default=None, help="Use a secure connection with SSL/TLS")
@@ -9879,6 +10123,25 @@ if os.name == "nt":  # Windows
 workdir = os.path.expanduser(os.path.normpath(args.workdir))
 # os.chdir(workdir)
 
+try:
+	lockfile = open(os.path.join(workdir, "~lock"), "w+b")  # noqa: SIM115
+except (IOError, OSError) as e:
+	logging.exception("Failed to open the lockfile: %s: %s", type(e).__name__, e, exc_info=args.debug)
+	sys.exit(1)
+atexit.register(lockfile.close)
+
+try:
+	lock_file(lockfile)
+# Python 3.3+: BlockingIOError, PermissionError
+except (IOError, OSError) as e:
+	if e.errno in {errno.EAGAIN, errno.EACCES}:
+		logging.critical("AutoPrimeNet is already running, as the %r lockfile is locked", lockfile.name)
+	else:
+		logging.exception(
+			"Unexpected error locking the %r lockfile: %s: %s", lockfile.name, type(e).__name__, e, exc_info=args.debug
+		)
+	sys.exit(1)
+
 # load prime.ini and update args
 config = config_read()
 merge_config_and_options(config, args)
@@ -9909,7 +10172,7 @@ if args.proxy:
 
 args.localfile = os.path.normpath(args.localfile)
 
-args.worktodo_file = os.path.normpath(args.worktodo_file)
+args.work_file = os.path.normpath(args.work_file)
 
 if args.results_file is not None:
 	args.results_file = os.path.normpath(args.results_file)
@@ -10113,7 +10376,7 @@ if args.status:
 if args.results or args.proofs:
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.work_file)
 		with LockFile(workfile):
 			tasks = list(read_workfile(adapter, workfile))
 		submit_work(dirs, adapter, adir, i, tasks)
@@ -10254,7 +10517,7 @@ for j in count():
 
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
-		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.worktodo_file)
+		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.work_file)
 		with LockFile(workfile):
 			process_add_file(adapter, workfile)
 			tasks = list(read_workfile(adapter, workfile))  # deque
@@ -10308,7 +10571,7 @@ for j in count():
 				else ", get work every {:.01f} hour{}".format(args.timeout / (60 * 60), "s" if args.timeout != 60 * 60 else ""),
 				args.hours_between_checkins,
 				"s" if args.hours_between_checkins != 1 else "",
-				(datetime.fromtimestamp(current_time) + timedelta(seconds=args.timeout)).strftime("%c"),
+				(datetime.fromtimestamp(current_time) + timedelta(seconds=args.timeout)).strftime("%Y-%m-%d %H:%M:%S"),  # "%F %T"
 			)
 		else:
 			logging.info(
@@ -10320,7 +10583,7 @@ for j in count():
 				"s" if args.timeout != 60 * 60 else "",
 				args.hours_between_checkins,
 				"s" if args.hours_between_checkins != 1 else "",
-				(datetime.fromtimestamp(current_time) + timedelta(seconds=args.timeout)).strftime("%c"),
+				(datetime.fromtimestamp(current_time) + timedelta(seconds=args.timeout)).strftime("%Y-%m-%d %H:%M:%S"),  # "%F %T"
 			)
 		try:
 			time.sleep(max(args.timeout - elapsed, 0))
