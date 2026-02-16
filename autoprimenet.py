@@ -1655,110 +1655,116 @@ class SEC:
 	Email = "Email"
 
 
-class PRIMENET:
+class PRIMENET_ERROR:
 	# Error codes returned to client
-	ERROR_OK = 0  # no error
-	ERROR_SERVER_BUSY = 3  # server is too busy now
-	ERROR_INVALID_VERSION = 4
-	ERROR_INVALID_TRANSACTION = 5
+	OK = 0  # no error
+	SERVER_BUSY = 3  # server is too busy now
+	INVALID_VERSION = 4
+	INVALID_TRANSACTION = 5
 	# Returned for length, type, or character invalidations.
-	ERROR_INVALID_PARAMETER = 7
-	ERROR_ACCESS_DENIED = 9
-	ERROR_DATABASE_CORRUPT = 11
-	ERROR_DATABASE_FULL_OR_BROKEN = 13
+	INVALID_PARAMETER = 7
+	ACCESS_DENIED = 9
+	DATABASE_CORRUPT = 11
+	DATABASE_FULL_OR_BROKEN = 13
 	# Account related errors:
-	ERROR_INVALID_USER = 21
+	INVALID_USER = 21
 	# Computer cpu/software info related errors:
-	ERROR_UNREGISTERED_CPU = 30
-	ERROR_OBSOLETE_CLIENT = 31
-	ERROR_STALE_CPU_INFO = 32
-	ERROR_CPU_IDENTITY_MISMATCH = 33
-	ERROR_CPU_CONFIGURATION_MISMATCH = 34
+	UNREGISTERED_CPU = 30
+	OBSOLETE_CLIENT = 31
+	STALE_CPU_INFO = 32
+	CPU_IDENTITY_MISMATCH = 33
+	CPU_CONFIGURATION_MISMATCH = 34
 	# Work assignment related errors:
-	ERROR_NO_ASSIGNMENT = 40
-	ERROR_INVALID_ASSIGNMENT_KEY = 43
-	ERROR_INVALID_ASSIGNMENT_TYPE = 44
-	ERROR_INVALID_RESULT_TYPE = 45
-	ERROR_INVALID_WORK_TYPE = 46
-	ERROR_WORK_NO_LONGER_NEEDED = 47
+	NO_ASSIGNMENT = 40
+	INVALID_ASSIGNMENT_KEY = 43
+	INVALID_ASSIGNMENT_TYPE = 44
+	INVALID_RESULT_TYPE = 45
+	INVALID_WORK_TYPE = 46
+	WORK_NO_LONGER_NEEDED = 47
 	# Undocumented
-	ERROR_ILLEGAL_RESIDUE = 48
+	ILLEGAL_RESIDUE = 48
 
+
+class PRIMENET_WP:
 	# Valid work_preference values
-	WP_WHATEVER = 0  # Whatever makes most sense
-	WP_FACTOR_LMH = 1  # Factor big numbers to low limits
-	WP_FACTOR = 2  # Trial factoring
-	WP_PMINUS1 = 3  # P-1 of small Mersennes --- not supported
-	WP_PFACTOR = 4  # P-1 of large Mersennes
-	WP_ECM_SMALL = 5  # ECM of small Mersennes looking for first factors
-	WP_ECM_FERMAT = 6  # ECM of Fermat numbers
-	WP_ECM_CUNNINGHAM = 7  # ECM of Cunningham numbers --- not supported
-	WP_ECM_COFACTOR = 8  # ECM of Mersenne cofactors
-	WP_GPU_FACTOR = 12  # Trial Factoring on Mersennes at wavefront exponents
-	WP_LL_FIRST = 100  # LL first time tests
-	WP_LL_DBLCHK = 101  # LL double checks
-	WP_LL_WORLD_RECORD = 102  # LL test of world record Mersenne
-	WP_LL_100M = 104  # LL 100 million digit
-	WP_PRP_FIRST = 150  # PRP test of big Mersennes
-	WP_PRP_DBLCHK = 151  # PRP double checks
-	WP_PRP_WORLD_RECORD = 152  # PRP test of world record Mersennes
-	WP_PRP_100M = 153  # PRP test of 100M digit Mersennes
-	WP_PRP_NO_PMINUS1 = 154  # PRP test that if possible also needs P-1
-	WP_PRP_DC_PROOF = 155  # PRP double-check where a proof will be produced
-	WP_PRP_COFACTOR = 160  # PRP test of Mersenne cofactors
-	WP_PRP_COFACTOR_DBLCHK = 161  # PRP double check of Mersenne cofactors
+	WHATEVER = 0  # Whatever makes most sense
+	FACTOR_LMH = 1  # Factor big numbers to low limits
+	FACTOR = 2  # Trial factoring
+	PMINUS1 = 3  # P-1 of small Mersennes --- not supported
+	PFACTOR = 4  # P-1 of large Mersennes
+	ECM_SMALL = 5  # ECM of small Mersennes looking for first factors
+	ECM_FERMAT = 6  # ECM of Fermat numbers
+	ECM_CUNNINGHAM = 7  # ECM of Cunningham numbers --- not supported
+	ECM_COFACTOR = 8  # ECM of Mersenne cofactors
+	GPU_FACTOR = 12  # Trial Factoring on Mersennes at wavefront exponents
+	LL_FIRST = 100  # LL first time tests
+	LL_DBLCHK = 101  # LL double checks
+	LL_WORLD_RECORD = 102  # LL test of world record Mersenne
+	LL_100M = 104  # LL 100 million digit
+	PRP_FIRST = 150  # PRP test of big Mersennes
+	PRP_DBLCHK = 151  # PRP double checks
+	PRP_WORLD_RECORD = 152  # PRP test of world record Mersennes
+	PRP_100M = 153  # PRP test of 100M digit Mersennes
+	PRP_NO_PMINUS1 = 154  # PRP test that if possible also needs P-1
+	PRP_DC_PROOF = 155  # PRP double-check where a proof will be produced
+	PRP_COFACTOR = 160  # PRP test of Mersenne cofactors
+	PRP_COFACTOR_DBLCHK = 161  # PRP double check of Mersenne cofactors
 
+
+class PRIMENET_WORK_TYPE:
 	# Valid work_types returned by ga
-	WORK_TYPE_FACTOR = 2
-	WORK_TYPE_PMINUS1 = 3
-	WORK_TYPE_PFACTOR = 4
-	WORK_TYPE_ECM = 5
-	WORK_TYPE_PPLUS1 = 6  # Not yet supported by the server
-	WORK_TYPE_FIRST_LL = 100
-	WORK_TYPE_DBLCHK = 101
-	WORK_TYPE_PRP = 150
-	WORK_TYPE_CERT = 200
+	FACTOR = 2
+	PMINUS1 = 3
+	PFACTOR = 4
+	ECM = 5
+	PPLUS1 = 6  # Not yet supported by the server
+	FIRST_LL = 100
+	DBLCHK = 101
+	PRP = 150
+	CERT = 200
 
+
+class PRIMENET_AR:
 	# This structure is passed for the ar - Assignment Result call
-	AR_NO_RESULT = 0  # No result, just sending done msg
-	AR_TF_FACTOR = 1  # Trial factoring, factor found
-	AR_P1_FACTOR = 2  # P-1, factor found
-	AR_ECM_FACTOR = 3  # ECM, factor found
-	AR_TF_NOFACTOR = 4  # Trial Factoring no factor found
-	AR_P1_NOFACTOR = 5  # P-1 factoring no factor found
-	AR_ECM_NOFACTOR = 6  # ECM factoring no factor found
-	AR_PP1_FACTOR = 7  # P+1, factor found
-	AR_PP1_NOFACTOR = 8  # P+1 factoring no factor found
-	AR_LL_RESULT = 100  # LL result, not prime
-	AR_LL_PRIME = 101  # LL result, Mersenne prime
-	AR_PRP_RESULT = 150  # PRP result, not prime
-	AR_PRP_PRIME = 151  # PRP result, probably prime
-	AR_CERT = 200  # Certification result
+	NO_RESULT = 0  # No result, just sending done msg
+	TF_FACTOR = 1  # Trial factoring, factor found
+	P1_FACTOR = 2  # P-1, factor found
+	ECM_FACTOR = 3  # ECM, factor found
+	TF_NOFACTOR = 4  # Trial Factoring no factor found
+	P1_NOFACTOR = 5  # P-1 factoring no factor found
+	ECM_NOFACTOR = 6  # ECM factoring no factor found
+	PP1_FACTOR = 7  # P+1, factor found
+	PP1_NOFACTOR = 8  # P+1 factoring no factor found
+	LL_RESULT = 100  # LL result, not prime
+	LL_PRIME = 101  # LL result, Mersenne prime
+	PRP_RESULT = 150  # PRP result, not prime
+	PRP_PRIME = 151  # PRP result, probably prime
+	CERT = 200  # Certification result
 
 
 ERRORS = {
-	PRIMENET.ERROR_SERVER_BUSY: "Server busy",
-	PRIMENET.ERROR_INVALID_VERSION: "Invalid version",
-	PRIMENET.ERROR_INVALID_TRANSACTION: "Invalid transaction",
-	PRIMENET.ERROR_INVALID_PARAMETER: "Invalid parameter",
-	PRIMENET.ERROR_ACCESS_DENIED: "Access denied",
-	PRIMENET.ERROR_DATABASE_CORRUPT: "Server database malfunction",
-	PRIMENET.ERROR_DATABASE_FULL_OR_BROKEN: "Server database full or broken",
-	PRIMENET.ERROR_INVALID_USER: "Invalid user",
-	PRIMENET.ERROR_UNREGISTERED_CPU: "CPU not registered",
-	PRIMENET.ERROR_OBSOLETE_CLIENT: "Obsolete client, please upgrade",
-	PRIMENET.ERROR_STALE_CPU_INFO: "Stale cpu info",
-	PRIMENET.ERROR_CPU_IDENTITY_MISMATCH: "CPU identity mismatch",
-	PRIMENET.ERROR_CPU_CONFIGURATION_MISMATCH: "CPU configuration mismatch",
-	PRIMENET.ERROR_NO_ASSIGNMENT: "No assignment",
-	PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY: "Invalid assignment key",
-	PRIMENET.ERROR_INVALID_ASSIGNMENT_TYPE: "Invalid assignment type",
-	PRIMENET.ERROR_INVALID_RESULT_TYPE: "Invalid result type",
+	PRIMENET_ERROR.SERVER_BUSY: "Server busy",
+	PRIMENET_ERROR.INVALID_VERSION: "Invalid version",
+	PRIMENET_ERROR.INVALID_TRANSACTION: "Invalid transaction",
+	PRIMENET_ERROR.INVALID_PARAMETER: "Invalid parameter",
+	PRIMENET_ERROR.ACCESS_DENIED: "Access denied",
+	PRIMENET_ERROR.DATABASE_CORRUPT: "Server database malfunction",
+	PRIMENET_ERROR.DATABASE_FULL_OR_BROKEN: "Server database full or broken",
+	PRIMENET_ERROR.INVALID_USER: "Invalid user",
+	PRIMENET_ERROR.UNREGISTERED_CPU: "CPU not registered",
+	PRIMENET_ERROR.OBSOLETE_CLIENT: "Obsolete client, please upgrade",
+	PRIMENET_ERROR.STALE_CPU_INFO: "Stale cpu info",
+	PRIMENET_ERROR.CPU_IDENTITY_MISMATCH: "CPU identity mismatch",
+	PRIMENET_ERROR.CPU_CONFIGURATION_MISMATCH: "CPU configuration mismatch",
+	PRIMENET_ERROR.NO_ASSIGNMENT: "No assignment",
+	PRIMENET_ERROR.INVALID_ASSIGNMENT_KEY: "Invalid assignment key",
+	PRIMENET_ERROR.INVALID_ASSIGNMENT_TYPE: "Invalid assignment type",
+	PRIMENET_ERROR.INVALID_RESULT_TYPE: "Invalid result type",
 	# Missing from Prime95/MPrime
-	PRIMENET.ERROR_INVALID_WORK_TYPE: "Invalid work type",
-	PRIMENET.ERROR_WORK_NO_LONGER_NEEDED: "Work no longer needed",
+	PRIMENET_ERROR.INVALID_WORK_TYPE: "Invalid work type",
+	PRIMENET_ERROR.WORK_NO_LONGER_NEEDED: "Work no longer needed",
 	# Undocumented
-	PRIMENET.ERROR_ILLEGAL_RESIDUE: "Invalid residue",
+	PRIMENET_ERROR.ILLEGAL_RESIDUE: "Invalid residue",
 }
 
 
@@ -1844,7 +1850,7 @@ def exponent_to_str(assignment):
 		buf = "{0.k:.0f}*{0.b}^{0.n}{0.c:+}".format(assignment)
 	elif assignment.b == 2 and assignment.c == -1:
 		buf = "M{.n}".format(assignment)
-		if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+		if assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 			buf += " (TF:{:.0f}-{:.0f})".format(assignment.sieve_depth, assignment.factor_to)
 	else:
 		cnt = 0
@@ -1861,19 +1867,19 @@ def exponent_to_str(assignment):
 
 def exponent_to_text(assignment):
 	"""Converts an assignment's work type and exponent to a descriptive text string."""
-	if assignment.work_type == PRIMENET.WORK_TYPE_FIRST_LL:
+	if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL:
 		work_type_str = "LL"
-	elif assignment.work_type == PRIMENET.WORK_TYPE_DBLCHK:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.DBLCHK:
 		work_type_str = "Double check"
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		work_type_str = "PRPDC" if assignment.prp_dblchk else "PRP"
-	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 		work_type_str = "Trial factor"
-	elif assignment.work_type in {PRIMENET.WORK_TYPE_PFACTOR, PRIMENET.WORK_TYPE_PMINUS1}:
+	elif assignment.work_type in {PRIMENET_WORK_TYPE.PFACTOR, PRIMENET_WORK_TYPE.PMINUS1}:
 		work_type_str = "P-1"
-	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 		work_type_str = "ECM"
-	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 		work_type_str = "CERT"
 	return "{} {}".format(work_type_str, exponent_to_str(assignment))
 
@@ -2671,11 +2677,11 @@ def setup(config, args):
 				args.work_preference[i]
 				if i < len(args.work_preference)
 				else str(
-					PRIMENET.WP_GPU_FACTOR
+					PRIMENET_WP.GPU_FACTOR
 					if args.mfaktc or args.mfakto
-					else PRIMENET.WP_LL_DBLCHK
+					else PRIMENET_WP.LL_DBLCHK
 					if args.cudalucas
-					else PRIMENET.WP_PRP_FIRST
+					else PRIMENET_WP.PRP_FIRST
 				),
 			)
 		)
@@ -3624,19 +3630,19 @@ def parse_assignment(task):
 		if not found:
 			return None
 		_, _, n, sieve_depth, pminus1ed = found.groups()
-		assignment.work_type = PRIMENET.WORK_TYPE_FIRST_LL if work_type == "Test" else PRIMENET.WORK_TYPE_DBLCHK
+		assignment.work_type = PRIMENET_WORK_TYPE.FIRST_LL if work_type == "Test" else PRIMENET_WORK_TYPE.DBLCHK
 		assignment.n = int(n)
 		if pminus1ed:
 			assignment.sieve_depth = float(sieve_depth)
 			assignment.pminus1ed = int(pminus1ed)
-		# assignment.tests_saved = 2.0 if assignment.work_type == PRIMENET.WORK_TYPE_FIRST_LL else 1.0
+		# assignment.tests_saved = 2.0 if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL else 1.0
 	elif work_type in {"PRP", "PRPDC"}:
 		found = PRP_RE.match(task)
 		if not found:
 			return None
 		_, _, k, b, n, c, sieve_depth, tests_saved, prp_base, prp_residue_type, known_factors = found.groups()
 		assignment.prp_dblchk = work_type == "PRPDC"
-		assignment.work_type = PRIMENET.WORK_TYPE_PRP
+		assignment.work_type = PRIMENET_WORK_TYPE.PRP
 		assignment.k = float(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
@@ -3654,7 +3660,7 @@ def parse_assignment(task):
 		if not found:
 			return None
 		_, _, n, sieve_depth, factor_to = found.groups()
-		assignment.work_type = PRIMENET.WORK_TYPE_FACTOR
+		assignment.work_type = PRIMENET_WORK_TYPE.FACTOR
 		assignment.n = int(n)
 		assignment.sieve_depth = float(sieve_depth)
 		assignment.factor_to = float(factor_to)
@@ -3663,7 +3669,7 @@ def parse_assignment(task):
 		if not found:
 			return None
 		_, _, k, b, n, c, sieve_depth, tests_saved, known_factors = found.groups()
-		assignment.work_type = PRIMENET.WORK_TYPE_PFACTOR
+		assignment.work_type = PRIMENET_WORK_TYPE.PFACTOR
 		assignment.k = float(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
@@ -3677,7 +3683,7 @@ def parse_assignment(task):
 		if not found:
 			return None
 		_, _, k, b, n, c, B1, B2, sieve_depth, B2_start, known_factors = found.groups()
-		assignment.work_type = PRIMENET.WORK_TYPE_PMINUS1
+		assignment.work_type = PRIMENET_WORK_TYPE.PMINUS1
 		assignment.k = float(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
@@ -3696,7 +3702,7 @@ def parse_assignment(task):
 		if not found:
 			return None
 		_, _, k, b, n, c, B1, B2, curves_to_do, curve, known_factors = found.groups()
-		assignment.work_type = PRIMENET.WORK_TYPE_ECM
+		assignment.work_type = PRIMENET_WORK_TYPE.ECM
 		assignment.k = float(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
@@ -3716,7 +3722,7 @@ def parse_assignment(task):
 		if not found:
 			return None
 		_, _, k, b, n, c, cert_squarings = found.groups()
-		assignment.work_type = PRIMENET.WORK_TYPE_CERT
+		assignment.work_type = PRIMENET_WORK_TYPE.CERT
 		assignment.k = float(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
@@ -3757,16 +3763,16 @@ def read_workfile(adapter, workfile):
 				and not is_prime(assignment.n)
 				and assignment.c == -1
 				and not assignment.known_factors
-				and assignment.work_type not in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM}
+				and assignment.work_type not in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM}
 			):
 				adapter.error("%r file contained composite exponent: %s.", workfile, assignment.n)
 				illegal_line = True
 
-			if assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM} and assignment.B1 < 50000:
+			if assignment.work_type in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM} and assignment.B1 < 50000:
 				adapter.error("%r file has P-1/ECM with B1 < 50000 (exponent: %s).", workfile, assignment.n)
 				illegal_line = True
 
-			if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR and assignment.sieve_depth >= assignment.factor_to:
+			if assignment.work_type == PRIMENET_WORK_TYPE.FACTOR and assignment.sieve_depth >= assignment.factor_to:
 				adapter.error("%r file has TF with min bit >= max bit.", workfile)
 				illegal_line = True
 		else:
@@ -3786,12 +3792,12 @@ def output_assignment(assignment):
 	elif assignment.ra_failed:
 		temp.append("N/A")
 
-	if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
-		test = "Test" if assignment.work_type == PRIMENET.WORK_TYPE_FIRST_LL else "DoubleCheck"
+	if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
+		test = "Test" if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL else "DoubleCheck"
 		temp.append(assignment.n)
 		if assignment.sieve_depth != 99.0 or assignment.pminus1ed != 1:
 			temp.extend(("{:.0f}".format(assignment.sieve_depth), assignment.pminus1ed))
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		test = "PRP" + ("DC" if assignment.prp_dblchk else "")
 		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c))
 		if assignment.sieve_depth != 99.0 or assignment.tests_saved > 0.0 or assignment.prp_base or assignment.prp_residue_type:
@@ -3800,10 +3806,10 @@ def output_assignment(assignment):
 				temp.extend((assignment.prp_base, assignment.prp_residue_type))
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
-	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 		test = "Factor"
 		temp.extend((assignment.n, "{:.0f}".format(assignment.sieve_depth), "{:.0f}".format(assignment.factor_to)))
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
 		test = "Pfactor"
 		temp.extend((
 			"{:.0f}".format(assignment.k),
@@ -3815,7 +3821,7 @@ def output_assignment(assignment):
 		))
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
 		test = "Pminus1"
 		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1, assignment.B2))
 		if assignment.sieve_depth > 0.0:
@@ -3824,7 +3830,7 @@ def output_assignment(assignment):
 			temp.append(assignment.B2_start)
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
-	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 		test = "ECM2"
 		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1))
 		if assignment.B2 or assignment.curves_to_do or assignment.curve:
@@ -3835,11 +3841,11 @@ def output_assignment(assignment):
 			temp.append(assignment.curve)
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
-	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 		test = "Cert"
 		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.cert_squarings))
 
-	if assignment.work_type not in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM}:
+	if assignment.work_type not in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM}:
 		if assignment.B1:
 			test = "B1={}{};".format(assignment.B1, ",B2={}".format(assignment.B2) if assignment.B2 else "") + test
 		elif assignment.B2:
@@ -5889,17 +5895,17 @@ def compute_progress(assignment, msec_per_iter, p, progress):
 		iterations
 		if iterations is not None
 		else assignment.n
-		if assignment.work_type == PRIMENET.WORK_TYPE_PRP
+		if assignment.work_type == PRIMENET_WORK_TYPE.PRP
 		else assignment.cert_squarings
-		if assignment.work_type == PRIMENET.WORK_TYPE_CERT
+		if assignment.work_type == PRIMENET_WORK_TYPE.CERT
 		else tf_ghd_credit(assignment.n, int(assignment.sieve_depth), int(assignment.factor_to))
-		if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR
+		if assignment.work_type == PRIMENET_WORK_TYPE.FACTOR
 		else assignment.n - 2
 	)
 	if msec_per_iter is None:
 		return aiterations, None, msec_per_iter
 
-	if assignment.n != p and assignment.work_type != PRIMENET.WORK_TYPE_FACTOR:
+	if assignment.n != p and assignment.work_type != PRIMENET_WORK_TYPE.FACTOR:
 		msec_per_iter *= assignment.n * log2(assignment.n) * log2(log2(assignment.n)) / (p * log2(p) * log2(log2(p)))
 
 	if iterations is not None and stage is not None:
@@ -5910,15 +5916,15 @@ def compute_progress(assignment, msec_per_iter, p, progress):
 		elif stage == 2:
 			time_left = msec_per_iter * (iterations - iteration) if not args.gpuowl else args.timeout
 
-		if curve is not None and assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+		if curve is not None and assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 			time_left += msec_per_iter * iterations * 2 * (assignment.curves_to_do - curve)
 
-		if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK, PRIMENET.WORK_TYPE_PRP}:
-			time_left += msec_per_iter * (assignment.n if assignment.work_type == PRIMENET.WORK_TYPE_PRP else assignment.n - 2)
-	elif assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_PFACTOR}:
+		if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK, PRIMENET_WORK_TYPE.PRP}:
+			time_left += msec_per_iter * (assignment.n if assignment.work_type == PRIMENET_WORK_TYPE.PRP else assignment.n - 2)
+	elif assignment.work_type in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PFACTOR}:
 		# assume P-1 time is 1.75% of a PRP test (from Prime95)
 		time_left = msec_per_iter * assignment.n * 0.0175
-	# elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+	# elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 	else:
 		time_left = msec_per_iter * (aiterations - iteration)
 
@@ -6069,7 +6075,7 @@ def output_status(dirs, cpu_num=None):
 			bits = max(32, int(assignment.sieve_depth))
 			all_and_prp_cnt = False
 			aprob = 0.0
-			if assignment.work_type == PRIMENET.WORK_TYPE_FIRST_LL:
+			if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL:
 				work_type_str = "Lucas-Lehmer test"
 				all_and_prp_cnt = True
 				aprob += (
@@ -6078,7 +6084,7 @@ def output_status(dirs, cpu_num=None):
 					* (1.04 if assignment.pminus1ed else 1.0)
 					/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
 				)
-			elif assignment.work_type == PRIMENET.WORK_TYPE_DBLCHK:
+			elif assignment.work_type == PRIMENET_WORK_TYPE.DBLCHK:
 				work_type_str = "Double-check"
 				all_and_prp_cnt = True
 				aprob += (
@@ -6088,7 +6094,7 @@ def output_status(dirs, cpu_num=None):
 					* (1.04 if assignment.pminus1ed else 1.0)
 					/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
 				)
-			elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
+			elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 				all_and_prp_cnt = True
 				if not assignment.prp_dblchk:
 					work_type_str = "PRP"
@@ -6107,17 +6113,17 @@ def output_status(dirs, cpu_num=None):
 						* (1.04 if assignment.pminus1ed else 1.0)
 						/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
 					)
-			elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+			elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 				work_type_str = "factor from 2^{:.0f} to 2^{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
-			elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
+			elif assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
 				work_type_str = "P-1"
-			elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
+			elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
 				work_type_str = "P-1 B1={}".format(assignment.B1)
-			elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+			elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 				work_type_str = "ECM {} curve{} B1={}".format(
 					assignment.curves_to_do, "s" if assignment.curves_to_do != 1 else "", assignment.B1
 				)
-			elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
+			elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 				work_type_str = "Certify"
 			prob += aprob
 			if assignment.k != 1.0 or assignment.b != 2 or assignment.c != -1 or assignment.known_factors is not None:
@@ -6125,7 +6131,7 @@ def output_status(dirs, cpu_num=None):
 			else:
 				amersennes = True
 			buf = exponent_to_str(assignment) + (
-				"/known_factors" if assignment.work_type == PRIMENET.WORK_TYPE_PRP and assignment.known_factors else ""
+				"/known_factors" if assignment.work_type == PRIMENET_WORK_TYPE.PRP and assignment.known_factors else ""
 			)
 			if time_left is None:
 				adapter.info("%s, %s, Finish cannot be estimated", buf, work_type_str)
@@ -6513,13 +6519,13 @@ def program_options(send=False, start=-1, retry_count=0):
 				sys.exit(1)
 			else:
 				rc = int(result["pnErrorResult"])
-				if rc == PRIMENET.ERROR_OK:
+				if rc == PRIMENET_ERROR.OK:
 					pass
 				else:
-					if rc == PRIMENET.ERROR_UNREGISTERED_CPU:
+					if rc == PRIMENET_ERROR.UNREGISTERED_CPU:
 						register_instance()
 						retry = True
-					elif rc == PRIMENET.ERROR_STALE_CPU_INFO:
+					elif rc == PRIMENET_ERROR.STALE_CPU_INFO:
 						register_instance(guid)
 						retry = True
 					if not retry:
@@ -6619,7 +6625,7 @@ def register_instance(guid=None):
 		sys.exit(1)
 	else:
 		rc = int(result["pnErrorResult"])
-		if rc == PRIMENET.ERROR_OK:
+		if rc == PRIMENET_ERROR.OK:
 			pass
 		else:
 			logging.critical("Error while registering on mersenne.org")
@@ -6690,11 +6696,11 @@ def assignment_unreserve(adapter, assignment, retry_count=0):
 		retry = True
 	else:
 		rc = int(result["pnErrorResult"])
-		if rc == PRIMENET.ERROR_OK:
+		if rc == PRIMENET_ERROR.OK:
 			return True
-		if rc == PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY:
+		if rc == PRIMENET_ERROR.INVALID_ASSIGNMENT_KEY:
 			return True
-		if rc == PRIMENET.ERROR_UNREGISTERED_CPU:
+		if rc == PRIMENET_ERROR.UNREGISTERED_CPU:
 			register_instance()
 			retry = True
 	if retry:
@@ -6809,7 +6815,7 @@ def download_certs(adapter, adir, cpu_num, tasks):
 		for assignment in certwork:
 			downloaded = failed = False
 			if isinstance(assignment, Assignment):
-				if assignment.work_type == PRIMENET.WORK_TYPE_CERT:
+				if assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 					filename = os.path.join(adir, "{}.cert".format(exponent_to_str(assignment)))
 					if not os.path.exists(filename):
 						if download_cert(adapter, adir, filename, assignment):
@@ -6890,13 +6896,13 @@ def get_assignment(
 		retry = True
 	else:
 		rc = int(r["pnErrorResult"])
-		if rc == PRIMENET.ERROR_OK:
+		if rc == PRIMENET_ERROR.OK:
 			pass
 		else:
-			if rc == PRIMENET.ERROR_UNREGISTERED_CPU:
+			if rc == PRIMENET_ERROR.UNREGISTERED_CPU:
 				register_instance()
 				retry = True
-			elif rc in {PRIMENET.ERROR_STALE_CPU_INFO, PRIMENET.ERROR_CPU_CONFIGURATION_MISMATCH}:
+			elif rc in {PRIMENET_ERROR.STALE_CPU_INFO, PRIMENET_ERROR.CPU_CONFIGURATION_MISMATCH}:
 				register_instance(guid)
 				retry = True
 			if not retry:
@@ -6913,30 +6919,30 @@ def get_assignment(
 	assignment.uid = r["k"]
 	assignment.n = int(r["n"])
 	if assignment.n < 15000000 and assignment.work_type in {
-		PRIMENET.WORK_TYPE_FACTOR,
-		PRIMENET.WORK_TYPE_PFACTOR,
-		PRIMENET.WORK_TYPE_FIRST_LL,
-		PRIMENET.WORK_TYPE_DBLCHK,
+		PRIMENET_WORK_TYPE.FACTOR,
+		PRIMENET_WORK_TYPE.PFACTOR,
+		PRIMENET_WORK_TYPE.FIRST_LL,
+		PRIMENET_WORK_TYPE.DBLCHK,
 	}:
 		adapter.error("Server sent bad exponent: %s.", assignment.n)
 		return None
 	if assignment.work_type not in {
-		PRIMENET.WORK_TYPE_FACTOR,
-		PRIMENET.WORK_TYPE_PFACTOR,
-		PRIMENET.WORK_TYPE_ECM,
-		PRIMENET.WORK_TYPE_FIRST_LL,
-		PRIMENET.WORK_TYPE_DBLCHK,
-		PRIMENET.WORK_TYPE_PRP,
-		PRIMENET.WORK_TYPE_CERT,
+		PRIMENET_WORK_TYPE.FACTOR,
+		PRIMENET_WORK_TYPE.PFACTOR,
+		PRIMENET_WORK_TYPE.ECM,
+		PRIMENET_WORK_TYPE.FIRST_LL,
+		PRIMENET_WORK_TYPE.DBLCHK,
+		PRIMENET_WORK_TYPE.PRP,
+		PRIMENET_WORK_TYPE.CERT,
 	}:
 		adapter.error("Returned assignment from server is not a supported worktype %s.", assignment.work_type)
 		# TODO: Unreserve assignment
 		# assignment_unreserve()
 		# return None
-	if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
+	if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 		assignment.sieve_depth = float(r["sf"])
 		assignment.pminus1ed = int(r["p1"])
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		assignment.prp_dblchk = "dc" in r
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
@@ -6975,10 +6981,10 @@ def get_assignment(
 			config.set(SEC.PrimeNet, "ProofHashLength", r["ph"])
 		else:
 			config.remove_option(SEC.PrimeNet, "ProofHashLength")
-	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 		assignment.sieve_depth = float(r["sf"])
 		assignment.factor_to = float(r["ef"])
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
@@ -6986,7 +6992,7 @@ def get_assignment(
 		assignment.tests_saved = float(r["saved"])
 		if "kf" in r:
 			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
@@ -6994,7 +7000,7 @@ def get_assignment(
 		assignment.B2 = int(r["B2"])
 		if "kf" in r:
 			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
-	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
@@ -7003,7 +7009,7 @@ def get_assignment(
 		assignment.curves_to_do = int(r["CR"])
 		if "kf" in r:
 			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
-	elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 		assignment.k = float(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
@@ -7026,7 +7032,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 		can_get_cert_work = False
 	max_cert_assignments = 3 if args.cert_cpu_limit >= 50 else 1
 	cert_assignments = sum(
-		1 for assignment in tasks if isinstance(assignment, Assignment) and assignment.work_type == PRIMENET.WORK_TYPE_CERT
+		1 for assignment in tasks if isinstance(assignment, Assignment) and assignment.work_type == PRIMENET_WORK_TYPE.CERT
 	)
 	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.worktodo_file)
 	if cert_assignments >= max_cert_assignments:
@@ -7061,7 +7067,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	if args.cert_cpu_limit < 50 and (
 		(
 			assignment is not None
-			and assignment.work_type in {PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_PFACTOR, PRIMENET.WORK_TYPE_ECM}
+			and assignment.work_type in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PFACTOR, PRIMENET_WORK_TYPE.ECM}
 		)
 		or (percent is not None and percent > 0.85)
 	):
@@ -7082,7 +7088,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 			test = get_assignment(adapter, cpu_num, get_cert_work=max(1, args.cert_cpu_limit), min_exp=min_exp, max_exp=max_exp)
 			if test is None:
 				break
-			if test.work_type != PRIMENET.WORK_TYPE_CERT:
+			if test.work_type != PRIMENET_WORK_TYPE.CERT:
 				adapter.error("Received unknown worktype (expected 200): %s", test.work_type)
 				break
 			# tasks.append(test)  # appendleft
@@ -7183,16 +7189,16 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 	params["m"] = message
 	params["r"] = result_type  # result type
 	params["n"] = assignment.n
-	if result_type in {PRIMENET.AR_LL_RESULT, PRIMENET.AR_LL_PRIME}:
+	if result_type in {PRIMENET_AR.LL_RESULT, PRIMENET_AR.LL_PRIME}:
 		params["d"] = 1
-		if result_type == PRIMENET.AR_LL_RESULT:
+		if result_type == PRIMENET_AR.LL_RESULT:
 			params["rd"] = ar["res64"].strip().zfill(16)
 		params["sc"] = ar["shift-count"]
 		params["ec"] = ar.get("error-code", "0" * 8)
-	elif result_type in {PRIMENET.AR_PRP_RESULT, PRIMENET.AR_PRP_PRIME}:
+	elif result_type in {PRIMENET_AR.PRP_RESULT, PRIMENET_AR.PRP_PRIME}:
 		params["d"] = 1
 		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
-		if result_type == PRIMENET.AR_PRP_RESULT:
+		if result_type == PRIMENET_AR.PRP_RESULT:
 			params["rd"] = ar["res64"].strip().zfill(16)
 			params["rt"] = ar["residue-type"]
 		params["ec"] = ar.get("error-code", "0" * 8)
@@ -7208,7 +7214,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 			if proof["power"]:
 				params["pp"] = proof["power"]
 				params["ph"] = proof["md5"]
-	elif result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_TF_NOFACTOR}:
+	elif result_type in {PRIMENET_AR.TF_FACTOR, PRIMENET_AR.TF_NOFACTOR}:
 		params["d"] = (
 			1
 			if not any(
@@ -7221,12 +7227,12 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 		params["sf"] = ar["bitlo"]
 		if ar["rangecomplete"]:
 			params["ef"] = ar["bithi"]
-		if result_type == PRIMENET.AR_TF_FACTOR:
+		if result_type == PRIMENET_AR.TF_FACTOR:
 			params["f"] = ",".join(ar["factors"])
-	elif result_type in {PRIMENET.AR_P1_FACTOR, PRIMENET.AR_P1_NOFACTOR}:
+	elif result_type in {PRIMENET_AR.P1_FACTOR, PRIMENET_AR.P1_NOFACTOR}:
 		params["d"] = (
 			1
-			if result_type == PRIMENET.AR_P1_FACTOR
+			if result_type == PRIMENET_AR.P1_FACTOR
 			or not any(
 				task.k == assignment.k and task.b == assignment.b and task.n == assignment.n and task.c == assignment.c
 				for task in tasks
@@ -7238,19 +7244,19 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 		params["B1"] = ar["B1"] if "B1" in ar else ar["b1"]
 		if "b2" in ar or "B2" in ar:
 			params["B2"] = ar["B2"] if "B2" in ar else ar["b2"]
-		if result_type == PRIMENET.AR_P1_FACTOR:
+		if result_type == PRIMENET_AR.P1_FACTOR:
 			params["f"] = ",".join(ar["factors"])
-	elif result_type in {PRIMENET.AR_ECM_FACTOR, PRIMENET.AR_ECM_NOFACTOR}:
+	elif result_type in {PRIMENET_AR.ECM_FACTOR, PRIMENET_AR.ECM_NOFACTOR}:
 		params["d"] = 1
 		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
 		params["CR"] = ar["curves"]
 		params["B1"] = ar["b1"]
 		if "b2" in ar:
 			params["B2"] = ar["b2"]
-		if result_type == PRIMENET.AR_ECM_FACTOR:
+		if result_type == PRIMENET_AR.ECM_FACTOR:
 			params["stage"] = ar["stage"]
 			params["f"] = ",".join(ar["factors"])
-	elif result_type == PRIMENET.AR_CERT:
+	elif result_type == PRIMENET_AR.CERT:
 		params["d"] = 1
 		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
 		params["s3"] = ar["sha3-hash"]
@@ -7269,7 +7275,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 	else:
 		rc = int(result["pnErrorResult"])
 		ghd = 0
-		if rc == PRIMENET.ERROR_OK:
+		if rc == PRIMENET_ERROR.OK:
 			ghzdays = GHZDAYS_RE.search(result["pnErrorDetail"])
 			if ghzdays:
 				ghd = float(ghzdays.group(1))
@@ -7277,19 +7283,19 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 				adapter.warning("Unable to find GHz-days credit value in response")
 			adapter.debug("Result correctly send to server")
 			return rc, ghd
-		if rc == PRIMENET.ERROR_UNREGISTERED_CPU:
+		if rc == PRIMENET_ERROR.UNREGISTERED_CPU:
 			# should register again and retry
 			register_instance()
 			# return False
-		elif rc == PRIMENET.ERROR_STALE_CPU_INFO:
+		elif rc == PRIMENET_ERROR.STALE_CPU_INFO:
 			register_instance(guid)
 		# In all other error case, the submission must not be retried
-		elif rc in {PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY, PRIMENET.ERROR_WORK_NO_LONGER_NEEDED, PRIMENET.ERROR_NO_ASSIGNMENT}:
+		elif rc in {PRIMENET_ERROR.INVALID_ASSIGNMENT_KEY, PRIMENET_ERROR.WORK_NO_LONGER_NEEDED, PRIMENET_ERROR.NO_ASSIGNMENT}:
 			# TODO: Delete assignment from workfile if it is not done
 			return rc, ghd
-		elif rc in {PRIMENET.ERROR_INVALID_RESULT_TYPE, PRIMENET.ERROR_ILLEGAL_RESIDUE}:
+		elif rc in {PRIMENET_ERROR.INVALID_RESULT_TYPE, PRIMENET_ERROR.ILLEGAL_RESIDUE}:
 			return rc, ghd
-		elif rc == PRIMENET.ERROR_INVALID_PARAMETER:
+		elif rc == PRIMENET_ERROR.INVALID_PARAMETER:
 			adapter.error(
 				"Invalid Parameter: This may be a bug in the program, please create an issue: https://github.com/tdulcet/AutoPrimeNet/issues"
 			)
@@ -7427,37 +7433,37 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 
 	worktype = ar["worktype"]
 	if worktype == "LL":
-		result_type = PRIMENET.AR_LL_PRIME if ar["status"] == "P" else PRIMENET.AR_LL_RESULT
+		result_type = PRIMENET_AR.LL_PRIME if ar["status"] == "P" else PRIMENET_AR.LL_RESULT
 		# ar["status"] == "C"
 	elif worktype.startswith("PRP"):
-		result_type = PRIMENET.AR_PRP_PRIME if ar["status"] == "P" else PRIMENET.AR_PRP_RESULT
+		result_type = PRIMENET_AR.PRP_PRIME if ar["status"] == "P" else PRIMENET_AR.PRP_RESULT
 		# ar["status"] == "C"
 	elif worktype == "TF":
-		result_type = PRIMENET.AR_TF_FACTOR if ar["status"] == "F" else PRIMENET.AR_TF_NOFACTOR
+		result_type = PRIMENET_AR.TF_FACTOR if ar["status"] == "F" else PRIMENET_AR.TF_NOFACTOR
 		# ar["status"] == "NF"
 	elif worktype in {"P-1", "PM1"}:
-		result_type = PRIMENET.AR_P1_FACTOR if ar["status"] == "F" else PRIMENET.AR_P1_NOFACTOR
+		result_type = PRIMENET_AR.P1_FACTOR if ar["status"] == "F" else PRIMENET_AR.P1_NOFACTOR
 		# ar["status"] == "NF"
 	elif worktype == "ECM":
-		result_type = PRIMENET.AR_ECM_FACTOR if ar["status"] == "F" else PRIMENET.AR_ECM_NOFACTOR
+		result_type = PRIMENET_AR.ECM_FACTOR if ar["status"] == "F" else PRIMENET_AR.ECM_NOFACTOR
 		# ar["status"] == "NF"
 	elif worktype in {"Cert", "CERT"}:
-		result_type = PRIMENET.AR_CERT
+		result_type = PRIMENET_AR.CERT
 	else:
 		adapter.error("Unsupported worktype %s", worktype)
 		return None
 
 	buf = "" if not user else "UID: {}, ".format(user) if not computer else "UID: {}/{}, ".format(user, computer)
-	if result_type in {PRIMENET.AR_LL_RESULT, PRIMENET.AR_LL_PRIME}:
-		if result_type == PRIMENET.AR_LL_RESULT:
+	if result_type in {PRIMENET_AR.LL_RESULT, PRIMENET_AR.LL_PRIME}:
+		if result_type == PRIMENET_AR.LL_RESULT:
 			buf += "M{} is not prime. Res64: {}. {},{},{}".format(
 				assignment.n, ar["res64"], ar.get("security-code", "-"), ar["shift-count"], ar.get("error-code", "0" * 8)
 			)
 		else:
 			buf += "M{} is prime! {},{}".format(assignment.n, ar.get("security-code", "-"), ar.get("error-code", "0" * 8))
-	elif result_type in {PRIMENET.AR_PRP_RESULT, PRIMENET.AR_PRP_PRIME}:
+	elif result_type in {PRIMENET_AR.PRP_RESULT, PRIMENET_AR.PRP_PRIME}:
 		prp_base = int(worktype[4:])
-		if result_type == PRIMENET.AR_PRP_RESULT:
+		if result_type == PRIMENET_AR.PRP_RESULT:
 			residue_type = ar["residue-type"]
 			buf += "{} is not prime.  {}{}RES64: {}.".format(
 				assignment_to_str(assignment),
@@ -7474,8 +7480,8 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			"{},".format(ar["shift-count"]) if "shift-count" in ar else "",
 			ar.get("error-code", "0" * 8),
 		)
-	elif result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_TF_NOFACTOR}:
-		if result_type == PRIMENET.AR_TF_FACTOR:
+	elif result_type in {PRIMENET_AR.TF_FACTOR, PRIMENET_AR.TF_NOFACTOR}:
+		if result_type == PRIMENET_AR.TF_FACTOR:
 			factors = ar["factors"]
 			buf += "M{} has {}factor{}: {} (TF:{}-{})".format(
 				assignment.n,
@@ -7489,12 +7495,12 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			buf += "M{} no factors from 2^{} to 2^{}{}".format(
 				assignment.n, ar["bitlo"], ar["bithi"], ", {}".format(ar["security-code"]) if "security-code" in ar else ""
 			)
-	elif result_type in {PRIMENET.AR_P1_FACTOR, PRIMENET.AR_P1_NOFACTOR}:
+	elif result_type in {PRIMENET_AR.P1_FACTOR, PRIMENET_AR.P1_NOFACTOR}:
 		b1 = ar["B1"] if "B1" in ar else ar["b1"]
 		b2 = None
 		if "b2" in ar or "B2" in ar:
 			b2 = ar["B2"] if "B2" in ar else ar["b2"]
-		if result_type == PRIMENET.AR_P1_FACTOR:
+		if result_type == PRIMENET_AR.P1_FACTOR:
 			factors = ar["factors"]
 			buf += "{} has {}factor{}: {} (P-1, B1={}{})".format(
 				exponent_to_str(assignment),
@@ -7515,8 +7521,8 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				else "",
 				ar.get("security-code", "-"),
 			)
-	elif result_type in {PRIMENET.AR_ECM_FACTOR, PRIMENET.AR_ECM_NOFACTOR}:
-		if result_type == PRIMENET.AR_ECM_FACTOR:
+	elif result_type in {PRIMENET_AR.ECM_FACTOR, PRIMENET_AR.ECM_NOFACTOR}:
+		if result_type == PRIMENET_AR.ECM_FACTOR:
 			factors = ar["factors"]
 			buf += "{} has {}factor{}: {} (ECM curve {}, B1={}, B2={})".format(
 				exponent_to_str(assignment),
@@ -7536,7 +7542,7 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				ar["b2"],
 				ar.get("security-code", "-"),
 			)
-	elif result_type == PRIMENET.AR_CERT:
+	elif result_type == PRIMENET_AR.CERT:
 		buf += "{} certification hash value {}. {},{}{}".format(
 			exponent_to_str(assignment),
 			ar["sha3-hash"],
@@ -7548,7 +7554,7 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 		buf += ", AID: {}".format(assignment.uid)
 
 	no_report = False
-	if result_type in {PRIMENET.AR_LL_PRIME, PRIMENET.AR_PRP_PRIME}:
+	if result_type in {PRIMENET_AR.LL_PRIME, PRIMENET_AR.PRP_PRIME}:
 		adigits = digits(assignment)
 		no_report = args.no_report_100m and adigits >= 100000000
 		if assignment.k == 1.0 and assignment.b == 2 and assignment.c == -1 and not is_known_mersenne_prime(assignment.n):
@@ -7574,7 +7580,7 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				logging.exception("Backup notification failed: %s: %s", type(e).__name__, e, exc_info=args.debug)
 			else:
 				adapter.debug("Backup notification: %s", text)
-			if result_type == PRIMENET.AR_LL_PRIME:
+			if result_type == PRIMENET_AR.LL_PRIME:
 				subject = "‼️ New Mersenne Prime!!! {} is prime!".format(string_rep)
 				temp = "Mersenne"
 			else:
@@ -7584,7 +7590,7 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 				file = os.path.join(adir, "gpuowl.log")
 				exp = os.path.join(adir, "*{}".format(assignment.n))
 				entries = glob.glob(
-					os.path.join(exp, "{}-[0-9]*.{}".format(assignment.n, "ll" if result_type == PRIMENET.AR_LL_PRIME else "prp"))
+					os.path.join(exp, "{}-[0-9]*.{}".format(assignment.n, "ll" if result_type == PRIMENET_AR.LL_PRIME else "prp"))
 				)
 				if entries:
 					savefile = next(
@@ -7599,15 +7605,15 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 					)
 				else:
 					savefile = os.path.join(
-						exp, "{}.{}owl".format(assignment.n, "ll." if result_type == PRIMENET.AR_LL_PRIME else "")
+						exp, "{}.{}owl".format(assignment.n, "ll." if result_type == PRIMENET_AR.LL_PRIME else "")
 					)
 			elif args.prpll:  # PRPLL
 				file = os.path.join(adir, "gpuowl-{}.log".format(cpu_num))
 				entries = glob.glob(
 					os.path.join(
 						adir,
-						"{}{}".format("ll-" if result_type == PRIMENET.AR_LL_PRIME else "", assignment.n),
-						"{}-[0-9]*.{}".format(assignment.n, "ll" if result_type == PRIMENET.AR_LL_PRIME else "prp"),
+						"{}{}".format("ll-" if result_type == PRIMENET_AR.LL_PRIME else "", assignment.n),
+						"{}-[0-9]*.{}".format(assignment.n, "ll" if result_type == PRIMENET_AR.LL_PRIME else "prp"),
 					)
 				)
 				savefile = ""
@@ -7687,7 +7693,7 @@ Python version: {}
 		adapter.debug("Sending result: %r", sendline)
 		adapter.info("Sending result to server: %s", buf)
 
-	if result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_P1_FACTOR, PRIMENET.AR_ECM_FACTOR}:
+	if result_type in {PRIMENET_AR.TF_FACTOR, PRIMENET_AR.P1_FACTOR, PRIMENET_AR.ECM_FACTOR}:
 		for factor in map(int, ar["factors"]):
 			adapter.info(
 				"The %s factor %s has %s decimal digits and %g bits",
@@ -7696,7 +7702,7 @@ Python version: {}
 				len(str(factor)),
 				log2(factor),
 			)
-			if result_type == PRIMENET.AR_TF_FACTOR:
+			if result_type == PRIMENET_AR.TF_FACTOR:
 				if pow(2, assignment.n, factor) - 1:
 					adapter.warning("Bad factor for M%s found: %s", assignment.n, factor)
 			elif (int(assignment.k) * pow(assignment.b, assignment.n, factor) + assignment.c) % factor:
@@ -7744,7 +7750,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 		error_code_ignore = config.get(SEC.Email, "PrimeNet_error_code_ignore")
 		error_code_ignore = frozenset(map(int, error_code_ignore.split(",")) if error_code_ignore else ())
 	else:
-		error_code_ignore = frozenset((PRIMENET.ERROR_NO_ASSIGNMENT,))
+		error_code_ignore = frozenset((PRIMENET_ERROR.NO_ASSIGNMENT,))
 
 	# EWM: Switch to one-result-line-at-a-time submission to support
 	# error-message-on-submit handling:
@@ -7775,7 +7781,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 						failed.append(sendline)
 
 				if is_sent:
-					if result_type in {PRIMENET.AR_TF_FACTOR, PRIMENET.AR_P1_FACTOR, PRIMENET.AR_ECM_FACTOR}:
+					if result_type in {PRIMENET_AR.TF_FACTOR, PRIMENET_AR.P1_FACTOR, PRIMENET_AR.ECM_FACTOR}:
 						config.set(SEC.Internals, "RollingStartTime", str(0))
 						# adjust_rolling_average(dirs)
 					else:
@@ -7974,7 +7980,7 @@ def unreserve_all(dirs):
 			changed = False
 			for assignment in assignments:
 				tf1g = False
-				if assignment.work_type == PRIMENET.WORK_TYPE_FACTOR and assignment.n >= MAX_PRIMENET_EXP:
+				if assignment.work_type == PRIMENET_WORK_TYPE.FACTOR and assignment.n >= MAX_PRIMENET_EXP:
 					if not any_tf1g:
 						tf1g_unreserved = tf1g_unreserve_all(adapter, i)
 					any_tf1g = tf1g = True
@@ -7995,22 +8001,22 @@ def update_assignment(adapter, cpu_num, assignment, task):
 	bounds = ("MIN", "MID", "MAX")
 	changed = False
 
-	if assignment.work_type == PRIMENET.WORK_TYPE_PRP and (
+	if assignment.work_type == PRIMENET_WORK_TYPE.PRP and (
 		args.convert_prp_to_ll or (not assignment.prp_dblchk and int(args.work_preference[cpu_num]) in CONVERT)
 	):
 		adapter.info("Converting from PRP to LL")
-		assignment.work_type = PRIMENET.WORK_TYPE_DBLCHK if assignment.prp_dblchk else PRIMENET.WORK_TYPE_FIRST_LL
+		assignment.work_type = PRIMENET_WORK_TYPE.DBLCHK if assignment.prp_dblchk else PRIMENET_WORK_TYPE.FIRST_LL
 		assignment.pminus1ed = int(not assignment.tests_saved)
 		changed = True
 
-	if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK} and args.convert_ll_to_prp:
+	if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK} and args.convert_ll_to_prp:
 		adapter.info("Converting from LL to PRP")
 		assignment.tests_saved = float(not assignment.pminus1ed)
-		assignment.prp_dblchk = assignment.work_type == PRIMENET.WORK_TYPE_DBLCHK
-		assignment.work_type = PRIMENET.WORK_TYPE_PRP
+		assignment.prp_dblchk = assignment.work_type == PRIMENET_WORK_TYPE.DBLCHK
+		assignment.work_type = PRIMENET_WORK_TYPE.PRP
 		changed = True
 
-	if args.force_target_bits and assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+	if args.force_target_bits and assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 		factor_to = factor_limit(assignment.n)
 		if factor_to > assignment.factor_to:
 			adapter.info("Updating to factor to %s bits from %.0f bits", factor_to, assignment.factor_to)
@@ -8018,18 +8024,18 @@ def update_assignment(adapter, cpu_num, assignment, task):
 			changed = True
 
 	if args.tests_saved is not None and assignment.work_type in {
-		PRIMENET.WORK_TYPE_FIRST_LL,
-		PRIMENET.WORK_TYPE_DBLCHK,
-		PRIMENET.WORK_TYPE_PRP,
-		PRIMENET.WORK_TYPE_PFACTOR,
+		PRIMENET_WORK_TYPE.FIRST_LL,
+		PRIMENET_WORK_TYPE.DBLCHK,
+		PRIMENET_WORK_TYPE.PRP,
+		PRIMENET_WORK_TYPE.PFACTOR,
 	}:
 		redo = False
 		if (
 			args.tests_saved
 			and args.pm1_multiplier is not None
 			and (
-				(assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK} and assignment.pminus1ed)
-				or (assignment.work_type == PRIMENET.WORK_TYPE_PRP and not assignment.tests_saved)
+				(assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK} and assignment.pminus1ed)
+				or (assignment.work_type == PRIMENET_WORK_TYPE.PRP and not assignment.tests_saved)
 			)
 		):
 			result = get_exponent(adapter, assignment.n)
@@ -8064,21 +8070,21 @@ def update_assignment(adapter, cpu_num, assignment, task):
 		else:
 			redo = True
 		if redo:
-			if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
+			if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 				assignment.pminus1ed = int(not args.tests_saved)
-			elif assignment.work_type in {PRIMENET.WORK_TYPE_PRP, PRIMENET.WORK_TYPE_PFACTOR}:
+			elif assignment.work_type in {PRIMENET_WORK_TYPE.PRP, PRIMENET_WORK_TYPE.PFACTOR}:
 				assignment.tests_saved = args.tests_saved
 			changed = True
 
 	if args.pm1_bounds:
 		add_bounds = False
-		if (args.mlucas or args.prmers) and assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
+		if (args.mlucas or args.prmers) and assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
 			adapter.info("Converting from Pfactor= to Pminus1=")
-			assignment.work_type = PRIMENET.WORK_TYPE_PMINUS1
+			assignment.work_type = PRIMENET_WORK_TYPE.PMINUS1
 			add_bounds = True
 		elif args.gpuowl and (
-			(assignment.work_type == PRIMENET.WORK_TYPE_PRP and assignment.tests_saved)
-			or assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR
+			(assignment.work_type == PRIMENET_WORK_TYPE.PRP and assignment.tests_saved)
+			or assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR
 		):
 			add_bounds = True
 		if add_bounds:
@@ -8095,7 +8101,7 @@ def update_assignment(adapter, cpu_num, assignment, task):
 			assignment.B2 = b2
 			changed = True
 
-	if args.ecm_multiplier is not None and assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+	if args.ecm_multiplier is not None and assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 		assignment.B1 = int(assignment.B1 * args.ecm_multiplier)
 		if assignment.B2:
 			assignment.B2 = int(assignment.B2 * args.ecm_multiplier)
@@ -8123,33 +8129,33 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 	params["c"] = cpu_num
 	params["w"] = assignment.work_type
 	params["n"] = assignment.n
-	if assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
+	if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 		params["sf"] = assignment.sieve_depth
 		params["p1"] = assignment.pminus1ed
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		params["A"] = "{:.0f}".format(assignment.k)
 		params["b"] = assignment.b
 		params["C"] = assignment.c
 		params["sf"] = assignment.sieve_depth
 		params["saved"] = assignment.tests_saved
-	elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 		params["sf"] = assignment.sieve_depth
 		if assignment.factor_to:
 			params["ef"] = assignment.factor_to
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PFACTOR:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
 		params["A"] = "{:.0f}".format(assignment.k)
 		params["b"] = assignment.b
 		params["C"] = assignment.c
 		params["sf"] = assignment.sieve_depth
 		params["saved"] = assignment.tests_saved
-	elif assignment.work_type == PRIMENET.WORK_TYPE_PMINUS1:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
 		params["A"] = "{:.0f}".format(assignment.k)
 		params["b"] = assignment.b
 		params["C"] = assignment.c
 		params["B1"] = assignment.B1
 		if assignment.B2:
 			params["B2"] = assignment.B2
-	elif assignment.work_type == PRIMENET.WORK_TYPE_ECM:
+	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 		params["A"] = "{:.0f}".format(assignment.k)
 		params["b"] = assignment.b
 		params["C"] = assignment.c
@@ -8157,7 +8163,7 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 		if assignment.B2:
 			params["B2"] = assignment.B2
 		params["CR"] = assignment.curves_to_do
-	# elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
+	# elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 	retry = False
 	adapter.info("Registering assignment: %s", exponent_to_text(assignment))
 	result = send_request(adapter, guid, params)
@@ -8165,16 +8171,16 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 		retry = True
 	else:
 		rc = int(result["pnErrorResult"])
-		if rc == PRIMENET.ERROR_OK:
+		if rc == PRIMENET_ERROR.OK:
 			assignment.uid = result["k"]
 			adapter.info("Assignment registered as: %s", assignment.uid)
 			return assignment
-		if rc in {PRIMENET.ERROR_NO_ASSIGNMENT, PRIMENET.ERROR_INVALID_ASSIGNMENT_TYPE, PRIMENET.ERROR_INVALID_PARAMETER}:
+		if rc in {PRIMENET_ERROR.NO_ASSIGNMENT, PRIMENET_ERROR.INVALID_ASSIGNMENT_TYPE, PRIMENET_ERROR.INVALID_PARAMETER}:
 			pass
-		elif rc == PRIMENET.ERROR_UNREGISTERED_CPU:
+		elif rc == PRIMENET_ERROR.UNREGISTERED_CPU:
 			register_instance()
 			retry = True
-		elif rc == PRIMENET.ERROR_STALE_CPU_INFO:
+		elif rc == PRIMENET_ERROR.STALE_CPU_INFO:
 			register_instance(guid)
 			retry = True
 	if retry:
@@ -8239,14 +8245,14 @@ def register_exponents(dirs):
 			while True:
 				work_type = ask_int("Type of work", None, 0, 161)
 				if work_type is not None and work_type in {
-					PRIMENET.WORK_TYPE_FIRST_LL,
-					PRIMENET.WORK_TYPE_DBLCHK,
-					PRIMENET.WORK_TYPE_PRP,
+					PRIMENET_WORK_TYPE.FIRST_LL,
+					PRIMENET_WORK_TYPE.DBLCHK,
+					PRIMENET_WORK_TYPE.PRP,
 					151,
-					PRIMENET.WORK_TYPE_FACTOR,
-					PRIMENET.WORK_TYPE_PFACTOR,
-					PRIMENET.WORK_TYPE_PMINUS1,
-					PRIMENET.WORK_TYPE_ECM,
+					PRIMENET_WORK_TYPE.FACTOR,
+					PRIMENET_WORK_TYPE.PFACTOR,
+					PRIMENET_WORK_TYPE.PMINUS1,
+					PRIMENET_WORK_TYPE.ECM,
 				}:
 					break
 
@@ -8291,15 +8297,15 @@ https://www.mersenne.ca/M{}
 """.format(p, p)
 				)
 
-			if work_type == PRIMENET.WORK_TYPE_FACTOR:
+			if work_type == PRIMENET_WORK_TYPE.FACTOR:
 				sieve_depth = ask_int("Trial Factor (TF) starting bits", sieve_depth or 0, 0, 99)
 				factor_to = ask_int("Trial Factor (TF) ending bits", max(factor_limit(p), sieve_depth + 1), sieve_depth, 99)
-			elif work_type != PRIMENET.WORK_TYPE_ECM:
+			elif work_type != PRIMENET_WORK_TYPE.ECM:
 				sieve_depth = ask_float("Trial Factor (TF) bits", sieve_depth, 0, 99)
 
-			if work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
+			if work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 				pminus1ed = ask_yn("Has it been P-1 factored before?", pminus1ed)
-			elif work_type not in {PRIMENET.WORK_TYPE_FACTOR, PRIMENET.WORK_TYPE_PMINUS1, PRIMENET.WORK_TYPE_ECM}:
+			elif work_type not in {PRIMENET_WORK_TYPE.FACTOR, PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM}:
 				tests_saved = ask_float("Primality tests saved if factor is found", 0.0 if pminus1ed else 1.3, 0)
 
 			if work_type == 151:
@@ -8308,8 +8314,8 @@ https://www.mersenne.ca/M{}
 
 			if (
 				args.gpuowl
-				and ((work_type in {PRIMENET.WORK_TYPE_PRP, 151} and tests_saved) or work_type == PRIMENET.WORK_TYPE_PFACTOR)
-			) or work_type == PRIMENET.WORK_TYPE_PMINUS1:
+				and ((work_type in {PRIMENET_WORK_TYPE.PRP, 151} and tests_saved) or work_type == PRIMENET_WORK_TYPE.PFACTOR)
+			) or work_type == PRIMENET_WORK_TYPE.PMINUS1:
 				print("\nOptimal P-1 bounds:")
 				_, (midB1, midB2), _ = bounds = walk(p, sieve_depth)
 				for (b1, b2), label in zip(bounds, ("MIN", "MID", "MAX")):
@@ -8319,7 +8325,7 @@ https://www.mersenne.ca/M{}
 
 				b1 = ask_int("P-1 Bound #1", 0 if args.gpuowl else midB1, 100)
 				b2 = ask_int("P-1 Bound #2", 0 if args.gpuowl else midB2, 0)
-			elif work_type == PRIMENET.WORK_TYPE_ECM:
+			elif work_type == PRIMENET_WORK_TYPE.ECM:
 				b1 = ask_int("ECM Bound #1", b1 or 250000, 100)
 				b2 = ask_int("ECM Bound #2", b2, 0)
 
@@ -8327,10 +8333,10 @@ https://www.mersenne.ca/M{}
 
 			factors = []
 			if (work_type == 151 and prp_residue_type == 5) or work_type in {
-				PRIMENET.WORK_TYPE_PRP,
-				PRIMENET.WORK_TYPE_PFACTOR,
-				PRIMENET.WORK_TYPE_PMINUS1,
-				PRIMENET.WORK_TYPE_ECM,
+				PRIMENET_WORK_TYPE.PRP,
+				PRIMENET_WORK_TYPE.PFACTOR,
+				PRIMENET_WORK_TYPE.PMINUS1,
+				PRIMENET_WORK_TYPE.ECM,
 			}:
 				product = 1
 				for i in count():
@@ -8363,13 +8369,13 @@ https://www.mersenne.ca/M{}
 			assignment.b = 2
 			assignment.n = p
 			assignment.c = -1
-			if work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
+			if work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 				assignment.work_type = work_type
 				assignment.sieve_depth = sieve_depth
 				assignment.pminus1ed = int(pminus1ed)
-			elif work_type in {PRIMENET.WORK_TYPE_PRP, 151}:
+			elif work_type in {PRIMENET_WORK_TYPE.PRP, 151}:
 				assignment.prp_dblchk = work_type == 151
-				assignment.work_type = PRIMENET.WORK_TYPE_PRP
+				assignment.work_type = PRIMENET_WORK_TYPE.PRP
 				assignment.B1 = b1
 				assignment.B2 = b2
 				assignment.sieve_depth = sieve_depth
@@ -8378,24 +8384,24 @@ https://www.mersenne.ca/M{}
 					assignment.prp_base = prp_base
 					assignment.prp_residue_type = prp_residue_type
 				assignment.known_factors = factors
-			elif work_type == PRIMENET.WORK_TYPE_FACTOR:
+			elif work_type == PRIMENET_WORK_TYPE.FACTOR:
 				assignment.work_type = work_type
 				assignment.sieve_depth = sieve_depth
 				assignment.factor_to = factor_to
-			elif work_type == PRIMENET.WORK_TYPE_PFACTOR:
+			elif work_type == PRIMENET_WORK_TYPE.PFACTOR:
 				assignment.work_type = work_type
 				assignment.B1 = b1
 				assignment.B2 = b2
 				assignment.sieve_depth = sieve_depth
 				assignment.tests_saved = tests_saved
 				assignment.known_factors = factors
-			elif work_type == PRIMENET.WORK_TYPE_PMINUS1:
+			elif work_type == PRIMENET_WORK_TYPE.PMINUS1:
 				assignment.work_type = work_type
 				assignment.B1 = b1
 				assignment.B2 = b2
 				assignment.sieve_depth = sieve_depth
 				assignment.known_factors = factors
-			elif work_type == PRIMENET.WORK_TYPE_ECM:
+			elif work_type == PRIMENET_WORK_TYPE.ECM:
 				assignment.work_type = work_type
 				assignment.B1 = b1
 				assignment.B2 = b2
@@ -8518,7 +8524,7 @@ def recover_assignments(dirs, recover_all=False):
 			work = []
 			certwork = []
 			for test in tests:
-				if isinstance(test, Assignment) and test.work_type == PRIMENET.WORK_TYPE_CERT:
+				if isinstance(test, Assignment) and test.work_type == PRIMENET_WORK_TYPE.CERT:
 					certwork.append(test)
 				else:
 					work.append(test)
@@ -8597,19 +8603,19 @@ def send_progress(adapter, cpu_num, assignment, percent, stage, time_left, now, 
 		retry = True
 	else:
 		rc = int(result["pnErrorResult"])
-		if rc == PRIMENET.ERROR_OK:
+		if rc == PRIMENET_ERROR.OK:
 			# adapter.debug("Update correctly sent to server")
 			pass
-		elif rc in {PRIMENET.ERROR_INVALID_ASSIGNMENT_KEY, PRIMENET.ERROR_WORK_NO_LONGER_NEEDED}:
+		elif rc in {PRIMENET_ERROR.INVALID_ASSIGNMENT_KEY, PRIMENET_ERROR.WORK_NO_LONGER_NEEDED}:
 			# TODO: Delete assignment from workfile
 			pass
-		elif rc == PRIMENET.ERROR_UNREGISTERED_CPU:
+		elif rc == PRIMENET_ERROR.UNREGISTERED_CPU:
 			register_instance()
 			retry = True
-		elif rc == PRIMENET.ERROR_STALE_CPU_INFO:
+		elif rc == PRIMENET_ERROR.STALE_CPU_INFO:
 			register_instance(guid)
 			retry = True
-		elif rc == PRIMENET.ERROR_SERVER_BUSY:
+		elif rc == PRIMENET_ERROR.SERVER_BUSY:
 			retry = True
 	if retry:
 		if retry_count >= MAX_RETRIES:
@@ -8632,16 +8638,16 @@ def update_progress(adapter, cpu_num, assignment, progress, msec_per_iter, p, no
 	if percent > 0:
 		if astage is not None:
 			stage = "C{}S{}".format(curve, astage) if curve is not None else "S{}".format(astage)
-		elif assignment.work_type in {PRIMENET.WORK_TYPE_FIRST_LL, PRIMENET.WORK_TYPE_DBLCHK}:
+		elif assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 			stage = "LL"
-		elif assignment.work_type == PRIMENET.WORK_TYPE_PRP:
+		elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 			stage = "PRP"
-		elif assignment.work_type == PRIMENET.WORK_TYPE_FACTOR:
+		elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 			if int(assignment.factor_to) == int(assignment.sieve_depth) + 1:
 				stage = "TF{:.0f}".format(assignment.sieve_depth)
 			else:
 				stage = "TF{:.0f}-{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
-		elif assignment.work_type == PRIMENET.WORK_TYPE_CERT:
+		elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 			stage = "CERT"
 	if time_left is None:
 		cur_time_left += 7 * 24 * 60 * 60
@@ -8757,7 +8763,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		if (
 			args.min_exp
 			and args.min_exp >= MAX_PRIMENET_EXP
-			and work_preference[cpu_num] in {PRIMENET.WP_FACTOR, PRIMENET.WP_GPU_FACTOR}
+			and work_preference[cpu_num] in {PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR}
 		):
 			ghd_to_request = None
 			if msec_per_iter is not None:
@@ -8963,7 +8969,7 @@ def ping_server(ping_type=1):
 		pass
 	else:
 		rc = int(result["pnErrorResult"])
-		if rc == PRIMENET.ERROR_OK:
+		if rc == PRIMENET_ERROR.OK:
 			return result["r"]
 	return None
 
@@ -9506,7 +9512,7 @@ parser.add_argument(
 160 (First time PRP on Mersenne cofactors),
 161 (Double-check PRP on Mersenne cofactors).
 Provide once to use the same work preference for all workers or once for each worker to use different work preferences. Not all worktypes are supported by all the GIMPS programs.""".format(
-		PRIMENET.WP_PRP_FIRST
+		PRIMENET_WP.PRP_FIRST
 	),
 )
 parser.add_argument(
@@ -9942,11 +9948,11 @@ else:
 if not args.work_preference:
 	args.work_preference = [
 		str(
-			PRIMENET.WP_GPU_FACTOR
+			PRIMENET_WP.GPU_FACTOR
 			if args.mfaktc or args.mfakto
-			else PRIMENET.WP_LL_DBLCHK
+			else PRIMENET_WP.LL_DBLCHK
 			if args.cudalucas
-			else PRIMENET.WP_PRP_FIRST
+			else PRIMENET_WP.PRP_FIRST
 		)
 	]
 
@@ -9983,42 +9989,42 @@ PROGRAM = PROGRAMS[
 # Convert mnemonic-form worktypes to corresponding numeric value, check
 # worktype value vs supported ones:
 worktypes = {
-	"Pfactor": PRIMENET.WP_PFACTOR,
-	"SmallestAvail": PRIMENET.WP_LL_FIRST,
-	"DoubleCheck": PRIMENET.WP_LL_DBLCHK,
-	"WorldRecord": PRIMENET.WP_LL_WORLD_RECORD,
-	"100Mdigit": PRIMENET.WP_LL_100M,
-	"SmallestAvailPRP": PRIMENET.WP_PRP_FIRST,
-	"DoubleCheckPRP": PRIMENET.WP_PRP_DBLCHK,
-	"WorldRecordPRP": PRIMENET.WP_PRP_WORLD_RECORD,
-	"100MdigitPRP": PRIMENET.WP_PRP_100M,
+	"Pfactor": PRIMENET_WP.PFACTOR,
+	"SmallestAvail": PRIMENET_WP.LL_FIRST,
+	"DoubleCheck": PRIMENET_WP.LL_DBLCHK,
+	"WorldRecord": PRIMENET_WP.LL_WORLD_RECORD,
+	"100Mdigit": PRIMENET_WP.LL_100M,
+	"SmallestAvailPRP": PRIMENET_WP.PRP_FIRST,
+	"DoubleCheckPRP": PRIMENET_WP.PRP_DBLCHK,
+	"WorldRecordPRP": PRIMENET_WP.PRP_WORLD_RECORD,
+	"100MdigitPRP": PRIMENET_WP.PRP_100M,
 }
 # {"PRP": 150, "PM1": 4, "LL_DC": 101, "PRP_DC": 151, "PRP_WORLD_RECORD": 152, "PRP_100M": 153, "PRP_P1": 154}
 # this and the above line of code enables us to use words or numbers on the cmdline
 
 SUPPORTED = frozenset(
-	[PRIMENET.WP_FACTOR, PRIMENET.WP_GPU_FACTOR]
+	[PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR]
 	if args.mfaktc or args.mfakto
 	else (
-		[PRIMENET.WP_LL_FIRST, PRIMENET.WP_LL_DBLCHK, PRIMENET.WP_LL_WORLD_RECORD, PRIMENET.WP_LL_100M]
+		[PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_DBLCHK, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M]
 		+ (
 			[]
 			if args.cudalucas
-			else [PRIMENET.WP_PRP_FIRST, PRIMENET.WP_PRP_DBLCHK, PRIMENET.WP_PRP_WORLD_RECORD, PRIMENET.WP_PRP_100M]
+			else [PRIMENET_WP.PRP_FIRST, PRIMENET_WP.PRP_DBLCHK, PRIMENET_WP.PRP_WORLD_RECORD, PRIMENET_WP.PRP_100M]
 		)
-		+ ([106, PRIMENET.WP_PRP_DC_PROOF] if args.gpuowl or args.prpll or args.prmers else [])
-		+ ([PRIMENET.WP_PRP_NO_PMINUS1] if args.gpuowl or args.mlucas else [])
-		+ ([] if args.prpll else [PRIMENET.WP_PFACTOR])
-		+ ([PRIMENET.WP_ECM_SMALL, PRIMENET.WP_ECM_COFACTOR] if args.prmers else [])
-		+ ([PRIMENET.WP_PRP_COFACTOR, PRIMENET.WP_PRP_COFACTOR_DBLCHK] if args.mlucas or args.prmers else [])
+		+ ([106, PRIMENET_WP.PRP_DC_PROOF] if args.gpuowl or args.prpll or args.prmers else [])
+		+ ([PRIMENET_WP.PRP_NO_PMINUS1] if args.gpuowl or args.mlucas else [])
+		+ ([] if args.prpll else [PRIMENET_WP.PFACTOR])
+		+ ([PRIMENET_WP.ECM_SMALL, PRIMENET_WP.ECM_COFACTOR] if args.prmers else [])
+		+ ([PRIMENET_WP.PRP_COFACTOR, PRIMENET_WP.PRP_COFACTOR_DBLCHK] if args.mlucas or args.prmers else [])
 	)
 )
 
 # Convert first time LL worktypes to PRP
 CONVERT = {
-	PRIMENET.WP_LL_FIRST: PRIMENET.WP_PRP_FIRST,
-	PRIMENET.WP_LL_WORLD_RECORD: PRIMENET.WP_PRP_WORLD_RECORD,
-	PRIMENET.WP_LL_100M: PRIMENET.WP_PRP_100M,
+	PRIMENET_WP.LL_FIRST: PRIMENET_WP.PRP_FIRST,
+	PRIMENET_WP.LL_WORLD_RECORD: PRIMENET_WP.PRP_WORLD_RECORD,
+	PRIMENET_WP.LL_100M: PRIMENET_WP.PRP_100M,
 }
 
 check_options(parser, args)
