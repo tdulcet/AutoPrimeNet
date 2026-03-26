@@ -5476,9 +5476,9 @@ def parse_work_unit_prmers(adapter, filename, exponent):
 				iterations = processedBits + i  # bits
 				stage = 1
 			elif name.startswith("pm1_s2_m_"):
-				version, p, B1u, B2u, _cur_p, cur_idx, et = unpack("=iIQQQQd", f)
+				version, p, B1u, B2u, _D, _cur_p, cur_idx, et = unpack("=iIQQQQQd", f)
 
-				if version != 1:
+				if version != 10:
 					adapter.error("P-1 stage 2 savefile with unknown version = %s", version)
 					return None
 
@@ -5486,24 +5486,42 @@ def parse_work_unit_prmers(adapter, filename, exponent):
 				iterations = prime_count_approx(B1u, B2u)  # primes
 				stage = 2
 			elif name.startswith(("ecm_m_", "ecm_te_m_")):
-				version, p, i, nb, _B1, et = unpack("=iIIIQd", f)
+				version, p, i, nb, _B1, et, _curve_seed, _current_te_family_mode = unpack("=iIIIQdQB", f)
 
-				if version != 1:
+				if version not in {1, 5}:
 					adapter.error("ECM stage 1 savefile with unknown version = %s", version)
 					return None
+
+				if version == 5:
+					(_te_stage1_flag,) = unpack("=B", f)
 
 				iteration = i
 				iterations = nb  # bits
 				stage = 1
 			elif name.startswith(("ecm2_m_", "ecm2_te_m_")):
-				version, p, idx, cnt, _B1, _B2, et = unpack("=iIIIQQd", f)
+				version, p, idx, cnt, _B1, _B2 = unpack("=iIIIQQ", f)
 
-				if not 2 <= version <= 3:
+				if not 2 <= version <= 9:
 					adapter.error("ECM stage 2 savefile with unknown version = %s", version)
 					return None
 
-				if version == 3:
-					_seed, _torsion = unpack("=QB", f)
+				if 5 <= version <= 9:
+					(
+						_curve_seed,
+						_current_te_family_mode,
+						et,
+						_in_chunk,
+						_chunk_start_idx,
+						_chunk_end_idx,
+						_chunk_bits_saved,
+						_chunk_steps_done_saved,
+					) = unpack("=QBdBIIII", f)
+				elif version == 4:
+					_curve_seed, _current_te_family_mode, et = unpack("=QBd", f)
+				elif version == 3:
+					et, _curve_seed, _current_te_family_mode = unpack("=dQB", f)
+				elif version == 2:
+					(et,) = unpack("=d", f)
 
 				iteration = idx
 				iterations = cnt  # bits
@@ -7466,7 +7484,8 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 		if "b2" in ar:
 			params["B2"] = ar["b2"]
 		if result_type == PRIMENET_AR.ECM_FACTOR:
-			params["stage"] = ar["stage"]
+			if "stage" in ar:
+				params["stage"] = ar["stage"]
 			params["f"] = ",".join(ar["factors"])
 	elif result_type == PRIMENET_AR.CERT:
 		params["d"] = 1
@@ -7736,22 +7755,22 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 	elif result_type in {PRIMENET_AR.ECM_FACTOR, PRIMENET_AR.ECM_NOFACTOR}:
 		if result_type == PRIMENET_AR.ECM_FACTOR:
 			factors = ar["factors"]
-			buf += "{} has {}factor{}: {} (ECM curve {}, B1={}, B2={})".format(
+			buf += "{} has {}factor{}: {} (ECM curve {}, B1={}{})".format(
 				exponent_to_str(assignment),
 				"a " if len(factors) == 1 else "",
 				"s" if len(factors) != 1 else "",
 				", ".join(factors),
 				ar["curves"],
 				ar["b1"],
-				ar["b2"],
+				", B2={}".format(ar["b2"]) if "b2" in ar else "",
 			)
 		else:
-			buf += "{} completed {} ECM curve{}, B1={}, B2={}, {}".format(
+			buf += "{} completed {} ECM curve{}, B1={}{}, {}".format(
 				exponent_to_str(assignment),
 				ar["curves"],
 				"s" if ar["curves"] != 1 else "",
 				ar["b1"],
-				ar["b2"],
+				", B2={}".format(ar["b2"]) if "b2" in ar else "",
 				ar.get("security-code", "-"),
 			)
 	elif result_type == PRIMENET_AR.CERT:

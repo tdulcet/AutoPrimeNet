@@ -289,7 +289,7 @@ GPUOWL_RE = re.compile(
 )
 PRPLL_RE = re.compile(r"(?:(?:ll-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp)|unverified\.prp))$")
 PRMERS_RE = re.compile(
-	r"^(?:(?:wagstaff_|llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$"
+	r"^(?:(?:wagstaff_|llsafe_)?m_([0-9]+)|pm1_(?:s[2-4]_)?m_([0-9]+)(?:_ext)?|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$"
 )
 MFAKTC_RE = re.compile(r"^([MW][0-9]+)(?:_[0-9]+-[0-9]+_[0-9]+)?\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
@@ -1992,9 +1992,9 @@ def parse_work_unit_prmers(filename, exponent, curve):
 			elif name.startswith("pm1_s2_m_"):
 				wu.work_type = WORK_PMINUS1
 
-				version, p, B1u, B2u, _cur_p, cur_idx, et = unpack("=iIQQQQd", f)
+				version, p, B1u, B2u, _D, _cur_p, cur_idx, et = unpack("=iIQQQQQd", f)
 
-				if version != 1:
+				if version != 10:
 					logging.error("P-1 stage 2 savefile with unknown version = %s", version)
 					return None
 
@@ -2005,14 +2005,45 @@ def parse_work_unit_prmers(filename, exponent, curve):
 
 				wu.stage = "S2"
 				wu.pct_complete = wu.counter / prime_count_approx(B1u, B2u)
+			elif name.startswith("pm1_s3_m_"):
+				wu.work_type = WORK_PMINUS1
+
+				version, p, B3u, cur_b, et = unpack("=iIQQd", f)
+
+				if version != 2:
+					logging.error("P-1 stage 3 savefile with unknown version = %s", version)
+					return None
+
+				wu.state = PM1_STATE_DONE
+				wu.counter = cur_b
+
+				wu.stage = "S3"
+				wu.pct_complete = cur_b / B3u
+			elif name.startswith("pm1_s4_m_"):
+				wu.work_type = WORK_PMINUS1
+
+				version, p, _digits, _seed, tb, cur_i, et = unpack("=iIIQQQd", f)
+
+				if version != 1:
+					logging.error("P-1 stage 4 savefile with unknown version = %s", version)
+					return None
+
+				wu.state = PM1_STATE_DONE
+				wu.counter = cur_i
+
+				wu.stage = "S4"
+				wu.pct_complete = cur_i / tb
 			elif name.startswith(("ecm_m_", "ecm_te_m_")):
 				wu.work_type = WORK_ECM
 
-				version, p, i, nb, B1, et = unpack("=iIIIQd", f)
+				version, p, i, nb, B1, et, _curve_seed, _current_te_family_mode = unpack("=iIIIQdQB", f)
 
-				if version != 1:
+				if version not in {1, 5}:
 					logging.error("ECM stage 1 savefile with unknown version = %s", version)
 					return None
+
+				if version == 5:
+					(_te_stage1_flag,) = unpack("=B", f)
 
 				wu.state = ECM_STATE_STAGE1
 				wu.curve = curve + 1
@@ -2024,14 +2055,29 @@ def parse_work_unit_prmers(filename, exponent, curve):
 			elif name.startswith(("ecm2_m_", "ecm2_te_m_")):
 				wu.work_type = WORK_ECM
 
-				version, p, idx, cnt, B1, B2, et = unpack("=iIIIQQd", f)
+				version, p, idx, cnt, B1, B2 = unpack("=iIIIQQ", f)
 
-				if not 2 <= version <= 3:
+				if not 2 <= version <= 9:
 					logging.error("ECM stage 2 savefile with unknown version = %s", version)
 					return None
 
-				if version == 3:
-					_seed, _torsion = unpack("=QB", f)
+				if 5 <= version <= 9:
+					(
+						_curve_seed,
+						_current_te_family_mode,
+						et,
+						_in_chunk,
+						_chunk_start_idx,
+						_chunk_end_idx,
+						_chunk_bits_saved,
+						_chunk_steps_done_saved,
+					) = unpack("=QBdBIIII", f)
+				elif version == 4:
+					_curve_seed, _current_te_family_mode, et = unpack("=QBd", f)
+				elif version == 3:
+					et, _curve_seed, _current_te_family_mode = unpack("=dQB", f)
+				elif version == 2:
+					(et,) = unpack("=d", f)
 
 				wu.state = ECM_STATE_STAGE2
 				wu.curve = curve + 1
@@ -2734,8 +2780,8 @@ def main(dirs):
 			for entry in glob.iglob(os.path.join(adir, "*m_[0-9]*.ckpt*")):
 				match = PRMERS_RE.match(os.path.basename(entry))
 				if match:
-					exponent = int(match.group(1) or match.group(2))
-					entries.setdefault(exponent, []).append((entry, match.group(3) and int(match.group(3))))
+					exponent = int(match.group(1) or match.group(2) or match.group(3))
+					entries.setdefault(exponent, []).append((entry, match.group(4) and int(match.group(4))))
 			for exponent, entry in entries.items():
 				for j, (file, curve) in enumerate(sorted(entry)):
 					result = parse_work_unit_prmers(file, exponent, curve)
