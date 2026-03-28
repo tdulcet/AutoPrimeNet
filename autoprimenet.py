@@ -4291,6 +4291,49 @@ def get_os():
 	return result
 
 
+def _cpuinfo_field_value(line):
+	"""Return the field value from a ``/proc/cpuinfo`` line.
+
+	This matches the behavior of::
+
+		re.sub(r"^.*: *", "", line.rstrip(), count=1)
+
+	- ``line`` is first logically ``rstrip()``'d (trailing newline/CRLF removed).
+	- If there is no ``":"``, the pattern does not match and ``re.sub`` returns the
+	  string unchanged; we return that same string.
+	- Otherwise the matched prefix is everything from the start through the first
+	  ``":"`` and any ASCII space characters (U+0020) immediately after it. The
+	  regex uses literal `` *``, not ``\s*``, so tabs or other whitespace are not
+	  consumed here and become part of the returned value.
+	- The remainder of the line is not right-stripped; only the original
+	  ``line.rstrip()`` affects the right end of the string.
+	"""
+	# Same preprocessing the old ``re.sub`` used as its input string.
+	s = line.rstrip()
+	# ``^.*: *`` can only match if there is a colon; otherwise ``re.sub`` leaves ``s`` unchanged.
+	colon = s.find(":")
+	if colon < 0:
+		return s
+	# Skip the colon, then consume only U+0020 spaces (same as `` *`` in the regex).
+	i = colon + 1
+	n = len(s)
+	while i < n and s[i] == " ":
+		i += 1
+	return s[i:]
+
+
+# Not strictly equivalent shortcuts (documented for maintainers; do not use as drop-in):
+#
+#   line.rstrip().split(":", 1)[1].lstrip(" ")
+# If there is no ":", split yields one part and [1] raises IndexError; the regex
+# leaves the whole line unchanged.
+#
+#   line.rstrip().split(":", 1)[1].strip()
+# Additionally, strip() removes all leading/trailing Unicode whitespace from the
+# value; the regex only skips ASCII spaces after ":" and does not strip the
+# value's trailing edge.
+
+
 def get_cpu_model():
 	"""Returns the model name of the CPU."""
 	output = ""
@@ -4308,7 +4351,8 @@ def get_cpu_model():
 		with open("/proc/cpuinfo") as f:
 			for line in f:
 				if line.startswith("model name"):
-					output = re.sub(r"^.*: *", "", line.rstrip(), count=1)
+					# Same as former re.sub(r"^.*: *", "", line.rstrip(), count=1); see _cpuinfo_field_value.
+					output = _cpuinfo_field_value(line)
 					break
 	return output
 
@@ -4378,7 +4422,7 @@ def get_cpu_frequency():
 			frequency = output // 1000 // 1000
 	elif sys.platform.startswith("linux"):
 		with open("/proc/cpuinfo") as f:
-			freqs = [float(re.sub(r"^.*: *", "", line.rstrip(), count=1)) for line in f if line.startswith("cpu MHz")]
+			freqs = [float(_cpuinfo_field_value(line)) for line in f if line.startswith("cpu MHz")]
 		if freqs:
 			freq = set(freqs)
 			if len(freq) == 1:
