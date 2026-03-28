@@ -1875,6 +1875,7 @@ def parse_work_unit_prpll(filename):
 
 
 def transform_size(exponent):
+	"""Return a GpuOwl-style NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
 	log2_n = 1
 	while True:
 		log2_n += 1
@@ -1893,11 +1894,13 @@ def transform_size(exponent):
 
 
 def li(x):
+	"""Approximate the logarithmic integral term x/log x + x/log^2 x for prime-count estimates."""
 	l = math.log(x)
 	return x / l + x / (l * l)
 
 
 def prime_count_approx(low, high):
+	"""Estimate how many primes lie in (low, high] using the difference of li() approximations."""
 	diff = li(high) - li(low)
 	return max(0, int(diff))
 
