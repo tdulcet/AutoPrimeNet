@@ -4745,7 +4745,7 @@ def parse_work_unit_prpll(adapter, filename, p):
 
 
 def transform_size(exponent):
-	"""Return a GpuOwl-style NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
+	"""Return a PrMers NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
 	log2_n = 1
 	while True:
 		log2_n += 1
