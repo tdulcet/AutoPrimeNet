@@ -225,6 +225,7 @@ except ImportError:
 	from functools import reduce
 
 	def prod(iterable, start=1):
+		"""Return the product of all elements in iterable, times start (Python 3.8+ math.prod fallback)."""
 		return reduce(operator.mul, iterable, start)
 
 
@@ -348,6 +349,7 @@ if sys.platform == "win32":  # Windows
 		)
 
 		def __init__(self):
+			"""Set dwLength for passing this structure to GlobalMemoryStatusEx."""
 			self.dwLength = ctypes.sizeof(self)
 			super(MEMORYSTATUSEX, self).__init__()
 
@@ -447,6 +449,7 @@ elif sys.platform == "darwin":  # macOS
 	# libc.sysctlbyname.restype = ctypes.c_int
 
 	def sysctl_str(name):
+		"""Return a sysctl string value for the given ASCII name (macOS)."""
 		size = ctypes.c_size_t()
 		libc.sysctlbyname(name, None, ctypes.byref(size), None, 0)
 
@@ -455,6 +458,7 @@ elif sys.platform == "darwin":  # macOS
 		return buf.value
 
 	def sysctl_value(name, ctype):
+		"""Return a sysctl value of the given ctypes type for name (macOS)."""
 		size = ctypes.c_size_t(ctypes.sizeof(ctype))
 		value = ctype()
 		libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0)
@@ -467,6 +471,7 @@ elif sys.platform.startswith("linux"):
 	except ImportError:
 
 		def freedesktop_os_release():
+			"""Parse /etc/os-release or /usr/lib/os-release into a dict (Python < 3.10 fallback)."""
 			line_re = re.compile(r"""^([a-zA-Z_][a-zA-Z0-9_]*)=('([^']*)'|"((?:[^$"`]|\\[$"`\\])*)"|.*)$""")
 			quote_unescape_re = re.compile(r'\\([$"`\\])')
 			unescape_re = re.compile(r"\\(.)")
@@ -888,6 +893,7 @@ except ImportError:
 	if hasattr(os, "statvfs"):  # POSIX
 
 		def disk_usage(path):
+			"""Return total, used, and free disk space for path via statvfs (shutil.disk_usage fallback)."""
 			st = os.statvfs(path)
 			free = st.f_bavail * st.f_frsize
 			total = st.f_blocks * st.f_frsize
@@ -912,6 +918,7 @@ except ImportError:
 		# ctypes.windll.kernel32.GetDiskFreeSpaceExA.restype = wintypes.BOOL
 
 		def disk_usage(path):
+			"""Return total, used, and free disk space using GetDiskFreeSpaceEx (shutil.disk_usage fallback)."""
 			_ = wintypes.ULARGE_INTEGER()
 			total = wintypes.ULARGE_INTEGER()
 			free = wintypes.ULARGE_INTEGER()
@@ -938,6 +945,7 @@ except ImportError:
 		# ctypes.windll.kernel32.MoveFileExA.restype = wintypes.BOOL
 
 		def replace(src, dst):
+			"""Replace dst with src using MoveFileEx (os.replace fallback on Windows)."""
 			fun = (
 				ctypes.windll.kernel32.MoveFileExW
 				if sys.version_info >= (3,) or isinstance(src, str) or isinstance(dst, str)
@@ -1456,6 +1464,7 @@ else:
 		__slots__ = ()
 
 		def send(self, request, **kwargs):
+			"""Send request, setting TLS server_hostname from the Host header when present."""
 			host_header = request.headers.get("host")
 			connection_pool_kwargs = self.poolmanager.connection_pool_kw
 
@@ -2359,6 +2368,7 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 	replacements = {"EMAILADDRESS": email, "EMAILLOCALPART": local_part, "EMAILDOMAIN": email_domain}
 
 	def replacer(match):
+		"""Return the replacement string for a matched placeholder name, or the full match if unknown."""
 		return replacements.get(match.group(1), match.group())
 
 	for provider in root.findall("./emailProvider"):
@@ -5382,6 +5392,7 @@ def parse_work_unit_prpll(adapter, filename, p):
 
 
 def transform_size(exponent):
+	"""Return a PrMers NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
 	log2_n = 1
 	while True:
 		log2_n += 1
@@ -5400,11 +5411,13 @@ def transform_size(exponent):
 
 
 def li(x):
+	"""Approximate the logarithmic integral term x/log x + x/log^2 x for prime-count estimates."""
 	l = math.log(x)
 	return x / l + x / (l * l)
 
 
 def prime_count_approx(low, high):
+	"""Estimate how many primes lie in (low, high] using the difference of li() approximations."""
 	diff = li(high) - li(low)
 	return max(0, int(diff))
 
@@ -9466,6 +9479,7 @@ def is_pyinstaller():
 
 
 def debug_info():
+	"""Print runtime, library, OS, hardware, work options, and PrimeNet identity details for bug reports."""
 	print(
 		"""
 AutoPrimeNet executable:	{}
