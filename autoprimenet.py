@@ -5842,6 +5842,62 @@ def parse_cuda_output_file(adapter, adir, p):
 
 GPUOWL_RE = re.compile(r"^(?:(?:[0-9]+)(?:-([0-9]+)\.(ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|\.(?:(ll|p[12])\.)?owl))$")
 
+# Cheap substring / tiny-regex checks before GPUOWL_LOG_* Pattern.search in parse_gpuowl_log_file.
+# Sound: if .search(line) can match, the corresponding need_* must be True.
+GPUOWL_LOG_MAIN_LINE_GUARD_RE = re.compile(r"\d{6,}.*\d{4,}")
+
+
+def _gpuowl_log_need_main_search(line):
+	"""Return True if GPUOWL_LOG_MAIN_RE might match line (cheap pre-check before .search)."""
+	return GPUOWL_LOG_MAIN_LINE_GUARD_RE.search(line) is not None
+
+
+def _gpuowl_log_need_ap1_search(line):
+	"""Return True if GPUOWL_LOG_AP1_RE might match line (exponent digits run into 'P1 ')."""
+	i = line.find("P1 ")
+	if i < 1 or not line[i - 1].isdigit():
+		return False
+	j = i - 1
+	while j >= 0 and line[j].isdigit():
+		j -= 1
+	return i - 1 - j >= 6
+
+
+def _gpuowl_log_need_us_per_search(line):
+	"""Return True if GPUOWL_LOG_US_PER_RE might match line."""
+	return " us/it" in line
+
+
+def _gpuowl_log_need_fft_search(line):
+	"""Return True if GPUOWL_LOG_FFT_RE might match line."""
+	return " FFT:" in line
+
+
+def _gpuowl_log_need_p1_bits_search(line):
+	"""Return True if GPUOWL_LOG_P1_BITS_RE might match line."""
+	return (" bits" in line or "bits;" in line) and (" P1" in line or "P1(" in line)
+
+
+def _gpuowl_log_need_ap1_bits_search(line):
+	"""Return True if GPUOWL_LOG_AP1_BITS_RE might match line."""
+	return "P1" in line and "%" in line and "B1(" in line
+
+
+def _gpuowl_log_need_p2_blocks_search(line):
+	"""Return True if GPUOWL_LOG_P2_BLOCKS_RE might match line."""
+	return "blocks:" in line and "P2(" in line
+
+
+def _gpuowl_log_need_p2_ok_search(line):
+	"""Return True if GPUOWL_LOG_P2_OK_RE might match line."""
+	return " P2(" in line or ("/" in line and " P2 " in line)
+
+
+def _gpuowl_log_need_p1_pipe_search(line):
+	"""Return True if GPUOWL_LOG_P1_PIPE_RE might match line."""
+	return "| P1(" in line
+
+
 GPUOWL_LOG_MAIN_RE = re.compile(r"([0-9]{6,}) (LL|P1|OK|EE)? +([0-9]{4,})")
 GPUOWL_LOG_AP1_RE = re.compile(r"([0-9]{6,})P1 +([0-9]+\.[0-9]+)% ([KE])? +[0-9a-f]{16} +([0-9]+)")
 GPUOWL_LOG_US_PER_RE = re.compile(r"\b([0-9]+) us/it;?")
@@ -5899,14 +5955,14 @@ def parse_gpuowl_log_file(adapter, adir, p):
 	buffs = bits = 0
 	# get the 5 most recent Iter line
 	for line in reversed(list(w)):
-		res = GPUOWL_LOG_MAIN_RE.search(line)
-		ares = GPUOWL_LOG_AP1_RE.search(line)
-		us_res = GPUOWL_LOG_US_PER_RE.search(line)
-		fft_res = GPUOWL_LOG_FFT_RE.search(line)
-		p1_bits_res = GPUOWL_LOG_P1_BITS_RE.search(line)
-		ap1_bits_res = GPUOWL_LOG_AP1_BITS_RE.search(line)
-		blocks_res = GPUOWL_LOG_P2_BLOCKS_RE.search(line)
-		p2_res = GPUOWL_LOG_P2_OK_RE.search(line)
+		res = GPUOWL_LOG_MAIN_RE.search(line) if _gpuowl_log_need_main_search(line) else None
+		ares = GPUOWL_LOG_AP1_RE.search(line) if _gpuowl_log_need_ap1_search(line) else None
+		us_res = GPUOWL_LOG_US_PER_RE.search(line) if _gpuowl_log_need_us_per_search(line) else None
+		fft_res = GPUOWL_LOG_FFT_RE.search(line) if _gpuowl_log_need_fft_search(line) else None
+		p1_bits_res = GPUOWL_LOG_P1_BITS_RE.search(line) if _gpuowl_log_need_p1_bits_search(line) else None
+		ap1_bits_res = GPUOWL_LOG_AP1_BITS_RE.search(line) if _gpuowl_log_need_ap1_bits_search(line) else None
+		blocks_res = GPUOWL_LOG_P2_BLOCKS_RE.search(line) if _gpuowl_log_need_p2_blocks_search(line) else None
+		p2_res = GPUOWL_LOG_P2_OK_RE.search(line) if _gpuowl_log_need_p2_ok_search(line) else None
 		if res or ares:
 			num = int(res.group(1) if res else ares.group(1))
 			if num != p:
@@ -5935,7 +5991,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 			elif aiteration > iteration:
 				break
 			if not p1 and not (p2 or buffs):
-				p1_res = GPUOWL_LOG_P1_PIPE_RE.search(line)
+				p1_res = GPUOWL_LOG_P1_PIPE_RE.search(line) if _gpuowl_log_need_p1_pipe_search(line) else None
 				p1 = res.group(2) == "OK" and bool(p1_res)
 				if p1:
 					stage = 1
