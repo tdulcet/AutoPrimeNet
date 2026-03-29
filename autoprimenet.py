@@ -2998,6 +2998,53 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 
 
+_LOG_TAIL_CHUNK_SIZE = 256 * 1024
+
+
+def iter_lines_reversed(filename, encoding="utf-8", errors="replace", chunk_size=None):
+	"""Yield lines from last to first without reading the whole file into memory (tail-style)."""
+	if chunk_size is None:
+		chunk_size = _LOG_TAIL_CHUNK_SIZE
+	try:
+		size = os.path.getsize(filename)
+	except OSError:
+		return
+	if size == 0:
+		return
+	with io.open(filename, "rb") as f:
+		incomplete = b""
+		pos = size
+		while pos > 0:
+			step = min(chunk_size, pos)
+			pos -= step
+			f.seek(pos)
+			chunk = f.read(step)
+			buffer = chunk + incomplete
+			parts = buffer.split(b"\n")
+			incomplete = parts[0]
+			if pos == 0 and len(parts) > 1 and parts[-1] == b"":
+				parts = parts[:-1]
+			for part in reversed(parts[1:]):
+				yield part.decode(encoding, errors).rstrip("\r")
+		if incomplete:
+			yield incomplete.decode(encoding, errors).rstrip("\r")
+
+
+def read_last_n_lines(filename, n, encoding="utf-8", errors="replace", chunk_size=None):
+	"""Return the last n lines (oldest first). Always reads backward via iter_lines_reversed (one chunk if file < chunk_size)."""
+	if n <= 0:
+		return []
+	if not os.path.isfile(filename):
+		return []
+	out = []
+	for line in iter_lines_reversed(filename, encoding=encoding, errors=errors, chunk_size=chunk_size):
+		out.append(line)
+		if len(out) >= n:
+			break
+	out.reverse()
+	return out
+
+
 # region Config
 attr_to_copy = {
 	SEC.PrimeNet: {
@@ -4018,10 +4065,10 @@ def tail(filename, lines=100):
 	"""Returns the last 'lines' lines from a file, or an appropriate message if the file is not found or empty."""
 	if not os.path.isfile(filename):
 		return "> (File not found)"
-	w = deque(readonly_list_file(filename, errors="replace"), lines)
-	if not w:
+	last = read_last_n_lines(filename, lines, errors="replace")
+	if not last:
 		return "> (File is empty)"
-	return "\n".join("> " + line for line in w)
+	return "\n".join("> " + line for line in last)
 
 
 def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priority=None):
@@ -4292,7 +4339,7 @@ def get_os():
 
 
 def _cpuinfo_field_value(line):
-	"""Return the field value from a ``/proc/cpuinfo`` line.
+	r"""Return the field value from a ``/proc/cpuinfo`` line.
 
 	This matches the behavior of::
 
@@ -5779,12 +5826,12 @@ def parse_stat_file(adapter, adir, p):
 		adapter.debug("stat file %r does not exist", statfile)
 		return iteration, iterations, None, None, stage, fftlen
 
-	w = readonly_list_file(statfile)  # appended line by line, no lock needed
+	# appended line by line, no lock needed; scan from end of file
 	found = 0
 	list_msec_per_iter = []
 	s2 = bits = 0
 	# get the 5 most recent Iter line
-	for line in reversed(list(w)):
+	for line in iter_lines_reversed(statfile):
 		res = MLUCAS_STAT_ITER_RE.search(line)
 		fft_res = MLUCAS_STAT_FFT_RE.search(line)
 		s2_res = MLUCAS_STAT_S2Q0_RE.search(line)
@@ -5915,6 +5962,17 @@ GPUOWL_LOG_P2_OK_RE = re.compile(
 )
 
 
+def _benchmark_detect_p_gpuowl(log_path):
+	for line in iter_lines_reversed(log_path, errors="replace"):
+		r = GPUOWL_LOG_MAIN_RE.search(line)
+		if r:
+			return int(r.group(1))
+		a = GPUOWL_LOG_AP1_RE.search(line)
+		if a:
+			return int(a.group(1))
+	return None
+
+
 def parse_gpuowl_log_file(adapter, adir, p):
 	"""Parse the GpuOwl log file for the progress of the assignment."""
 	savefiles = []
@@ -5948,13 +6006,12 @@ def parse_gpuowl_log_file(adapter, adir, p):
 		adapter.debug("Log file %r does not exist", logfile)
 		return iteration, iterations, None, None, stage, fftlen
 
-	w = readonly_list_file(logfile, errors="replace")
 	found = 0
 	list_usec_per_iter = []
 	p1 = p2 = False
 	buffs = bits = 0
 	# get the 5 most recent Iter line
-	for line in reversed(list(w)):
+	for line in iter_lines_reversed(logfile, errors="replace"):
 		res = GPUOWL_LOG_MAIN_RE.search(line) if _gpuowl_log_need_main_search(line) else None
 		ares = GPUOWL_LOG_AP1_RE.search(line) if _gpuowl_log_need_ap1_search(line) else None
 		us_res = GPUOWL_LOG_US_PER_RE.search(line) if _gpuowl_log_need_us_per_search(line) else None
@@ -9781,6 +9838,86 @@ Computer GUID:			{}
 
 
 # endregion
+
+_BENCHMARK_LOGFILES_DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logfiles")
+
+
+class _BenchmarkLogNoOpAdapter:
+	def debug(self, *a, **k):
+		pass
+
+	def error(self, *a, **k):
+		pass
+
+
+def _benchmark_expand_log_paths(paths):
+	out = []
+	for p in paths:
+		p = os.path.normpath(p)
+		if os.path.isdir(p):
+			out.extend(glob.glob(os.path.join(p, "gpuowl*.log")))
+			out.extend(glob.glob(os.path.join(p, "p*.stat")))
+		elif os.path.isfile(p):
+			out.append(p)
+	return sorted(set(out))
+
+
+def run_benchmark_log_io(paths, repeat=5):
+	def mean_secs(total):
+		return total / repeat if repeat else 0.0
+
+	adapter = _BenchmarkLogNoOpAdapter()
+	expanded = _benchmark_expand_log_paths(paths)
+	print("mode=autoprimenet_benchmark_log_io repeat={}".format(repeat))
+	for path in expanded:
+		if not os.path.isfile(path):
+			continue
+		base = os.path.basename(path)
+		size = os.path.getsize(path)
+		tn = timeit.default_timer()
+		for _ in range(repeat):
+			read_last_n_lines(path, 100, errors="replace")
+		t_new = timeit.default_timer() - tn
+		tl = timeit.default_timer()
+		for _ in range(repeat):
+			deque(readonly_list_file(path, errors="replace"), 100)
+		t_legacy = timeit.default_timer() - tl
+		print(
+			"file={!r} bytes={} tail100_new_total_sec={:.6f} tail100_new_mean_sec={:.6f} tail100_legacy_total_sec={:.6f} tail100_legacy_mean_sec={:.6f}".format(
+				base, size, t_new, mean_secs(t_new), t_legacy, mean_secs(t_legacy)
+			)
+		)
+		low = base.lower()
+		if low.endswith(".log") and "gpuowl" in low:
+			p = _benchmark_detect_p_gpuowl(path)
+			if p is None:
+				print("  skip_parse_gpuowl: could not detect p")
+				continue
+			t_parse = timeit.default_timer()
+			last_r = None
+			for _ in range(repeat):
+				with tempfile.TemporaryDirectory() as tmp:
+					shutil.copy(path, os.path.join(tmp, "gpuowl.log"))
+					last_r = parse_gpuowl_log_file(adapter, tmp, p)
+			t_parse = timeit.default_timer() - t_parse
+			print(
+				"  parse_gpuowl p={} total_sec={:.6f} mean_sec={:.6f} result={!r}".format(p, t_parse, mean_secs(t_parse), last_r)
+			)
+		m_stat = re.match(r"^p([0-9]+)\.stat$", base, re.I)
+		if m_stat:
+			p_stat = int(m_stat.group(1))
+			ts = timeit.default_timer()
+			last_s = None
+			for _ in range(repeat):
+				with tempfile.TemporaryDirectory() as tmp:
+					shutil.copy(path, os.path.join(tmp, base))
+					last_s = parse_stat_file(adapter, tmp, p_stat)
+			ts = timeit.default_timer() - ts
+			print(
+				"  parse_stat p={} total_sec={:.6f} mean_sec={:.6f} result={!r}".format(p_stat, ts, mean_secs(ts), last_s)
+			)
+
+
 # region Main
 #######################################################################################################
 #
@@ -9804,6 +9941,16 @@ parser.add_argument(
 	default=0,
 	help="Output detailed information. Provide multiple times for even more verbose output.",
 )
+parser.add_argument(
+	"--benchmark-log-io",
+	nargs="*",
+	metavar="PATH",
+	default=None,
+	help="Benchmark log tail and GpuOwl/Mlucas stat parsers on files or directories, then exit. "
+	"Put --benchmark-repeat before this option if you use it (this option consumes remaining argv). "
+	"With no paths, defaults to ../logfiles relative to this script.",
+)
+parser.add_argument("--benchmark-repeat", type=int, default=5, help=argparse.SUPPRESS)
 parser.add_argument(
 	"-w",
 	"--workdir",
@@ -10202,6 +10349,11 @@ group.add_argument("-P", "--email-password", help="SMTP server password")
 group.add_argument("--test-email", action="store_true", help="Send a test e-mail message and exit")
 
 args = parser.parse_args()
+if args.benchmark_log_io is not None:
+	_bm_paths = args.benchmark_log_io if args.benchmark_log_io else [_BENCHMARK_LOGFILES_DEFAULT]
+	run_benchmark_log_io(_bm_paths, repeat=args.benchmark_repeat)
+	sys.exit(0)
+
 args_no_defaults = argparse.Namespace(**{
 	key: value for key, value in args.__dict__.items() if value is not None and parser.get_default(key) is not value
 })
