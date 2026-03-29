@@ -13,6 +13,7 @@ Accuracy: compares parse result tuple guarded vs unguarded; runs validate_gpuowl
 Run: python scripts/benchmark_gpuowl_log_guards.py
 
 Writes scripts/benchmark_gpuowl_log_guards.txt on success (override with --output).
+Default log corpus directory and timing defaults are in the CONFIG block near the top.
 """
 
 from __future__ import annotations
@@ -28,7 +29,22 @@ from pathlib import Path
 from statistics import median_low
 
 _REPO = Path(__file__).resolve().parent.parent
-_DEFAULT_RESULT_PATH = _REPO / "scripts" / "benchmark_gpuowl_log_guards.txt"
+
+# ---------------------------------------------------------------------------
+# Configuration — edit paths and defaults here (CLI flags override where noted).
+# ---------------------------------------------------------------------------
+# When no log paths are given, scan this directory:
+DEFAULT_LOGFILES_DIR: Path = _REPO.parent / "logfiles"
+DEFAULT_CORPUS_GLOB = "gpuowl*.log"
+# Output report (override with -o / --output):
+DEFAULT_RESULT_PATH = _REPO / "scripts" / "benchmark_gpuowl_log_guards.txt"
+# Subprocess accuracy check:
+VALIDATE_SCRIPT = _REPO / "scripts" / "validate_gpuowl_log_guards.py"
+# Timing (override with --repeat):
+DEFAULT_TIMING_REPEAT = 5
+# Wall-time summary uses best of this many outer runs:
+DEFAULT_TIMING_OUTER_RUNS = 3
+# ---------------------------------------------------------------------------
 
 # --- SYNC: autoprimenet suffix_power + INPUT_UNIT_RE + input_unit(scale=False) ---
 _SUFFIX_POWER = {"k": 1, "K": 1, "M": 2, "G": 3, "T": 4, "P": 5, "E": 6, "Z": 7, "Y": 8, "R": 9, "Q": 10}
@@ -228,14 +244,14 @@ def _parse_gpuowl_log_sim(lines: list[str], p: int, use_guards: bool) -> tuple:
 def _iter_corpus_files(argv_paths):
 	if argv_paths:
 		return [Path(p) for p in argv_paths]
-	base = Path(r"C:\Users\jeffr\source\repos\logfiles")
+	base = DEFAULT_LOGFILES_DIR
 	if not base.is_dir():
 		raise SystemExit("Default log dir missing: {!r} (pass log paths as args)".format(str(base)))
-	return sorted(base.glob("gpuowl*.log"))
+	return sorted(base.glob(DEFAULT_CORPUS_GLOB))
 
 
 def _run_accuracy(paths):
-	cmd = [sys.executable, str(_REPO / "scripts" / "validate_gpuowl_log_guards.py")]
+	cmd = [sys.executable, str(VALIDATE_SCRIPT)]
 	cmd.extend(str(p) for p in paths)
 	r = subprocess.run(cmd, cwd=str(_REPO), capture_output=True, text=True)
 	if r.returncode != 0 and r.stdout:
@@ -248,13 +264,18 @@ def _run_accuracy(paths):
 def main():
 	ap = argparse.ArgumentParser(description=__doc__)
 	ap.add_argument("log_paths", nargs="*", help="gpuowl logs (default: repos/logfiles/gpuowl*.log)")
-	ap.add_argument("--repeat", type=int, default=5, help="timing repeats per mode (default 5)")
+	ap.add_argument(
+		"--repeat",
+		type=int,
+		default=DEFAULT_TIMING_REPEAT,
+		help="timing repeats per mode (default {})".format(DEFAULT_TIMING_REPEAT),
+	)
 	ap.add_argument("--skip-accuracy", action="store_true")
 	ap.add_argument(
 		"--output",
 		"-o",
 		type=Path,
-		default=_DEFAULT_RESULT_PATH,
+		default=DEFAULT_RESULT_PATH,
 		help="write result summary to this file (default: scripts/benchmark_gpuowl_log_guards.txt)",
 	)
 	args = ap.parse_args()
@@ -326,7 +347,7 @@ def main():
 
 	times_e = []
 	times_g = []
-	for _ in range(3):
+	for _ in range(DEFAULT_TIMING_OUTER_RUNS):
 		times_e.append(bench_corpus(False))
 		times_g.append(bench_corpus(True))
 
@@ -334,8 +355,16 @@ def main():
 	best_g = min(times_g)
 	print()
 	print("Wall time, all files x {} repeats (lower is better):".format(args.repeat))
-	print("  Unconditional .search: best of 3 outer: {:.3f} s  (mean {:.3f})".format(best_e, statistics.mean(times_e)))
-	print("  Guarded .search:       best of 3 outer: {:.3f} s  (mean {:.3f})".format(best_g, statistics.mean(times_g)))
+	print(
+		"  Unconditional .search: best of {} outer: {:.3f} s  (mean {:.3f})".format(
+			DEFAULT_TIMING_OUTER_RUNS, best_e, statistics.mean(times_e)
+		)
+	)
+	print(
+		"  Guarded .search:       best of {} outer: {:.3f} s  (mean {:.3f})".format(
+			DEFAULT_TIMING_OUTER_RUNS, best_g, statistics.mean(times_g)
+		)
+	)
 	speedup = best_e / best_g if best_g > 0 else None
 	if speedup is not None:
 		print("  Speedup (eager/guarded): {:.3f}x".format(speedup))
@@ -375,11 +404,11 @@ def main():
 			),
 			"",
 			"Wall time, all files x {} repeats (lower is better):".format(args.repeat),
-			"  Unconditional .search: best of 3 outer: {:.3f} s  (mean {:.3f})".format(
-				best_e, statistics.mean(times_e)
+			"  Unconditional .search: best of {} outer: {:.3f} s  (mean {:.3f})".format(
+				DEFAULT_TIMING_OUTER_RUNS, best_e, statistics.mean(times_e)
 			),
-			"  Guarded .search:       best of 3 outer: {:.3f} s  (mean {:.3f})".format(
-				best_g, statistics.mean(times_g)
+			"  Guarded .search:       best of {} outer: {:.3f} s  (mean {:.3f})".format(
+				DEFAULT_TIMING_OUTER_RUNS, best_g, statistics.mean(times_g)
 			),
 		]
 	)

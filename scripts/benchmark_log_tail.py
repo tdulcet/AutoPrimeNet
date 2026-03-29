@@ -13,6 +13,7 @@ Manual run (repeat must precede --benchmark-log-io because the latter uses nargs
   python autoprimenet.py --benchmark-repeat 5 --benchmark-log-io C:\\path\\to\\logfiles
 
 Default corpus: sibling of repo AutoPrimeNet -> ../logfiles (override with paths).
+Paths, globs, tail line count, and output files: see CONFIG block near the top of this script.
 """
 
 from __future__ import annotations
@@ -29,12 +30,31 @@ from collections import deque
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
-_DEFAULT_LOG_IO_PRE = _REPO / "scripts" / "benchmark_log_io_pre.txt"
-_DEFAULT_LOG_IO_POST = _REPO / "scripts" / "benchmark_log_io_post.txt"
+
+# ---------------------------------------------------------------------------
+# Configuration — edit paths and defaults here (CLI flags override where noted).
+# ---------------------------------------------------------------------------
+# When no paths are given on the command line, this directory is scanned.
+DEFAULT_LOGFILES_DIR: Path = _REPO.parent / "logfiles"
+# Globs appended when a directory is passed or used as default:
+GLOB_GPUOWL_LOG = "gpuowl*.log"
+GLOB_STAT = "p*.stat"
+# autoprimenet subprocess benchmark:
+AUTOPRIMENET_SCRIPT = _REPO / "autoprimenet.py"
+# Legacy tail / deque uses this many lines:
+TAIL_LINE_COUNT = 100
+TEXT_ENCODING = "utf-8"
+TEXT_ERRORS = "replace"
+# Default output files (override with --out / -o):
+DEFAULT_RESULT_LEGACY = _REPO / "scripts" / "benchmark_log_io_pre.txt"
+DEFAULT_RESULT_SUBPROCESS = _REPO / "scripts" / "benchmark_log_io_post.txt"
+DEFAULT_BENCHMARK_REPEAT = 5
+DEFAULT_LEGACY_WARMUP = 1
+# ---------------------------------------------------------------------------
 
 
 def _default_logfiles_dir() -> str:
-	return str(_REPO.parent / "logfiles")
+	return str(DEFAULT_LOGFILES_DIR)
 
 
 def _expand_paths(paths: list[str]) -> list[str]:
@@ -42,16 +62,18 @@ def _expand_paths(paths: list[str]) -> list[str]:
 	for p in paths:
 		p = os.path.normpath(p)
 		if os.path.isdir(p):
-			out.extend(glob.glob(os.path.join(p, "gpuowl*.log")))
-			out.extend(glob.glob(os.path.join(p, "p*.stat")))
+			out.extend(glob.glob(os.path.join(p, GLOB_GPUOWL_LOG)))
+			out.extend(glob.glob(os.path.join(p, GLOB_STAT)))
 		elif os.path.isfile(p):
 			out.append(p)
 	return sorted(set(out))
 
 
-def _readonly_lines(filename: str, errors: str = "replace"):
+def _readonly_lines(filename: str, errors: str | None = None):
+	if errors is None:
+		errors = TEXT_ERRORS
 	try:
-		with io.open(filename, "r", encoding="utf-8", errors=errors) as f:
+		with io.open(filename, "r", encoding=TEXT_ENCODING, errors=errors) as f:
 			for line in f:
 				yield line.rstrip("\n")
 	except OSError:
@@ -61,14 +83,14 @@ def _readonly_lines(filename: str, errors: str = "replace"):
 def _legacy_tail(filename: str, n: int) -> str:
 	if not os.path.isfile(filename):
 		return "> (File not found)"
-	w = deque(_readonly_lines(filename, errors="replace"), n)
+	w = deque(_readonly_lines(filename), n)
 	if not w:
 		return "> (File is empty)"
 	return "\n".join("> " + line for line in w)
 
 
 def _legacy_full_lines(filename: str) -> list[str]:
-	return list(_readonly_lines(filename, errors="replace"))
+	return list(_readonly_lines(filename))
 
 
 def _time_repeat(fn, repeat: int, warmup: int) -> tuple[float, object]:
@@ -90,8 +112,12 @@ def _run_legacy(paths: list[str], repeat: int, warmup: int) -> str:
 			continue
 		size = os.path.getsize(path)
 		base = os.path.basename(path)
-		t_tail, _ = _time_repeat(lambda: _legacy_tail(path, 100), repeat, warmup)
-		lines_out.append("file={!r} bytes={} tail100_total_sec={:.6f} tail100_mean_sec={:.6f}".format(base, size, t_tail, t_tail / repeat))
+		t_tail, _ = _time_repeat(lambda: _legacy_tail(path, TAIL_LINE_COUNT), repeat, warmup)
+		lines_out.append(
+			"file={!r} bytes={} tail{}_total_sec={:.6f} tail{}_mean_sec={:.6f}".format(
+				base, size, TAIL_LINE_COUNT, t_tail, TAIL_LINE_COUNT, t_tail / repeat
+			)
+		)
 		if base.endswith(".log") and "gpuowl" in base.lower():
 			t_full, lines = _time_repeat(lambda: _legacy_full_lines(path), repeat, warmup)
 			lines_out.append(
@@ -103,7 +129,7 @@ def _run_legacy(paths: list[str], repeat: int, warmup: int) -> str:
 
 
 def _run_subprocess(paths: list[str], repeat: int) -> str:
-	ap = str(_REPO / "autoprimenet.py")
+	ap = str(AUTOPRIMENET_SCRIPT)
 	# --benchmark-repeat must come before --benchmark-log-io (nargs=* would swallow it).
 	cmd = [sys.executable, ap, "--benchmark-repeat", str(repeat), "--benchmark-log-io"]
 	cmd.extend(paths)
@@ -119,8 +145,8 @@ def main() -> int:
 	ap.add_argument("paths", nargs="*", help="Log/stat files or directories (default: ../logfiles)")
 	ap.add_argument("--legacy-only", action="store_true", help="Time legacy full-file tail/read (pre-change baseline)")
 	ap.add_argument("--subprocess", action="store_true", help="Run autoprimenet.py --benchmark-log-io (post-change)")
-	ap.add_argument("--repeat", type=int, default=5)
-	ap.add_argument("--warmup", type=int, default=1)
+	ap.add_argument("--repeat", type=int, default=DEFAULT_BENCHMARK_REPEAT)
+	ap.add_argument("--warmup", type=int, default=DEFAULT_LEGACY_WARMUP)
 	ap.add_argument(
 		"--out",
 		"--output",
@@ -134,7 +160,7 @@ def main() -> int:
 	)
 	args = ap.parse_args()
 	if args.out is None:
-		args.out = _DEFAULT_LOG_IO_POST if args.subprocess else _DEFAULT_LOG_IO_PRE
+		args.out = DEFAULT_RESULT_SUBPROCESS if args.subprocess else DEFAULT_RESULT_LEGACY
 
 	paths = _expand_paths(args.paths if args.paths else [_default_logfiles_dir()])
 	if not paths:

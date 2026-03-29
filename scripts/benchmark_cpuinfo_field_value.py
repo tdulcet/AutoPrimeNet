@@ -20,7 +20,16 @@ import time
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
-_DEFAULT_RESULT_PATH = _REPO / "scripts" / "benchmark_cpuinfo_field_value.txt"
+
+# ---------------------------------------------------------------------------
+# Configuration — edit defaults here (--output / -o overrides result path).
+# ---------------------------------------------------------------------------
+DEFAULT_RESULT_PATH = _REPO / "scripts" / "benchmark_cpuinfo_field_value.txt"
+# Inner benchmark loop: process all sample lines this many times per outer repeat:
+DEFAULT_OUTER_ITERATIONS = 50_000
+# Number of outer timing repeats (best/mean reported across these):
+DEFAULT_BENCH_REPEAT = 7
+# ---------------------------------------------------------------------------
 
 PATTERN = r"^.*: *"
 
@@ -86,7 +95,7 @@ def main() -> int:
 		"--output",
 		"-o",
 		type=Path,
-		default=_DEFAULT_RESULT_PATH,
+		default=DEFAULT_RESULT_PATH,
 		help="write result summary to this file (default: scripts/benchmark_cpuinfo_field_value.txt)",
 	)
 	args = ap.parse_args()
@@ -95,8 +104,8 @@ def main() -> int:
 		a, b = re_sub_original(line), cpuinfo_field_value(line)
 		assert a == b, (repr(line), a, b)
 
-	n = 50_000
-	r = 7
+	n = DEFAULT_OUTER_ITERATIONS
+	r = DEFAULT_BENCH_REPEAT
 	parses_all = len(SAMPLES)
 	parses_colon = len(SAMPLES_WITH_COLON)
 

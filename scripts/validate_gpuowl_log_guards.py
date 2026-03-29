@@ -3,7 +3,7 @@
 
 Guard implementations MUST match autoprimenet._gpuowl_log_need_* and GPUOWL_LOG_* patterns.
 
-Default corpus: C:\\Users\\jeffr\\source\\repos\\logfiles\\gpuowl*.log
+Default corpus: ../logfiles/gpuowl*.log (see DEFAULT_LOGFILES_DIR at top of script).
 Override: python scripts/validate_gpuowl_log_guards.py path1 path2 ...
 
 Exit 0 if all lines pass; exit 1 on first mismatch.
@@ -14,6 +14,15 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+_REPO = Path(__file__).resolve().parent.parent
+
+# ---------------------------------------------------------------------------
+# Configuration — default corpus when no paths are passed on the command line.
+# ---------------------------------------------------------------------------
+DEFAULT_LOGFILES_DIR: Path = _REPO.parent / "logfiles"
+DEFAULT_CORPUS_GLOB = "gpuowl*.log"
+# ---------------------------------------------------------------------------
 
 # --- SYNC: autoprimenet.GPUOWL_LOG_MAIN_LINE_GUARD_RE + _gpuowl_log_need_* ---
 _GPUOWL_LOG_MAIN_LINE_GUARD_RE = re.compile(r"\d{6,}.*\d{4,}")
@@ -112,10 +121,10 @@ def _match_equal(a, b):
 def _iter_corpus_files(argv):
 	if argv:
 		return [Path(p) for p in argv]
-	base = Path(r"C:\Users\jeffr\source\repos\logfiles")
+	base = DEFAULT_LOGFILES_DIR
 	if not base.is_dir():
 		raise SystemExit("Default log dir missing: {!r} (pass log paths as args)".format(str(base)))
-	return sorted(base.glob("gpuowl*.log"))
+	return sorted(base.glob(DEFAULT_CORPUS_GLOB))
 
 
 def main():

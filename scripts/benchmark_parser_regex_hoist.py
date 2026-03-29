@@ -24,7 +24,16 @@ from pathlib import Path
 from typing import Tuple
 
 _REPO = Path(__file__).resolve().parent.parent
-_DEFAULT_RESULT_PATH = _REPO / "scripts" / "benchmark_parser_regex_hoist.txt"
+
+# ---------------------------------------------------------------------------
+# Configuration — edit defaults here (CLI flags override).
+# ---------------------------------------------------------------------------
+DEFAULT_RESULT_PATH = _REPO / "scripts" / "benchmark_parser_regex_hoist.txt"
+# Simulated compiles per inner timed loop:
+DEFAULT_COMPILE_ITERATIONS = 20_000
+DEFAULT_TIMING_REPEAT = 7
+DEFAULT_WARMUP_LOOPS = 2
+# ---------------------------------------------------------------------------
 
 # --- SYNC: autoprimenet.MLUCAS_STAT_* (3 patterns) ---
 MLUCAS_STAT_PATTERNS = (
@@ -67,16 +76,31 @@ def _bench_compile(patterns: Tuple[str, ...], repeat: int, number: int, warmup: 
 
 def main() -> int:
 	ap = argparse.ArgumentParser(description=__doc__)
-	ap.add_argument("--iterations", type=int, default=20_000, help="outer loops per repeat (default 20000)")
-	ap.add_argument("--repeat", type=int, default=7, help="timing repeats (default 7)")
-	ap.add_argument("--warmup", type=int, default=2, help="warmup outer loops (default 2)")
+	ap.add_argument(
+		"--iterations",
+		type=int,
+		default=DEFAULT_COMPILE_ITERATIONS,
+		help="outer loops per repeat (default {})".format(DEFAULT_COMPILE_ITERATIONS),
+	)
+	ap.add_argument(
+		"--repeat",
+		type=int,
+		default=DEFAULT_TIMING_REPEAT,
+		help="timing repeats (default {})".format(DEFAULT_TIMING_REPEAT),
+	)
+	ap.add_argument(
+		"--warmup",
+		type=int,
+		default=DEFAULT_WARMUP_LOOPS,
+		help="warmup outer loops (default {})".format(DEFAULT_WARMUP_LOOPS),
+	)
 	ap.add_argument("--gpuowl-only", action="store_true")
 	ap.add_argument("--mlucas-only", action="store_true")
 	ap.add_argument(
 		"--output",
 		"-o",
 		type=Path,
-		default=_DEFAULT_RESULT_PATH,
+		default=DEFAULT_RESULT_PATH,
 		help="write result summary to this file (default: scripts/benchmark_parser_regex_hoist.txt)",
 	)
 	args = ap.parse_args()
