@@ -3044,13 +3044,19 @@ def iter_lines_reversed(filename, encoding="utf-8", errors="replace", chunk_size
 
 	If seek-from-end is not available (e.g. pipe), falls back to reading the file forward
 	then yielding in reverse (full file in memory for that path).
+
+	Uses explicit for/yield loops instead of yield-from so this file parses under interpreters
+	that reject ``yield from`` (Python 2 or Python 3 before 3.3), e.g. ``python`` on some
+	Ubuntu images. The project still requires Python 3 for the rest of the script; use python3.
 	"""
 	try:
-		yield from _iter_lines_reversed_chunked(filename, encoding=encoding, errors=errors, chunk_size=chunk_size)
+		for line in _iter_lines_reversed_chunked(filename, encoding=encoding, errors=errors, chunk_size=chunk_size):
+			yield line
 	except OSError:
 		logging.debug("Tail seek/size failed for %r; using forward read fallback", filename)
 		lines = list(_iter_lines_forward_normalized(filename, encoding=encoding, errors=errors))
-		yield from reversed(lines)
+		for line in reversed(lines):
+			yield line
 
 
 def read_last_n_lines(filename, n, encoding="utf-8", errors="replace", chunk_size=None):
