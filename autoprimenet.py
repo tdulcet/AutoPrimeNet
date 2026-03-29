@@ -2998,17 +2998,26 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 
 
+# Log tail and reverse iteration (tail(), parse_gpuowl/stat scans): read from EOF in binary,
+# split on b"\n", decode per segment so UTF-8 is not split mid-character; rstrip("\r") for CRLF.
+# If os.path.getsize or seek/read fails (pipe, some devices), fall back to forward text read:
+# iter_lines_reversed loads all lines then yields reversed; read_last_n_lines uses deque(maxlen=n).
+# Another process appending during the read can produce a truncated last line; fine for progress parsing.
 _LOG_TAIL_CHUNK_SIZE = 256 * 1024
 
 
-def iter_lines_reversed(filename, encoding="utf-8", errors="replace", chunk_size=None):
-	"""Yield lines from last to first without reading the whole file into memory (tail-style)."""
+def _iter_lines_forward_normalized(filename, encoding="utf-8", errors="replace"):
+	"""Yield logical lines (text mode) with same trimming as the binary tail path: no newline, no trailing CR."""
+	with io.open(filename, "r", encoding=encoding, errors=errors) as file:
+		for line in file:
+			yield line.rstrip("\n").rstrip("\r")
+
+
+def _iter_lines_reversed_chunked(filename, encoding="utf-8", errors="replace", chunk_size=None):
+	"""Backward chunked read; raises OSError if getsize/seek/read fails. Yields nothing if size is 0."""
 	if chunk_size is None:
 		chunk_size = _LOG_TAIL_CHUNK_SIZE
-	try:
-		size = os.path.getsize(filename)
-	except OSError:
-		return
+	size = os.path.getsize(filename)
 	if size == 0:
 		return
 	with io.open(filename, "rb") as f:
@@ -3030,19 +3039,43 @@ def iter_lines_reversed(filename, encoding="utf-8", errors="replace", chunk_size
 			yield incomplete.decode(encoding, errors).rstrip("\r")
 
 
+def iter_lines_reversed(filename, encoding="utf-8", errors="replace", chunk_size=None):
+	"""Yield lines from last to first without reading the whole file into memory (tail-style).
+
+	If seek-from-end is not available (e.g. pipe), falls back to reading the file forward
+	then yielding in reverse (full file in memory for that path).
+	"""
+	try:
+		yield from _iter_lines_reversed_chunked(filename, encoding=encoding, errors=errors, chunk_size=chunk_size)
+	except OSError:
+		logging.debug("Tail seek/size failed for %r; using forward read fallback", filename)
+		lines = list(_iter_lines_forward_normalized(filename, encoding=encoding, errors=errors))
+		yield from reversed(lines)
+
+
 def read_last_n_lines(filename, n, encoding="utf-8", errors="replace", chunk_size=None):
-	"""Return the last n lines (oldest first). Always reads backward via iter_lines_reversed (one chunk if file < chunk_size)."""
+	"""Return the last n lines (oldest first).
+
+	Uses backward chunks when possible (one chunk if file < chunk_size). If seek/size fails,
+	falls back to a forward read with bounded memory (deque of maxlen n).
+	"""
 	if n <= 0:
 		return []
 	if not os.path.isfile(filename):
 		return []
-	out = []
-	for line in iter_lines_reversed(filename, encoding=encoding, errors=errors, chunk_size=chunk_size):
-		out.append(line)
-		if len(out) >= n:
-			break
-	out.reverse()
-	return out
+	try:
+		out = []
+		for line in _iter_lines_reversed_chunked(filename, encoding=encoding, errors=errors, chunk_size=chunk_size):
+			out.append(line)
+			if len(out) >= n:
+				break
+		out.reverse()
+		return out
+	except OSError:
+		dq = deque(maxlen=n)
+		for line in _iter_lines_forward_normalized(filename, encoding=encoding, errors=errors):
+			dq.append(line)
+		return list(dq)
 
 
 # region Config
