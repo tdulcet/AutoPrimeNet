@@ -2986,23 +2986,15 @@ def setup(config, args):
 
 def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 	"""Yields lines from a file as strings."""
-	# Used when there is no intention to write the file back, so don't
-	# check or write lockfiles. Also returns a single string, no list.
 	try:
 		with io.open(filename, mode, encoding=encoding, errors=errors) as file:
 			for line in file:
 				yield line.rstrip("\n")
-	# Python 3.3+: FileNotFoundError
 	except (IOError, OSError) as e:
 		if e.errno != errno.ENOENT:
 			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 
 
-# Log tail and reverse iteration (tail(), parse_gpuowl/stat scans): read from EOF in binary,
-# split on b"\n", decode per segment so UTF-8 is not split mid-character; rstrip("\r") for CRLF.
-# If os.path.getsize or seek/read fails (pipe, some devices), fall back to forward text read:
-# iter_lines_reversed loads all lines then yields reversed; read_last_n_lines uses deque(maxlen=n).
-# Another process appending during the read can produce a truncated last line; fine for progress parsing.
 _LOG_TAIL_CHUNK_SIZE = 256 * 1024
 
 
@@ -3014,7 +3006,7 @@ def _iter_lines_forward_normalized(filename, encoding="utf-8", errors="replace")
 
 
 def _iter_lines_reversed_chunked(filename, encoding="utf-8", errors="replace", chunk_size=None):
-	"""Backward chunked read; raises OSError if getsize/seek/read fails. Yields nothing if size is 0."""
+	"""Backward chunked read; raises OSError if getsize/seek/read fails; nothing if size is 0."""
 	if chunk_size is None:
 		chunk_size = _LOG_TAIL_CHUNK_SIZE
 	size = os.path.getsize(filename)
@@ -3040,15 +3032,7 @@ def _iter_lines_reversed_chunked(filename, encoding="utf-8", errors="replace", c
 
 
 def iter_lines_reversed(filename, encoding="utf-8", errors="replace", chunk_size=None):
-	"""Yield lines from last to first without reading the whole file into memory (tail-style).
-
-	If seek-from-end is not available (e.g. pipe), falls back to reading the file forward
-	then yielding in reverse (full file in memory for that path).
-
-	Uses explicit for/yield loops instead of yield-from so this file parses under interpreters
-	that reject ``yield from`` (Python 2 or Python 3 before 3.3), e.g. ``python`` on some
-	Ubuntu images. The project still requires Python 3 for the rest of the script; use python3.
-	"""
+	"""Yield lines from last to first without reading the whole file into memory (tail-style)."""
 	try:
 		for line in _iter_lines_reversed_chunked(filename, encoding=encoding, errors=errors, chunk_size=chunk_size):
 			yield line
@@ -3060,11 +3044,7 @@ def iter_lines_reversed(filename, encoding="utf-8", errors="replace", chunk_size
 
 
 def read_last_n_lines(filename, n, encoding="utf-8", errors="replace", chunk_size=None):
-	"""Return the last n lines (oldest first).
-
-	Uses backward chunks when possible (one chunk if file < chunk_size). If seek/size fails,
-	falls back to a forward read with bounded memory (deque of maxlen n).
-	"""
+	"""Return the last n lines (oldest first)."""
 	if n <= 0:
 		return []
 	if not os.path.isfile(filename):
@@ -4378,32 +4358,11 @@ def get_os():
 
 
 def _cpuinfo_field_value(line):
-	r"""Return the field value from a ``/proc/cpuinfo`` line.
-
-	This matches the behavior of::
-
-		re.sub(r"^.*: *", "", line.rstrip(), count=1)
-
-	- ``line`` is first logically ``rstrip()``'d (trailing newline/CRLF removed).
-	- If there is no ``":"``, the pattern does not match and ``re.sub`` returns the
-	  string unchanged; we return that same string.
-	- Otherwise the matched prefix is everything from the start through the first
-	  ``":"`` and any ASCII space characters (U+0020) immediately after it. The
-	  regex uses literal `` *``, not ``\s*``, so tabs or other whitespace are not
-	  consumed here and become part of the returned value.
-	- The remainder of the line is not right-stripped; only the original
-	  ``line.rstrip()`` affects the right end of the string.
-
-	- ~3.0× faster than ``re.sub(r"^.*: *", "", line.rstrip(), count=1)``.
-	  Moderators can disregard if the code is deemed less maintainable.
-	"""
-	# Same preprocessing the old ``re.sub`` used as its input string.
+	"""Return the field value from a ``/proc/cpuinfo`` line."""
 	s = line.rstrip()
-	# ``^.*: *`` can only match if there is a colon; otherwise ``re.sub`` leaves ``s`` unchanged.
 	colon = s.find(":")
 	if colon < 0:
 		return s
-	# Skip the colon, then consume only U+0020 spaces (same as `` *`` in the regex).
 	i = colon + 1
 	n = len(s)
 	while i < n and s[i] == " ":
@@ -5926,18 +5885,6 @@ def parse_cuda_output_file(adapter, adir, p):
 	return iteration, None, avg_msec_per_iter, None, None, fftlen
 
 
-GPUOWL_RE = re.compile(r"^(?:(?:[0-9]+)(?:-([0-9]+)\.(ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|\.(?:(ll|p[12])\.)?owl))$")
-
-# Cheap substring / tiny-regex checks before GPUOWL_LOG_* Pattern.search in parse_gpuowl_log_file.
-# Sound: if .search(line) can match, the corresponding need_* must be True.
-GPUOWL_LOG_MAIN_LINE_GUARD_RE = re.compile(r"\d{6,}.*\d{4,}")
-
-
-def _gpuowl_log_need_main_search(line):
-	"""Return True if GPUOWL_LOG_MAIN_RE might match line (cheap pre-check before .search)."""
-	return GPUOWL_LOG_MAIN_LINE_GUARD_RE.search(line) is not None
-
-
 def _gpuowl_log_need_ap1_search(line):
 	"""Return True if GPUOWL_LOG_AP1_RE might match line (exponent digits run into 'P1 ')."""
 	i = line.find("P1 ")
@@ -5949,41 +5896,7 @@ def _gpuowl_log_need_ap1_search(line):
 	return i - 1 - j >= 6
 
 
-def _gpuowl_log_need_us_per_search(line):
-	"""Return True if GPUOWL_LOG_US_PER_RE might match line."""
-	return " us/it" in line
-
-
-def _gpuowl_log_need_fft_search(line):
-	"""Return True if GPUOWL_LOG_FFT_RE might match line."""
-	return " FFT:" in line
-
-
-def _gpuowl_log_need_p1_bits_search(line):
-	"""Return True if GPUOWL_LOG_P1_BITS_RE might match line."""
-	return (" bits" in line or "bits;" in line) and (" P1" in line or "P1(" in line)
-
-
-def _gpuowl_log_need_ap1_bits_search(line):
-	"""Return True if GPUOWL_LOG_AP1_BITS_RE might match line."""
-	return "P1" in line and "%" in line and "B1(" in line
-
-
-def _gpuowl_log_need_p2_blocks_search(line):
-	"""Return True if GPUOWL_LOG_P2_BLOCKS_RE might match line."""
-	return "blocks:" in line and "P2(" in line
-
-
-def _gpuowl_log_need_p2_ok_search(line):
-	"""Return True if GPUOWL_LOG_P2_OK_RE might match line."""
-	return " P2(" in line or ("/" in line and " P2 " in line)
-
-
-def _gpuowl_log_need_p1_pipe_search(line):
-	"""Return True if GPUOWL_LOG_P1_PIPE_RE might match line."""
-	return "| P1(" in line
-
-
+GPUOWL_RE = re.compile(r"^(?:(?:[0-9]+)(?:-([0-9]+)\.(ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|\.(?:(ll|p[12])\.)?owl))$")
 GPUOWL_LOG_MAIN_RE = re.compile(r"([0-9]{6,}) (LL|P1|OK|EE)? +([0-9]{4,})")
 GPUOWL_LOG_AP1_RE = re.compile(r"([0-9]{6,})P1 +([0-9]+\.[0-9]+)% ([KE])? +[0-9a-f]{16} +([0-9]+)")
 GPUOWL_LOG_US_PER_RE = re.compile(r"\b([0-9]+) us/it;?")
@@ -6051,14 +5964,14 @@ def parse_gpuowl_log_file(adapter, adir, p):
 	buffs = bits = 0
 	# get the 5 most recent Iter line
 	for line in iter_lines_reversed(logfile, errors="replace"):
-		res = GPUOWL_LOG_MAIN_RE.search(line) if _gpuowl_log_need_main_search(line) else None
+		res = GPUOWL_LOG_MAIN_RE.search(line)
 		ares = GPUOWL_LOG_AP1_RE.search(line) if _gpuowl_log_need_ap1_search(line) else None
-		us_res = GPUOWL_LOG_US_PER_RE.search(line) if _gpuowl_log_need_us_per_search(line) else None
-		fft_res = GPUOWL_LOG_FFT_RE.search(line) if _gpuowl_log_need_fft_search(line) else None
-		p1_bits_res = GPUOWL_LOG_P1_BITS_RE.search(line) if _gpuowl_log_need_p1_bits_search(line) else None
-		ap1_bits_res = GPUOWL_LOG_AP1_BITS_RE.search(line) if _gpuowl_log_need_ap1_bits_search(line) else None
-		blocks_res = GPUOWL_LOG_P2_BLOCKS_RE.search(line) if _gpuowl_log_need_p2_blocks_search(line) else None
-		p2_res = GPUOWL_LOG_P2_OK_RE.search(line) if _gpuowl_log_need_p2_ok_search(line) else None
+		us_res = GPUOWL_LOG_US_PER_RE.search(line) if " us/it" in line else None
+		fft_res = GPUOWL_LOG_FFT_RE.search(line) if " FFT:" in line else None
+		p1_bits_res = GPUOWL_LOG_P1_BITS_RE.search(line) if (" bits" in line or "bits;" in line) and (" P1" in line or "P1(" in line) else None
+		ap1_bits_res = GPUOWL_LOG_AP1_BITS_RE.search(line) if "P1" in line and "%" in line and "B1(" in line else None
+		blocks_res = GPUOWL_LOG_P2_BLOCKS_RE.search(line) if "blocks:" in line and "P2(" in line else None
+		p2_res = GPUOWL_LOG_P2_OK_RE.search(line) if " P2(" in line or ("/" in line and " P2 " in line) else None
 		if res or ares:
 			num = int(res.group(1) if res else ares.group(1))
 			if num != p:
@@ -6087,7 +6000,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 			elif aiteration > iteration:
 				break
 			if not p1 and not (p2 or buffs):
-				p1_res = GPUOWL_LOG_P1_PIPE_RE.search(line) if _gpuowl_log_need_p1_pipe_search(line) else None
+				p1_res = GPUOWL_LOG_P1_PIPE_RE.search(line) if "| P1(" in line else None
 				p1 = res.group(2) == "OK" and bool(p1_res)
 				if p1:
 					stage = 1
