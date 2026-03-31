@@ -2986,10 +2986,13 @@ def setup(config, args):
 
 def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 	"""Yields lines from a file as strings."""
+	# Used when there is no intention to write the file back, so don't
+	# check or write lockfiles. Also returns a single string, no list.
 	try:
 		with io.open(filename, mode, encoding=encoding, errors=errors) as file:
 			for line in file:
 				yield line.rstrip("\n")
+	# Python 3.3+: FileNotFoundError
 	except (IOError, OSError) as e:
 		if e.errno != errno.ENOENT:
 			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
@@ -4397,7 +4400,6 @@ def get_cpu_model():
 		with open("/proc/cpuinfo") as f:
 			for line in f:
 				if line.startswith("model name"):
-					# Same as former re.sub(r"^.*: *", "", line.rstrip(), count=1); see _cpuinfo_field_value.
 					output = _cpuinfo_field_value(line)
 					break
 	return output
@@ -9789,8 +9791,6 @@ Computer GUID:			{}
 
 
 # endregion
-
-
 # region Main
 #######################################################################################################
 #
@@ -10212,7 +10212,6 @@ group.add_argument("-P", "--email-password", help="SMTP server password")
 group.add_argument("--test-email", action="store_true", help="Send a test e-mail message and exit")
 
 args = parser.parse_args()
-
 args_no_defaults = argparse.Namespace(**{
 	key: value for key, value in args.__dict__.items() if value is not None and parser.get_default(key) is not value
 })
