@@ -2998,6 +2998,17 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 _LOG_TAIL_CHUNK_SIZE = 256 * 1024
 
 
+def _reversed_complete_lines_in_block(mv, encoding, errors, at_eof):
+	"""Split a file-order byte block on \\n; return (lines, carry)."""
+	data = mv.tobytes()
+	parts = data.split(b"\n")
+	incomplete = parts[0]
+	if at_eof and len(parts) > 1 and parts[-1] == b"":
+		parts = parts[:-1]
+	lines = [p.decode(encoding, errors).rstrip("\r") for p in reversed(parts[1:])]
+	return lines, incomplete
+
+
 def _iter_lines_forward_normalized(filename, encoding="utf-8", errors="replace"):
 	"""Yield logical lines (text mode) with same trimming as the binary tail path: no newline, no trailing CR."""
 	with io.open(filename, "r", encoding=encoding, errors=errors) as file:
@@ -3012,21 +3023,30 @@ def _iter_lines_reversed_chunked(filename, encoding="utf-8", errors="replace", c
 	size = os.path.getsize(filename)
 	if size == 0:
 		return
-	with io.open(filename, "rb") as f:
+	read_buf = bytearray(chunk_size)
+	read_view = memoryview(read_buf)
+	merge_buf = bytearray()
+	with open(filename, "rb", buffering=chunk_size) as f:
 		incomplete = b""
 		pos = size
 		while pos > 0:
 			step = min(chunk_size, pos)
 			pos -= step
 			f.seek(pos)
-			chunk = f.read(step)
-			buffer = chunk + incomplete
-			parts = buffer.split(b"\n")
-			incomplete = parts[0]
-			if pos == 0 and len(parts) > 1 and parts[-1] == b"":
-				parts = parts[:-1]
-			for part in reversed(parts[1:]):
-				yield part.decode(encoding, errors).rstrip("\r")
+			n = f.readinto(read_view[:step])
+			at_eof = pos == 0
+			if not incomplete:
+				block_mv = read_view[:n]
+			else:
+				total = n + len(incomplete)
+				if len(merge_buf) < total:
+					merge_buf = bytearray(total)
+				merge_buf[:n] = read_view[:n]
+				merge_buf[n:total] = incomplete
+				block_mv = memoryview(merge_buf)[:total]
+			lines, incomplete = _reversed_complete_lines_in_block(block_mv, encoding, errors, at_eof)
+			for line in lines:
+				yield line
 		if incomplete:
 			yield incomplete.decode(encoding, errors).rstrip("\r")
 
@@ -9814,13 +9834,43 @@ def _benchmark_expand_log_paths(paths):
 	return sorted(set(out))
 
 
-def run_benchmark_log_io(paths, repeat=5):
+def run_benchmark_log_io(paths, repeat=5, chunk_sweep=False):
 	def mean_secs(total):
 		return total / repeat if repeat else 0.0
+
+	def _iter_lines_reversed_read_legacy(filename, encoding="utf-8", errors="replace", chunk_size=None):
+		"""Pre-readinto implementation for benchmark comparison only."""
+		if chunk_size is None:
+			chunk_size = _LOG_TAIL_CHUNK_SIZE
+		sz = os.path.getsize(filename)
+		if sz == 0:
+			return
+		with io.open(filename, "rb") as bf:
+			incomplete = b""
+			pos = sz
+			while pos > 0:
+				step = min(chunk_size, pos)
+				pos -= step
+				bf.seek(pos)
+				chunk = bf.read(step)
+				buffer = chunk + incomplete
+				parts = buffer.split(b"\n")
+				incomplete = parts[0]
+				if pos == 0 and len(parts) > 1 and parts[-1] == b"":
+					parts = parts[:-1]
+				for part in reversed(parts[1:]):
+					yield part.decode(encoding, errors).rstrip("\r")
+			if incomplete:
+				yield incomplete.decode(encoding, errors).rstrip("\r")
+
+	def _consume_line_iter(gen):
+		for _ in gen:
+			pass
 
 	adapter = _BenchmarkLogNoOpAdapter()
 	expanded = _benchmark_expand_log_paths(paths)
 	print("mode=autoprimenet_benchmark_log_io repeat={}".format(repeat))
+	report_rev_lines = []
 	for path in expanded:
 		if not os.path.isfile(path):
 			continue
@@ -9839,6 +9889,34 @@ def run_benchmark_log_io(paths, repeat=5):
 				base, size, t_new, mean_secs(t_new), t_legacy, mean_secs(t_legacy)
 			)
 		)
+		if size > 0:
+			parity_cap = 5 * 1024 * 1024
+			if size <= parity_cap:
+				new_lines = list(_iter_lines_reversed_chunked(path, errors="replace"))
+				old_lines = list(_iter_lines_reversed_read_legacy(path, errors="replace"))
+				if new_lines != old_lines:
+					raise AssertionError("reversed-line parity mismatch for {!r}".format(path))
+			trn = timeit.default_timer()
+			for _ in range(repeat):
+				_consume_line_iter(_iter_lines_reversed_chunked(path, errors="replace"))
+			t_rev_new = timeit.default_timer() - trn
+			trl = timeit.default_timer()
+			for _ in range(repeat):
+				_consume_line_iter(_iter_lines_reversed_read_legacy(path, errors="replace"))
+			t_rev_legacy = timeit.default_timer() - trl
+			rev_line = (
+				"  rev_full_new_total_sec={:.6f} rev_full_new_mean_sec={:.6f} "
+				"rev_full_legacy_total_sec={:.6f} rev_full_legacy_mean_sec={:.6f} "
+				"legacy_time_over_new={:.2f}x (>1 legacy slower)".format(
+					t_rev_new,
+					mean_secs(t_rev_new),
+					t_rev_legacy,
+					mean_secs(t_rev_legacy),
+					(t_rev_legacy / t_rev_new) if t_rev_new else 0.0,
+				)
+			)
+			print(rev_line)
+			report_rev_lines.append("file={!r} bytes={} {}".format(base, size, rev_line))
 		low = base.lower()
 		if low.endswith(".log") and "gpuowl" in low:
 			p = _benchmark_detect_p_gpuowl(path)
@@ -9868,6 +9946,34 @@ def run_benchmark_log_io(paths, repeat=5):
 			print(
 				"  parse_stat p={} total_sec={:.6f} mean_sec={:.6f} result={!r}".format(p_stat, ts, mean_secs(ts), last_s)
 			)
+
+	if chunk_sweep:
+		sized = [(os.path.getsize(p), p) for p in expanded if os.path.isfile(p) and os.path.getsize(p) > 0]
+		sized.sort(reverse=True)
+		top_paths = [p for _, p in sized[:2]]
+		cs_grid = (64 * 1024, 256 * 1024, 1024 * 1024)
+		print(
+			"mode=benchmark_chunk_sweep repeat={} chunk_sizes_KiB={}".format(repeat, [x // 1024 for x in cs_grid])
+		)
+		for path in top_paths:
+			base_sw = os.path.basename(path)
+			sz_sw = os.path.getsize(path)
+			print("chunk_sweep file={!r} bytes={}".format(base_sw, sz_sw))
+			for cs in cs_grid:
+				tcs = timeit.default_timer()
+				for _ in range(repeat):
+					_consume_line_iter(_iter_lines_reversed_chunked(path, errors="replace", chunk_size=cs))
+				tcs = timeit.default_timer() - tcs
+				print(
+					"  chunk_size={} total_sec={:.6f} mean_sec={:.6f}".format(cs, tcs, mean_secs(tcs))
+				)
+
+	if report_rev_lines:
+		report_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmark_reversed_lines_after.txt")
+		with open(report_path, "w", encoding="utf-8") as rf:
+			rf.write("python={}\nplatform={}\nrepeat={}\n".format(platform.python_version(), platform.platform(), repeat))
+			rf.write("\n".join(report_rev_lines) + "\n")
+		print("wrote {!r}".format(report_path))
 
 
 # region Main
@@ -9899,10 +10005,16 @@ parser.add_argument(
 	metavar="PATH",
 	default=None,
 	help="Benchmark log tail and GpuOwl/Mlucas stat parsers on files or directories, then exit. "
-	"Put --benchmark-repeat before this option if you use it (this option consumes remaining argv). "
+	"Put --benchmark-repeat and optional --benchmark-chunk-sweep before this option if you use them "
+	"(this option consumes remaining argv). "
 	"With no paths, defaults to ../logfiles relative to this script.",
 )
 parser.add_argument("--benchmark-repeat", type=int, default=5, help=argparse.SUPPRESS)
+parser.add_argument(
+	"--benchmark-chunk-sweep",
+	action="store_true",
+	help=argparse.SUPPRESS,
+)
 parser.add_argument(
 	"-w",
 	"--workdir",
@@ -10303,7 +10415,7 @@ group.add_argument("--test-email", action="store_true", help="Send a test e-mail
 args = parser.parse_args()
 if args.benchmark_log_io is not None:
 	_bm_paths = args.benchmark_log_io if args.benchmark_log_io else [_BENCHMARK_LOGFILES_DEFAULT]
-	run_benchmark_log_io(_bm_paths, repeat=args.benchmark_repeat)
+	run_benchmark_log_io(_bm_paths, repeat=args.benchmark_repeat, chunk_sweep=args.benchmark_chunk_sweep)
 	sys.exit(0)
 
 args_no_defaults = argparse.Namespace(**{
