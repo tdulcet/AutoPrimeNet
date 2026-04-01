@@ -93,7 +93,7 @@ import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 from array import array
-from collections import deque, namedtuple
+from collections import namedtuple
 from ctypes.util import find_library
 from datetime import datetime
 from decimal import Decimal
@@ -2998,6 +2998,48 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 
 
+def iter_lines_reversed(filename, encoding="utf-8", errors="strict", chunk_size=io.DEFAULT_BUFFER_SIZE):
+	"""Yield lines from last to first without reading the whole file into memory (tail-style)."""
+	buffer = bytearray(chunk_size)
+	view = memoryview(buffer)
+	incomplete = None
+	try:
+		with open(filename, "rb", buffering=0) as f:
+			f.seek(0, 2)  # os.SEEK_END
+			pos = f.tell()
+			while pos > 0:
+				step = min(chunk_size, pos)
+				f.seek(pos - step)
+				size = f.readinto(view[:step])
+				buf = buffer[:size]
+				if incomplete:
+					buf.extend(incomplete)
+				lines = buf.splitlines(True)
+				incomplete = lines.pop(0)
+				for line in reversed(lines):
+					yield line.rstrip(b"\r\n").decode(encoding, errors)
+				pos -= size
+			if incomplete:
+				yield incomplete.rstrip(b"\r\n").decode(encoding, errors)
+	# Python 3.3+: FileNotFoundError
+	except (IOError, OSError) as e:
+		if e.errno != errno.ENOENT:
+			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+
+
+def read_last_n_lines(filename, n, encoding="utf-8", errors="strict"):
+	"""Return the last n lines (oldest first)."""
+	if n <= 0:
+		return []
+	out = []
+	for i, line in enumerate(iter_lines_reversed(filename, encoding=encoding, errors=errors), 1):
+		out.append(line)
+		if i >= n:
+			break
+	out.reverse()
+	return out
+
+
 # region Config
 attr_to_copy = {
 	SEC.PrimeNet: {
@@ -4018,10 +4060,10 @@ def tail(filename, lines=100):
 	"""Returns the last 'lines' lines from a file, or an appropriate message if the file is not found or empty."""
 	if not os.path.isfile(filename):
 		return "> (File not found)"
-	w = deque(readonly_list_file(filename, errors="replace"), lines)
-	if not w:
+	last = read_last_n_lines(filename, lines, errors="replace")
+	if not last:
 		return "> (File is empty)"
-	return "\n".join("> " + line for line in w)
+	return "\n".join("> " + line for line in last)
 
 
 def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priority=None):
@@ -4308,7 +4350,7 @@ def get_cpu_model():
 		with open("/proc/cpuinfo") as f:
 			for line in f:
 				if line.startswith("model name"):
-					output = re.sub(r"^.*: *", "", line.rstrip(), count=1)
+					output = line.split(":", 1)[1].strip()
 					break
 	return output
 
@@ -4378,7 +4420,7 @@ def get_cpu_frequency():
 			frequency = output // 1000 // 1000
 	elif sys.platform.startswith("linux"):
 		with open("/proc/cpuinfo") as f:
-			freqs = [float(re.sub(r"^.*: *", "", line.rstrip(), count=1)) for line in f if line.startswith("cpu MHz")]
+			freqs = [float(line.split(":", 1)[1]) for line in f if line.startswith("cpu MHz")]
 		if freqs:
 			freq = set(freqs)
 			if len(freq) == 1:
@@ -5712,6 +5754,12 @@ def get_stages_mfaktx_ini(adapter, adir):
 
 MLUCAS_RE = re.compile(r"^p([0-9]+)(?:\.s([12]))?$")
 
+MLUCAS_STAT_ITER_RE = re.compile(
+	r"(Iter#|S1|S2)(?: bit| at q)? = ([0-9]+) \[ ?([0-9]+\.[0-9]+)% complete\] .*\[ *([0-9]+\.[0-9]+) (m?sec)/iter\]"
+)
+MLUCAS_STAT_FFT_RE = re.compile(r"FFT length [0-9]{3,}K = ([0-9]{6,})")
+MLUCAS_STAT_S2Q0_RE = re.compile(r"Stage 2 q0 = ([0-9]+)")
+
 
 def parse_stat_file(adapter, adir, p):
 	"""Parse the Mlucas stat file for the progress of the assignment."""
@@ -5738,20 +5786,15 @@ def parse_stat_file(adapter, adir, p):
 		adapter.debug("stat file %r does not exist", statfile)
 		return iteration, iterations, None, None, stage, fftlen
 
-	w = readonly_list_file(statfile)  # appended line by line, no lock needed
+	# appended line by line, no lock needed
 	found = 0
-	regex = re.compile(
-		r"(Iter#|S1|S2)(?: bit| at q)? = ([0-9]+) \[ ?([0-9]+\.[0-9]+)% complete\] .*\[ *([0-9]+\.[0-9]+) (m?sec)/iter\]"
-	)
-	fft_regex = re.compile(r"FFT length [0-9]{3,}K = ([0-9]{6,})")
-	s2_regex = re.compile(r"Stage 2 q0 = ([0-9]+)")
 	list_msec_per_iter = []
 	s2 = bits = 0
 	# get the 5 most recent Iter line
-	for line in reversed(list(w)):
-		res = regex.search(line)
-		fft_res = fft_regex.search(line)
-		s2_res = s2_regex.search(line)
+	for line in iter_lines_reversed(statfile):
+		res = MLUCAS_STAT_ITER_RE.search(line)
+		fft_res = MLUCAS_STAT_FFT_RE.search(line)
+		s2_res = MLUCAS_STAT_S2Q0_RE.search(line)
 		if res and found < 5:
 			astage = res.group(1)
 			# keep the last iteration to compute the percent of progress
@@ -5806,6 +5849,18 @@ def parse_cuda_output_file(adapter, adir, p):
 
 GPUOWL_RE = re.compile(r"^(?:(?:[0-9]+)(?:-([0-9]+)\.(ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|\.(?:(ll|p[12])\.)?owl))$")
 
+GPUOWL_LOG_MAIN_RE = re.compile(r"([0-9]{6,}) (LL|P1|OK|EE)? +([0-9]{4,})")
+GPUOWL_LOG_AP1_RE = re.compile(r"([0-9]{6,})P1 +([0-9]+\.[0-9]+)% ([KE])? +[0-9a-f]{16} +([0-9]+)")
+GPUOWL_LOG_US_PER_RE = re.compile(r"\b([0-9]+) us/it;?")
+GPUOWL_LOG_FFT_RE = re.compile(r"\b([0-9]{6,}) FFT: ([0-9]+(?:\.[0-9]+)?[KM])\b")
+GPUOWL_LOG_P1_BITS_RE = re.compile(r"\b[0-9]{6,} P1(?: B1=[0-9]+, B2=[0-9]+;|\([0-9]+(?:\.[0-9])?M?\)) ([0-9]+) bits;?\b")
+GPUOWL_LOG_AP1_BITS_RE = re.compile(r"\b[0-9]{6,}P1 +[0-9]+\.[0-9]+% @([0-9]+)/([0-9]+) B1\([0-9]+\)")
+GPUOWL_LOG_P2_BLOCKS_RE = re.compile(
+	r"[0-9]{6,} P2\([0-9]+(?:\.[0-9])?M?,[0-9]+(?:\.[0-9])?M?\) ([0-9]+) blocks: ([0-9]+) - ([0-9]+);"
+)
+GPUOWL_LOG_P1_PIPE_RE = re.compile(r"\| P1\([0-9]+(?:\.[0-9])?M?\)")
+GPUOWL_LOG_P2_OK_RE = re.compile(r"[0-9]{6,} P2(?: ([0-9]+)/([0-9]+)|\([0-9]+(?:\.[0-9])?M?,[0-9]+(?:\.[0-9])?M?\) OK @([0-9]+)):")
+
 
 def parse_gpuowl_log_file(adapter, adir, p):
 	"""Parse the GpuOwl log file for the progress of the assignment."""
@@ -5840,30 +5895,20 @@ def parse_gpuowl_log_file(adapter, adir, p):
 		adapter.debug("Log file %r does not exist", logfile)
 		return iteration, iterations, None, None, stage, fftlen
 
-	w = readonly_list_file(logfile, errors="replace")
 	found = 0
-	regex = re.compile(r"([0-9]{6,}) (LL|P1|OK|EE)? +([0-9]{4,})")
-	aregex = re.compile(r"([0-9]{6,})P1 +([0-9]+\.[0-9]+)% ([KE])? +[0-9a-f]{16} +([0-9]+)")
-	us_per_regex = re.compile(r"\b([0-9]+) us/it;?")
-	fft_regex = re.compile(r"\b([0-9]{6,}) FFT: ([0-9]+(?:\.[0-9]+)?[KM])\b")
-	p1_bits_regex = re.compile(r"\b[0-9]{6,} P1(?: B1=[0-9]+, B2=[0-9]+;|\([0-9]+(?:\.[0-9])?M?\)) ([0-9]+) bits;?\b")
-	ap1_bits_regex = re.compile(r"\b[0-9]{6,}P1 +[0-9]+\.[0-9]+% @([0-9]+)/([0-9]+) B1\([0-9]+\)")
-	p2_blocks_regex = re.compile(r"[0-9]{6,} P2\([0-9]+(?:\.[0-9])?M?,[0-9]+(?:\.[0-9])?M?\) ([0-9]+) blocks: ([0-9]+) - ([0-9]+);")
-	p1_regex = re.compile(r"\| P1\([0-9]+(?:\.[0-9])?M?\)")
-	p2_regex = re.compile(r"[0-9]{6,} P2(?: ([0-9]+)/([0-9]+)|\([0-9]+(?:\.[0-9])?M?,[0-9]+(?:\.[0-9])?M?\) OK @([0-9]+)):")
 	list_usec_per_iter = []
 	p1 = p2 = False
 	buffs = bits = 0
 	# get the 5 most recent Iter line
-	for line in reversed(list(w)):
-		res = regex.search(line)
-		ares = aregex.search(line)
-		us_res = us_per_regex.search(line)
-		fft_res = fft_regex.search(line)
-		p1_bits_res = p1_bits_regex.search(line)
-		ap1_bits_res = ap1_bits_regex.search(line)
-		blocks_res = p2_blocks_regex.search(line)
-		p2_res = p2_regex.search(line)
+	for line in iter_lines_reversed(logfile, errors="replace"):
+		res = GPUOWL_LOG_MAIN_RE.search(line)
+		ares = GPUOWL_LOG_AP1_RE.search(line) if "P1" in line else None
+		us_res = GPUOWL_LOG_US_PER_RE.search(line) if "us/it" in line else None
+		fft_res = GPUOWL_LOG_FFT_RE.search(line) if "FFT:" in line else None
+		p1_bits_res = GPUOWL_LOG_P1_BITS_RE.search(line) if "P1" in line and "bits" in line else None
+		ap1_bits_res = GPUOWL_LOG_AP1_BITS_RE.search(line) if "P1" in line and "B1" in line else None
+		blocks_res = GPUOWL_LOG_P2_BLOCKS_RE.search(line) if "P2" in line and "blocks:" in line else None
+		p2_res = GPUOWL_LOG_P2_OK_RE.search(line) if "P2" in line else None
 		if res or ares:
 			num = int(res.group(1) if res else ares.group(1))
 			if num != p:
@@ -5892,7 +5937,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 			elif aiteration > iteration:
 				break
 			if not p1 and not (p2 or buffs):
-				p1_res = p1_regex.search(line)
+				p1_res = GPUOWL_LOG_P1_PIPE_RE.search(line) if "P1" in line else None
 				p1 = res.group(2) == "OK" and bool(p1_res)
 				if p1:
 					stage = 1
