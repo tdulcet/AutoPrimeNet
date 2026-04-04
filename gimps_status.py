@@ -488,7 +488,7 @@ def exponent_to_str(assignment):
 	"""Converts an assignment's exponent details into a formatted string representation."""
 	if not assignment.n:
 		buf = "{:.0f}".format(assignment.k + assignment.c)
-	elif assignment.k != 1.0:
+	elif assignment.k != 1:
 		buf = "{0.k:.0f}*{0.b}^{0.n}{0.c:+}".format(assignment)
 	elif assignment.b == 2 and assignment.c == -1:
 		buf = "M{.n}".format(assignment)

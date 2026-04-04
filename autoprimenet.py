@@ -432,12 +432,15 @@ if sys.platform == "win32":  # Windows
 			raise ctypes.WinError(ctypes.get_last_error())
 			# return output
 
-		output = stringsid.value
-		kernel32.LocalFree(stringsid)
+		try:
+			output = stringsid.value
+		finally:
+			kernel32.LocalFree(stringsid)
+
 		return output
 
 elif sys.platform == "darwin":  # macOS
-	libc = ctypes.CDLL(find_library("c"))
+	libc = ctypes.CDLL(find_library("c"), use_errno=True)
 
 	libc.sysctlbyname.argtypes = (
 		ctypes.c_char_p,
@@ -451,17 +454,20 @@ elif sys.platform == "darwin":  # macOS
 	def sysctl_str(name):
 		"""Return a sysctl string value for the given ASCII name (macOS)."""
 		size = ctypes.c_size_t()
-		libc.sysctlbyname(name, None, ctypes.byref(size), None, 0)
+		if libc.sysctlbyname(name, None, ctypes.byref(size), None, 0) != 0:
+			return None
 
 		buf = ctypes.create_string_buffer(size.value)
-		libc.sysctlbyname(name, buf, ctypes.byref(size), None, 0)
+		if libc.sysctlbyname(name, buf, ctypes.byref(size), None, 0) != 0:
+			return None
 		return buf.value
 
 	def sysctl_value(name, ctype):
 		"""Return a sysctl value of the given ctypes type for name (macOS)."""
 		size = ctypes.c_size_t(ctypes.sizeof(ctype))
 		value = ctype()
-		libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0)
+		if libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0) != 0:
+			return None
 		return value.value
 
 elif sys.platform.startswith("linux"):
@@ -1058,6 +1064,7 @@ if sys.platform == "win32":
 
 		try:
 			buffer = ctypes.create_string_buffer(1024 * ctypes.sizeof(FILE_NOTIFY_INFORMATION))
+			size = FILE_NOTIFY_INFORMATION.FileName.offset
 			while True:
 				bytes_returned = wintypes.DWORD()
 				if not kernel32.ReadDirectoryChangesW(
@@ -1076,7 +1083,7 @@ if sys.platform == "win32":
 				offset = 0
 				while offset < bytes_returned.value:  # len(data)
 					record = FILE_NOTIFY_INFORMATION.from_buffer(buffer, offset)
-					filename = ctypes.wstring_at(record.FileName, record.FileNameLength)
+					filename = ctypes.wstring_at(ctypes.addressof(record) + size, record.FileNameLength // 2)
 					file = os.path.join(adir, filename)
 					if record.Action == 0x00000001:  # FILE_ACTION_ADDED
 						aadir, afile = os.path.split(filename)
@@ -1375,7 +1382,7 @@ elif sys.platform.startswith("linux"):
 				offset = 0
 				while offset < len(buffer):
 					event = inotify_event.from_buffer_copy(buffer, offset)
-					name = ctypes.string_at(event.name, event.len).rstrip(b"\0").decode("utf-8")
+					name = buffer[offset + size : offset + size + event.len].rstrip(b"\0").decode("utf-8")
 					file = wds[event.wd] + (os.sep + name if name else "")
 					if event.mask & IN_CLOSE_WRITE and event.wd in result_wds:
 						logging.debug("The results file %r was modified.", file)
@@ -1488,18 +1495,18 @@ try:
 	import idna
 except ImportError:
 
-	def punycode(hostname):
+	def idna_encode(hostname):
 		"""Converts a given hostname to its Punycode representation."""
-		return hostname.lower().encode("idna").decode("utf-8")
+		return hostname.encode("idna").decode("ascii")
 
 else:
 
-	def punycode(hostname):
+	def idna_encode(hostname):
 		"""Converts a given hostname to its Punycode representation."""
 		try:
-			return idna.encode(hostname.lower(), uts46=True).decode("utf-8")
+			return idna.encode(hostname, uts46=True).decode("ascii")
 		except idna.IDNAError:
-			return hostname.lower().encode("idna").decode("utf-8")
+			return hostname.encode("idna").decode("ascii")
 
 
 # region Constants and Globals
@@ -1537,16 +1544,19 @@ CCEMAILS = [
 	)
 ]
 
-primenet_v5_burl = "https://v5.mersenne.org/v5server/"
+PRIMENET_V5_BASE_URL = "https://v5.mersenne.org/v5server/"
 TRANSACTION_API_VERSION = 0.95
 ERROR_RATE = 0.018  # Estimated LL error rate on clean run
 # Estimated PRP error rate (assumes Gerbicz error-checking)
 PRP_ERROR_RATE = 0.0001
 _V5_UNIQUE_TRUSTED_CLIENT_CONSTANT_ = 17737
-primenet_v5_bargs = OrderedDict((("px", "GIMPS"), ("v", TRANSACTION_API_VERSION)))
-primenet_baseurl = "https://www.mersenne.org/"
-mersenne_ca_baseurl = "https://www.mersenne.ca/"
+PRIMENET_V5_BASE_PARAMS = OrderedDict((("px", "GIMPS"), ("v", TRANSACTION_API_VERSION)))
+PRIMENET_BASE_URL = "https://www.mersenne.org/"
+MERSENNE_CA_BASE_URL = "https://www.mersenne.ca/"
 MAX_PRIMENET_EXP = 1000000000
+
+TIMEOUT = 30
+PRIMENET_TIMEOUT = MERSENNE_CA_TIMEOUT = 180
 
 is_64bit = platform.machine().endswith("64")
 PORT = None
@@ -1962,7 +1972,7 @@ def exponent_to_str(assignment):
 	"""Converts an assignment's exponent to a formatted string representation."""
 	if not assignment.n:
 		buf = "{:.0f}".format(assignment.k + assignment.c)
-	elif assignment.k != 1.0:
+	elif assignment.k != 1:
 		buf = "{0.k:.0f}*{0.b}^{0.n}{0.c:+}".format(assignment)
 	elif assignment.b == 2 and assignment.c == -1:
 		buf = "M{.n}".format(assignment)
@@ -2336,7 +2346,7 @@ def dns_lookup(domain, atype):
 			"https://mozilla.cloudflare-dns.com/dns-query",
 			params={"name": domain, "type": atype},
 			headers={"Accept": "application/dns-json"},
-			timeout=5,
+			timeout=TIMEOUT,
 		)
 		result = r.json()
 		r.raise_for_status()
@@ -2398,7 +2408,7 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 
 def get_email_config(domain, email, local_part, email_domain, https_only=False, use_optional_url=True):
 	"""Retrieve email configuration settings from the specified domain or Mozilla ISP database."""
-	adomain = punycode(domain)
+	adomain = idna_encode(domain).lower()
 	print("Looking up configuration at e-mail provider {!r}…".format(domain))
 	for scheme in ("https://",) + (() if https_only else ("http://",)):
 		for url, params in (("autoconfig.{}/mail/config-v1.1.xml".format(domain), {"emailaddress": email}),) + (
@@ -2408,7 +2418,7 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 				with requests.Session() as s:
 					if PROXIES:
 						s.proxies.update(PROXIES)
-					r = s.get(scheme + url, params=params, timeout=5)
+					r = s.get(scheme + url, params=params, timeout=TIMEOUT)
 					r.raise_for_status()
 					result = r.content
 			except RequestException as e:
@@ -2418,7 +2428,7 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 				if smtp_config is not None:
 					# print("Configuration found at e-mail provider")
 					_, hostname, _, _, _ = smtp_config
-					if scheme == "http://" and not punycode(hostname).endswith(adomain):
+					if scheme == "http://" and not idna_encode(hostname).lower().endswith(adomain):
 						logging.warning(
 							"The connection used to lookup the configuration did not use HTTPS and thus was not secure."
 						)
@@ -2430,7 +2440,7 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 		with requests.Session() as s:
 			if PROXIES:
 				s.proxies.update(PROXIES)
-			r = s.get("https://autoconfig.thunderbird.net/v1.1/{}".format(adomain), timeout=5)
+			r = s.get("https://autoconfig.thunderbird.net/v1.1/{}".format(adomain), timeout=TIMEOUT)
 			r.raise_for_status()
 			result = r.content
 	except RequestException as e:
@@ -2488,7 +2498,7 @@ def email_autoconfig(email):
 		logging.error("Could not parse e-mail address %r", email)
 		return None
 	local_part, email_domain = aemail.groups()
-	aemail_domain = punycode(email_domain)
+	aemail_domain = idna_encode(email_domain).lower()
 
 	# https://datatracker.ietf.org/doc/draft-ietf-mailmaint-autoconfig/
 	smtp_config = get_email_config(email_domain, email, local_part, email_domain)
@@ -2518,7 +2528,7 @@ def email_autoconfig(email):
 				smtp_config = get_email_config(mx_full_domain, email, local_part, email_domain, True, False)
 				if smtp_config is not None:
 					_, hostname, _, _, _ = smtp_config
-					if not result["AD"] and not punycode(hostname).endswith(aemail_domain):
+					if not result["AD"] and not idna_encode(hostname).lower().endswith(aemail_domain):
 						logging.warning(
 							"The DNS MX record used to lookup the mail domain was not signed with DNS Security Extensions (DNSSEC)."
 						)
@@ -3011,6 +3021,9 @@ def iter_lines_reversed(filename, encoding="utf-8", errors="strict", chunk_size=
 				step = min(chunk_size, pos)
 				f.seek(pos - step)
 				size = f.readinto(view[:step])
+				if size != step:
+					msg = "Short read while reading {!r}".format(filename)
+					raise OSError(msg)
 				buf = buffer[:size]
 				if incomplete:
 					buf.extend(incomplete)
@@ -3928,7 +3941,7 @@ def read_workfile(adapter, workfile):
 				illegal_line = True
 
 			if (
-				assignment.k == 1.0
+				assignment.k == 1
 				and assignment.b == 2
 				and not is_prime(assignment.n)
 				and assignment.c == -1
@@ -3965,12 +3978,12 @@ def output_assignment(assignment):
 	if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 		test = "Test" if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL else "DoubleCheck"
 		temp.append(assignment.n)
-		if assignment.sieve_depth != 99.0 or assignment.pminus1ed != 1:
+		if assignment.sieve_depth != 99 or assignment.pminus1ed != 1:
 			temp.extend(("{:.0f}".format(assignment.sieve_depth), assignment.pminus1ed))
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		test = "PRP" + ("DC" if assignment.prp_dblchk else "")
 		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c))
-		if assignment.sieve_depth != 99.0 or assignment.tests_saved > 0.0 or assignment.prp_base or assignment.prp_residue_type:
+		if assignment.sieve_depth != 99 or assignment.tests_saved > 0.0 or assignment.prp_base or assignment.prp_residue_type:
 			temp.extend(("{:g}".format(assignment.sieve_depth), "{:g}".format(assignment.tests_saved)))
 			if assignment.prp_base or assignment.prp_residue_type:
 				temp.extend((assignment.prp_base, assignment.prp_residue_type))
@@ -4117,8 +4130,8 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 	try:
 		if args.tls:
 			# Python 3.3+
-			# with smtplib.SMTP_SSL(host, port context=context, timeout=30) as s:
-			s = smtplib.SMTP_SSL(host, port, timeout=30, **({"context": context} if sys.version_info >= (3, 3) else {}))
+			# with smtplib.SMTP_SSL(host, port context=context, timeout=TIMEOUT) as s:
+			s = smtplib.SMTP_SSL(host, port, timeout=TIMEOUT, **({"context": context} if sys.version_info >= (3, 3) else {}))
 			if args.debug > 1:
 				s.set_debuglevel(2)
 			if args.email_username:
@@ -4126,8 +4139,8 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 			s.sendmail(from_addr, to_addrs, msg.as_string())
 		else:
 			# Python 3.3+
-			# with smtplib.SMTP(host, port, timeout=30) as s:
-			s = smtplib.SMTP(host, port, timeout=30)
+			# with smtplib.SMTP(host, port, timeout=TIMEOUT) as s:
+			s = smtplib.SMTP(host, port, timeout=TIMEOUT)
 			if args.debug > 1:
 				s.set_debuglevel(2)
 			if args.starttls:
@@ -4347,9 +4360,17 @@ def get_cpu_model():
 	elif sys.platform == "darwin":
 		output = sysctl_str(b"machdep.cpu.brand_string").decode("utf-8")
 	elif sys.platform.startswith("linux"):
+		machine = platform.machine().lower()
+		if machine.startswith("arm") or machine == "aarch64":
+			keys = ("model name", "Processor")
+		elif machine.startswith("ppc"):  # powerpc
+			keys = "cpu"
+		else:
+			keys = "model name"
+
 		with open("/proc/cpuinfo") as f:
 			for line in f:
-				if line.startswith("model name"):
+				if line.startswith(keys):
 					output = line.split(":", 1)[1].strip()
 					break
 	return output
@@ -4378,6 +4399,9 @@ def get_cpu_cores_threads():
 						ptr = SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX.from_buffer(buffer, offset)
 						if ptr.Relationship == 0:  # RelationProcessorCore
 							cores += 1
+						elif ptr.Relationship == 4:  # RelationGroup
+							for i in range(ptr.Group.ActiveGroupCount):
+								threads += ptr.Group.GroupInfo[i].ActiveProcessorCount
 						offset += ptr.Size
 		# ERROR_INSUFFICIENT_BUFFER
 		elif not kernel32.GetLogicalProcessorInformation(None, ctypes.byref(return_length)) and ctypes.get_last_error() == 122:
@@ -4385,9 +4409,12 @@ def get_cpu_cores_threads():
 				SYSTEM_LOGICAL_PROCESSOR_INFORMATION * (return_length.value // ctypes.sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION))
 			)()
 			if kernel32.GetLogicalProcessorInformation(buffer, ctypes.byref(return_length)):
-				cores = sum(1 for ptr in buffer if ptr.Relationship == 0)  # RelationProcessorCore
+				for ptr in buffer:
+					if ptr.Relationship == 0:  # RelationProcessorCore
+						cores += 1
+						threads += bin(ptr.ProcessorMask).count("1")  # Python 3.10+: bit_count()
 		# raise ctypes.WinError()
-		threads = int(os.getenv("NUMBER_OF_PROCESSORS", "0"))
+		# threads = int(os.getenv("NUMBER_OF_PROCESSORS", "0"))
 	elif sys.platform == "darwin":
 		cores = sysctl_value(b"hw.physicalcpu_max", ctypes.c_int)
 		threads = sysctl_value(b"hw.logicalcpu_max", ctypes.c_int)
@@ -4419,12 +4446,17 @@ def get_cpu_frequency():
 		if output:
 			frequency = output // 1000 // 1000
 	elif sys.platform.startswith("linux"):
-		with open("/proc/cpuinfo") as f:
-			freqs = [float(line.split(":", 1)[1]) for line in f if line.startswith("cpu MHz")]
+		freqs = []
+		for path in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/cpuinfo_max_freq"):
+			with open(path) as f:
+				freqs.append(int(f.read()))
 		if freqs:
-			freq = set(freqs)
-			if len(freq) == 1:
-				frequency = int(freq.pop())
+			frequency = max(freqs) // 1000
+		if not frequency:
+			with open("/proc/cpuinfo") as f:
+				freqs = [float(line.split(":", 1)[1]) for line in f if line.startswith("cpu MHz")]
+			if freqs:
+				frequency = int(max(freqs))
 	return frequency
 
 
@@ -4453,7 +4485,7 @@ def get_physical_memory():
 
 def get_cpu_cache_sizes():
 	"""Retrieve the sizes of the CPU caches (L1, L2, L3) for the system."""
-	cache_sizes = {1: 0, 2: 0, 3: 0}
+	cache_sizes = {1: [], 2: [], 3: []}
 	if sys.platform == "win32":
 		# wmic cpu get L2CacheSize,L3CacheSize
 		# wmic path Win32_CacheMemory get CacheType,InstalledSize,Level
@@ -4475,7 +4507,7 @@ def get_cpu_cache_sizes():
 						if ptr.Relationship == 2:  # RelationCache
 							if ptr.Cache.Type == 1:  # CacheInstruction
 								continue
-							cache_sizes[ptr.Cache.Level] = ptr.Cache.CacheSize
+							cache_sizes.setdefault(ptr.Cache.Level, []).append(ptr.Cache.CacheSize)
 		# ERROR_INSUFFICIENT_BUFFER
 		elif not kernel32.GetLogicalProcessorInformation(None, ctypes.byref(return_length)) and ctypes.get_last_error() == 122:
 			buffer = (
@@ -4486,33 +4518,52 @@ def get_cpu_cache_sizes():
 					if ptr.Relationship == 2:  # RelationCache
 						if ptr.Cache.Type == 1:  # CacheInstruction
 							continue
-						cache_sizes[ptr.Cache.Level] = ptr.Cache.Size
+						cache_sizes.setdefault(ptr.Cache.Level, []).append(ptr.Cache.Size)
 		# raise ctypes.WinError()
 	elif sys.platform == "darwin":
 		for level, cache in enumerate((b"hw.l1dcachesize", b"hw.l2cachesize", b"hw.l3cachesize"), 1):
 			output = sysctl_value(cache, ctypes.c_int64)
 			if output:
-				cache_sizes[level] = output
+				cache_sizes[level].append(output)
 	elif sys.platform.startswith("linux"):
 		for path in glob.iglob("/sys/devices/system/cpu/cpu[0-9]*/cache"):
-			for file in glob.iglob(os.path.join(path, "index[0-9]*/size")):
+			for file in glob.iglob(os.path.join(path, "index[0-9]*", "size")):
 				with open(file) as f:
 					size = input_unit(f.read().rstrip())
 				adir = os.path.dirname(file)
 				with open(os.path.join(adir, "level")) as f:
 					level = int(f.read().rstrip())
 				with open(os.path.join(adir, "type")) as f:
-					atype = f.read().rstrip()
-				if atype == "Instruction":
+					type_ = f.read().rstrip()
+				if type_ == "Instruction":
 					continue
-				cache_sizes[level] = size
-	for cache in cache_sizes:
-		cache_sizes[cache] >>= 10
-	return cache_sizes
+				cache_sizes.setdefault(level, []).append(size)
+	return {cache: max(sizes) >> 10 if sizes else 0 for cache, sizes in cache_sizes.items()}
 
 
 # endregion
 # region v5 Comms
+def handle_retry_after(adapter, response):
+	# urllib3 1.19+
+	if hasattr(retries, "RETRY_AFTER_STATUS_CODES") and response.status_code in retries.RETRY_AFTER_STATUS_CODES:
+		try:
+			retry_after = retries.get_retry_after(response)
+		except urllib3.exceptions.InvalidHeader as e:
+			adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
+		else:
+			if retry_after is not None:
+				if retry_after > args.timeout:
+					adapter.info(
+						"Received Retry-After header of %s, retrying in %s",
+						timedelta(seconds=retry_after),
+						timedelta(seconds=args.timeout),
+					)
+					retry_after = args.timeout
+				else:
+					adapter.info("Respecting the Retry-After header, retrying in %s", timedelta(seconds=retry_after))
+				time.sleep(retry_after)
+
+
 def parse_v5_resp(r):
 	"""Parses a v5 response string into a dictionary of options and values."""
 	ans = {}
@@ -4555,7 +4606,7 @@ def send_request(adapter, guid, params):
 	# adapter.debug("Args: %s", params)
 
 	try:
-		r = session.get(primenet_v5_burl, params=params, timeout=180)
+		r = session.get(PRIMENET_V5_BASE_URL, params=params, timeout=PRIMENET_TIMEOUT)
 		# adapter.debug("URL: " + r.url)
 		r.raise_for_status()
 		text = r.content.decode(r.encoding or r.apparent_encoding)  # r.text
@@ -4593,8 +4644,8 @@ def send_request(adapter, guid, params):
 def get_exponent(adapter, n):
 	"""Fetches and returns the JSON data for a given Mersenne exponent."""
 	try:
-		# r = session.get(primenet_baseurl + "report_exponent_simple/", params={"exp_lo": n, "faclim": 1, "json": 1}, timeout=30)
-		r = session.get(mersenne_ca_baseurl + "exponent/{}/json".format(n), timeout=30)
+		# r = session.get(PRIMENET_BASE_URL + "report_exponent_simple/", params={"exp_lo": n, "faclim": 1, "json": 1}, timeout=TIMEOUT)
+		r = session.get(MERSENNE_CA_BASE_URL + "exponent/{}/json".format(n), timeout=TIMEOUT)
 		r.raise_for_status()
 		result = r.json()
 	except (RequestException, JSONDecodeError) as e:
@@ -6342,7 +6393,7 @@ def output_status(dirs, cpu_num=None):
 			elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 				work_type_str = "Certify"
 			prob += aprob
-			if assignment.k != 1.0 or assignment.b != 2 or assignment.c != -1 or assignment.known_factors is not None:
+			if assignment.k != 1 or assignment.b != 2 or assignment.c != -1 or assignment.known_factors is not None:
 				amersennes = mersennes = False
 			else:
 				amersennes = True
@@ -6566,9 +6617,9 @@ def upload_proof_file(adapter, filename):
 
 			while True:
 				r = session.get(
-					primenet_baseurl + "proof_upload/",
+					PRIMENET_BASE_URL + "proof_upload/",
 					params={"UserID": args.user_id, "Exponent": exponent, "FileSize": filesize, "FileMD5": filehash},
-					timeout=180,
+					timeout=PRIMENET_TIMEOUT,
 				)
 				result = r.json()
 				if "error_status" in result:
@@ -6608,13 +6659,16 @@ def upload_proof_file(adapter, filename):
 					f.seek(pos)
 					chunk_size = min(end - pos + 1, max_chunk_size)
 					size = f.readinto(view[:chunk_size])
+					if size != chunk_size:
+						msg = "Short read while reading {!r}".format(filename)
+						raise OSError(msg)
 					chunk = view[:size]
 					bytessent += size
 					response = session.post(
 						baseurl,
 						params={"FileMD5": filehash, "DataOffset": pos, "DataSize": size, "DataMD5": md5(chunk).hexdigest()},
 						files={"Data": (None, chunk)},
-						timeout=180,
+						timeout=PRIMENET_TIMEOUT,
 					)
 					result = response.json()
 					if "error_status" in result:
@@ -6751,7 +6805,7 @@ def program_options(send=False, start=-1, retry_count=0):
 	adapter = logging.LoggerAdapter(logger, None)
 	guid = get_guid(config)
 	for tnum in range(start, args.num_workers):
-		params = primenet_v5_bargs.copy()
+		params = PRIMENET_V5_BASE_PARAMS.copy()
 		params["t"] = "po"
 		params["g"] = guid
 		# no value updates all cpu threads with given worktype
@@ -6850,7 +6904,7 @@ def program_options(send=False, start=-1, retry_count=0):
 def register_instance(guid=None):
 	"""Register the computer with the PrimeNet server."""
 	# register the instance to server, guid is the instance identifier
-	params = primenet_v5_bargs.copy()
+	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "uc"  # update compute command
 	if guid is None:
 		guid = generate_computer_guid()
@@ -6946,7 +7000,7 @@ def assignment_unreserve(adapter, assignment, retry_count=0):
 		return False
 	if not assignment or not assignment.uid:
 		return True
-	params = primenet_v5_bargs.copy()
+	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "au"
 	params["g"] = guid
 	params["k"] = assignment.uid
@@ -7010,7 +7064,9 @@ def get_proof_data(adapter, assignment_aid, file):
 	)
 	start = timeit.default_timer()
 	try:
-		with session.get(primenet_baseurl + "proof_get_data/", params={"aid": assignment_aid}, timeout=180, stream=True) as r:
+		with session.get(
+			PRIMENET_BASE_URL + "proof_get_data/", params={"aid": assignment_aid}, timeout=PRIMENET_TIMEOUT, stream=True
+		) as r:
 			r.raise_for_status()
 			length = int(r.headers["Content-Length"])
 			if hasattr(os, "posix_fallocate"):  # Python 3.3+, Linux
@@ -7138,7 +7194,7 @@ def get_assignment(
 ):
 	"""Get a new assignment from the PrimeNet server."""
 	guid = get_guid(config)
-	params = primenet_v5_bargs.copy()
+	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "ga"  # transaction type
 	params["g"] = guid
 	params["c"] = cpu_num
@@ -7456,7 +7512,7 @@ def report_result(adapter, ar, message, assignment, result_type, tasks, retry_co
 	# and it is not present in old output format.
 	# adapter.debug("Submitting using v5 API")
 
-	params = primenet_v5_bargs.copy()
+	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "ar"  # assignment result
 	params["g"] = guid
 	params["k"] = assignment.uid  # assignment id
@@ -7591,30 +7647,18 @@ def submit_mersenne_ca_results(adapter, lines, retry_count=0):
 	retry = rejected = False
 	try:
 		r = session.post(
-			mersenne_ca_baseurl + "submit-results.php",
+			MERSENNE_CA_BASE_URL + "submit-results.php",
 			params={"json": 1},
 			data={"gimps_login": args.user_id},
 			files={"results_file": ("results.json.txt", "\n".join(lines))},
-			timeout=180,
+			timeout=MERSENNE_CA_TIMEOUT,
 		)
 		r.raise_for_status()
 		result = r.json()
 	except HTTPError as e:
 		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
-		# urllib3 1.19+
-		if (
-			retry_count < MAX_RETRIES
-			and hasattr(retries, "RETRY_AFTER_STATUS_CODES")
-			and r.status_code in retries.RETRY_AFTER_STATUS_CODES
-		):
-			try:
-				retry_after = retries.get_retry_after(r)
-			except urllib3.exceptions.InvalidHeader as e:
-				adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
-			else:
-				if retry_after is not None:
-					adapter.info("Retrying submission in %s", timedelta(seconds=retry_after))
-					time.sleep(retry_after)
+		if retry_count < MAX_RETRIES:
+			handle_retry_after(adapter, r)
 		retry = True
 	except (RequestException, JSONDecodeError) as e:
 		adapter.exception("Failed to submit results to mersenne.ca: %s: %s", type(e).__name__, e, exc_info=args.debug)
@@ -7833,7 +7877,7 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 	if result_type in {PRIMENET_AR.LL_PRIME, PRIMENET_AR.PRP_PRIME}:
 		adigits = digits(assignment)
 		no_report = args.no_report_100m and adigits >= 100000000
-		if assignment.k == 1.0 and assignment.b == 2 and assignment.c == -1 and not is_known_mersenne_prime(assignment.n):
+		if assignment.k == 1 and assignment.b == 2 and assignment.c == -1 and not is_known_mersenne_prime(assignment.n):
 			string_rep = assignment_to_str(assignment)
 			if not (config.has_option(SEC.PrimeNet, "SilentVictory") and config.getboolean(SEC.PrimeNet, "SilentVictory")):
 				thread = threading.Thread(target=announce_prime_to_user, args=(string_rep, worktype))  # daemon=True
@@ -7849,7 +7893,7 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 					r = s.post(
 						"https://hook.us1.make.com/n16ouxwmfxts1o8154i9kfpqq1rwof53",
 						json={"value1": user_name, "value2": buf, "value3": message},
-						timeout=30,
+						timeout=TIMEOUT,
 					)
 					text = r.text
 			except RequestException as e:
@@ -8039,7 +8083,7 @@ def submit_work(dirs, adapter, adir, cpu_num, tasks):
 				if no_report:
 					file.write(sendline + "\n")
 					is_sent = True
-				elif assignment.k == 1.0 and assignment.b == 2 and assignment.n >= MAX_PRIMENET_EXP and assignment.c == -1:
+				elif assignment.k == 1 and assignment.b == 2 and assignment.n >= MAX_PRIMENET_EXP and assignment.c == -1:
 					mersenne_ca_result_send.append((message, sendline))
 					is_sent = True
 				else:
@@ -8213,9 +8257,9 @@ def tf1g_unreserve_all(adapter, cpu_num, retry_count=0):
 	retry = False
 	try:
 		r = session.post(
-			mersenne_ca_baseurl + "tf1G.php",
+			MERSENNE_CA_BASE_URL + "tf1G.php",
 			data={"gimps_login": args.user_id, "unreserve-all": args.user_id, "cpu": guid, "worker": cpu_num},
-			timeout=180,
+			timeout=MERSENNE_CA_TIMEOUT,
 		)
 		r.raise_for_status()
 		result = r.json()
@@ -8396,10 +8440,10 @@ def register_assignment(adapter, cpu_num, assignment, retry_count=0):
 	if guid is None:
 		adapter.error("Cannot register assignment, the registration is not done")
 		return None
-	if assignment.k == 1.0 and assignment.b == 2 and assignment.n >= MAX_PRIMENET_EXP and assignment.c == -1:
+	if assignment.k == 1 and assignment.b == 2 and assignment.n >= MAX_PRIMENET_EXP and assignment.c == -1:
 		adapter.error("Cannot register assignment, exponent is larger than PrimeNet bounds")
 		return None
-	params = primenet_v5_bargs.copy()
+	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "ra"
 	params["g"] = guid
 	params["c"] = cpu_num
@@ -8505,9 +8549,11 @@ def register_exponents(dirs):
 	workfile = os.path.join(adir, "worktodo-{}.txt".format(cpu_num) if args.prpll else args.work_file)
 	adapter = logging.LoggerAdapter(logger, None)
 
-	with LockFile(workfile), io.open(workfile, "a", encoding="utf-8") as file:
-		while True:
-			print("""\nUse the following values to select a worktype:
+	with LockFile(workfile):
+		with io.open(workfile, "a", encoding="utf-8") as file:
+			while True:
+				print("""
+Use the following values to select a worktype:
 	2 - Trial factoring (mfaktc/mfakto only) (Factor=)
 	3 - P-1 factoring with bounds (Mlucas only) (Pminus1=)
 	4 - P-1 factoring (with bounds for GpuOwl only) (Pfactor=)
@@ -8518,180 +8564,181 @@ def register_exponents(dirs):
 	151 - Double-check PRP test (PRPDC=)
 """)
 
-			while True:
-				work_type = ask_int("Type of work", None, 0, 161)
-				if work_type is not None and work_type in {
-					PRIMENET_WORK_TYPE.FIRST_LL,
-					PRIMENET_WORK_TYPE.DBLCHK,
+				while True:
+					work_type = ask_int("Type of work", None, 0, 161)
+					if work_type is not None and work_type in {
+						PRIMENET_WORK_TYPE.FIRST_LL,
+						PRIMENET_WORK_TYPE.DBLCHK,
+						PRIMENET_WORK_TYPE.PRP,
+						151,
+						PRIMENET_WORK_TYPE.FACTOR,
+						PRIMENET_WORK_TYPE.PFACTOR,
+						PRIMENET_WORK_TYPE.PMINUS1,
+						PRIMENET_WORK_TYPE.ECM,
+					}:
+						break
+
+				while True:
+					p = ask_int("Exponent to test", None, 2, 10000000000)
+					if p is not None:
+						if is_prime(p):
+							break
+						print("This number is not prime, there is no need to test it.")
+
+				result = get_exponent(adapter, p)
+				sieve_depth = factor_to = pminus1ed = tests_saved = curves_to_do = None
+				b1 = b2 = 0
+				known_factors = []
+				if result is not None and int(result["exponent"]) == p:
+					actual = result["current"]["actual"]
+					sieve_depth = int(actual["tf"])
+					bound1 = actual["b1"] and int(actual["b1"])
+					bound2 = actual["b2"] and int(actual["b2"])
+					pminus1ed = bool(bound1) and bool(bound2)
+					if "ecm_effort" in result:
+						b1 = next(r["b1"] for r in result["ecm_effort"] if r["fac_miss_chance"] >= 0.01)
+						b2 = b1 * 100
+					if "factors_prime" in result:
+						known_factors = [int(factor["factor"]) for factor in result["factors_prime"]]
+					print("\nThis exponent has been Trial Factored (TFed) to {:n} bits".format(sieve_depth))
+					if pminus1ed:
+						print("Existing P-1 bounds are B1={:n}, B2={:n}\n".format(bound1, bound2))
+					else:
+						print("It has not yet been P-1 factored: B1={}, B2={}\n".format(bound1, bound2))
+				if sieve_depth is None:
+					print(
+						"\n"
+						+ wrapper.fill(
+							"Unfortunately, the program was unable to automatically determine the TF bits and P-1 bounds for this exponent. It may be above the mersenne.ca exponent limit."
+						)
+					)
+					print(
+						"""Here are the links to find this information:
+https://www.mersenne.org/M{}
+https://www.mersenne.ca/M{}
+""".format(p, p)
+					)
+
+				if work_type == PRIMENET_WORK_TYPE.FACTOR:
+					sieve_depth = ask_int("Trial Factor (TF) starting bits", sieve_depth or 0, 0, 99)
+					factor_to = ask_int("Trial Factor (TF) ending bits", max(factor_limit(p), sieve_depth + 1), sieve_depth, 99)
+				elif work_type != PRIMENET_WORK_TYPE.ECM:
+					sieve_depth = ask_float("Trial Factor (TF) bits", sieve_depth, 0, 99)
+
+				if work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
+					pminus1ed = ask_yn("Has it been P-1 factored before?", pminus1ed)
+				elif work_type not in {PRIMENET_WORK_TYPE.FACTOR, PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM}:
+					tests_saved = ask_float("Primality tests saved if factor is found", 0.0 if pminus1ed else 1.3, 0)
+
+				if work_type == 151:
+					prp_base = ask_int("PRP base", 3, 2)
+					prp_residue_type = ask_int("PRP residue type", 1, 1, 5)
+
+				if (
+					args.gpuowl
+					and ((work_type in {PRIMENET_WORK_TYPE.PRP, 151} and tests_saved) or work_type == PRIMENET_WORK_TYPE.PFACTOR)
+				) or work_type == PRIMENET_WORK_TYPE.PMINUS1:
+					print("\nOptimal P-1 bounds:")
+					_, (midB1, midB2), _ = bounds = walk(p, sieve_depth)
+					for (b1, b2), label in zip(bounds, ("MIN", "MID", "MAX")):
+						p1, p2 = pm1(p, sieve_depth, b1, b2)
+						print("\t{}: B1={:n}, B2={:n}, Probability {:%} ({:.3%} + {:.3%})".format(label, b1, b2, p1 + p2, p1, p2))
+					print("For more information, see: {}prob.php?exponent={}\n".format(MERSENNE_CA_BASE_URL, p))
+
+					b1 = ask_int("P-1 Bound #1", 0 if args.gpuowl else midB1, 100)
+					b2 = ask_int("P-1 Bound #2", 0 if args.gpuowl else midB2, 0)
+				elif work_type == PRIMENET_WORK_TYPE.ECM:
+					b1 = ask_int("ECM Bound #1", b1 or 250000, 100)
+					b2 = ask_int("ECM Bound #2", b2, 0)
+
+					curves_to_do = ask_int("Curves to test", 100, 1)
+
+				factors = []
+				if (work_type == 151 and prp_residue_type == 5) or work_type in {
 					PRIMENET_WORK_TYPE.PRP,
-					151,
-					PRIMENET_WORK_TYPE.FACTOR,
 					PRIMENET_WORK_TYPE.PFACTOR,
 					PRIMENET_WORK_TYPE.PMINUS1,
 					PRIMENET_WORK_TYPE.ECM,
 				}:
-					break
-
-			while True:
-				p = ask_int("Exponent to test", None, 2, 10000000000)
-				if p is not None:
-					if is_prime(p):
-						break
-					print("This number is not prime, there is no need to test it.")
-
-			result = get_exponent(adapter, p)
-			sieve_depth = factor_to = pminus1ed = tests_saved = curves_to_do = None
-			b1 = b2 = 0
-			known_factors = []
-			if result is not None and int(result["exponent"]) == p:
-				actual = result["current"]["actual"]
-				sieve_depth = int(actual["tf"])
-				bound1 = actual["b1"] and int(actual["b1"])
-				bound2 = actual["b2"] and int(actual["b2"])
-				pminus1ed = bool(bound1) and bool(bound2)
-				if "ecm_effort" in result:
-					b1 = next(r["b1"] for r in result["ecm_effort"] if r["fac_miss_chance"] >= 0.01)
-					b2 = b1 * 100
-				if "factors_prime" in result:
-					known_factors = [int(factor["factor"]) for factor in result["factors_prime"]]
-				print("\nThis exponent has been Trial Factored (TFed) to {:n} bits".format(sieve_depth))
-				if pminus1ed:
-					print("Existing P-1 bounds are B1={:n}, B2={:n}\n".format(bound1, bound2))
-				else:
-					print("It has not yet been P-1 factored: B1={}, B2={}\n".format(bound1, bound2))
-			if sieve_depth is None:
-				print(
-					"\n"
-					+ wrapper.fill(
-						"Unfortunately, the program was unable to automatically determine the TF bits and P-1 bounds for this exponent. It may be above the mersenne.ca exponent limit."
-					)
-				)
-				print(
-					"""Here are the links to find this information:
-https://www.mersenne.org/M{}
-https://www.mersenne.ca/M{}
-""".format(p, p)
-				)
-
-			if work_type == PRIMENET_WORK_TYPE.FACTOR:
-				sieve_depth = ask_int("Trial Factor (TF) starting bits", sieve_depth or 0, 0, 99)
-				factor_to = ask_int("Trial Factor (TF) ending bits", max(factor_limit(p), sieve_depth + 1), sieve_depth, 99)
-			elif work_type != PRIMENET_WORK_TYPE.ECM:
-				sieve_depth = ask_float("Trial Factor (TF) bits", sieve_depth, 0, 99)
-
-			if work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
-				pminus1ed = ask_yn("Has it been P-1 factored before?", pminus1ed)
-			elif work_type not in {PRIMENET_WORK_TYPE.FACTOR, PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM}:
-				tests_saved = ask_float("Primality tests saved if factor is found", 0.0 if pminus1ed else 1.3, 0)
-
-			if work_type == 151:
-				prp_base = ask_int("PRP base", 3, 2)
-				prp_residue_type = ask_int("PRP residue type", 1, 1, 5)
-
-			if (
-				args.gpuowl
-				and ((work_type in {PRIMENET_WORK_TYPE.PRP, 151} and tests_saved) or work_type == PRIMENET_WORK_TYPE.PFACTOR)
-			) or work_type == PRIMENET_WORK_TYPE.PMINUS1:
-				print("\nOptimal P-1 bounds:")
-				_, (midB1, midB2), _ = bounds = walk(p, sieve_depth)
-				for (b1, b2), label in zip(bounds, ("MIN", "MID", "MAX")):
-					p1, p2 = pm1(p, sieve_depth, b1, b2)
-					print("\t{}: B1={:n}, B2={:n}, Probability {:%} ({:.3%} + {:.3%})".format(label, b1, b2, p1 + p2, p1, p2))
-				print("For more information, see: {}prob.php?exponent={}\n".format(mersenne_ca_baseurl, p))
-
-				b1 = ask_int("P-1 Bound #1", 0 if args.gpuowl else midB1, 100)
-				b2 = ask_int("P-1 Bound #2", 0 if args.gpuowl else midB2, 0)
-			elif work_type == PRIMENET_WORK_TYPE.ECM:
-				b1 = ask_int("ECM Bound #1", b1 or 250000, 100)
-				b2 = ask_int("ECM Bound #2", b2, 0)
-
-				curves_to_do = ask_int("Curves to test", 100, 1)
-
-			factors = []
-			if (work_type == 151 and prp_residue_type == 5) or work_type in {
-				PRIMENET_WORK_TYPE.PRP,
-				PRIMENET_WORK_TYPE.PFACTOR,
-				PRIMENET_WORK_TYPE.PMINUS1,
-				PRIMENET_WORK_TYPE.ECM,
-			}:
-				product = 1
-				for i in count():
-					while True:
-						factor = (
-							ask_int("Known factor #{:n}".format(i + 1), known_factors[i], 2)
-							if i < len(known_factors)
-							else ask_int(
-								"Known factor #{:n} (leave blank {})".format(i + 1, "if none" if not i else "to continue"), None, 2
+					product = 1
+					for i in count():
+						while True:
+							factor = (
+								ask_int("Known factor #{:n}".format(i + 1), known_factors[i], 2)
+								if i < len(known_factors)
+								else ask_int(
+									"Known factor #{:n} (leave blank {})".format(i + 1, "if none" if not i else "to continue"),
+									None,
+									2,
+								)
 							)
-						)
+							if factor is None:
+								break
+							if not is_prime(factor):
+								print("Factor is not prime")
+							elif pow(2, p, product * factor) - 1:
+								print("Bad factor for M{}".format(p))
+							else:
+								product *= factor
+								break
 						if factor is None:
 							break
-						if not is_prime(factor):
-							print("Factor is not prime")
-						elif pow(2, p, product * factor) - 1:
-							print("Bad factor for M{}".format(p))
-						else:
-							product *= factor
-							break
-					if factor is None:
-						break
-					factors.append(factor)
+						factors.append(factor)
 
-			if not ask_ok_cancel():
-				break
+				if not ask_ok_cancel():
+					break
 
-			assignment = Assignment()
-			assignment.k = 1.0
-			assignment.b = 2
-			assignment.n = p
-			assignment.c = -1
-			if work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
-				assignment.work_type = work_type
-				assignment.sieve_depth = sieve_depth
-				assignment.pminus1ed = int(pminus1ed)
-			elif work_type in {PRIMENET_WORK_TYPE.PRP, 151}:
-				assignment.prp_dblchk = work_type == 151
-				assignment.work_type = PRIMENET_WORK_TYPE.PRP
-				assignment.B1 = b1
-				assignment.B2 = b2
-				assignment.sieve_depth = sieve_depth
-				assignment.tests_saved = tests_saved
-				if work_type == 151:
-					assignment.prp_base = prp_base
-					assignment.prp_residue_type = prp_residue_type
-				assignment.known_factors = factors
-			elif work_type == PRIMENET_WORK_TYPE.FACTOR:
-				assignment.work_type = work_type
-				assignment.sieve_depth = sieve_depth
-				assignment.factor_to = factor_to
-			elif work_type == PRIMENET_WORK_TYPE.PFACTOR:
-				assignment.work_type = work_type
-				assignment.B1 = b1
-				assignment.B2 = b2
-				assignment.sieve_depth = sieve_depth
-				assignment.tests_saved = tests_saved
-				assignment.known_factors = factors
-			elif work_type == PRIMENET_WORK_TYPE.PMINUS1:
-				assignment.work_type = work_type
-				assignment.B1 = b1
-				assignment.B2 = b2
-				assignment.sieve_depth = sieve_depth
-				assignment.known_factors = factors
-			elif work_type == PRIMENET_WORK_TYPE.ECM:
-				assignment.work_type = work_type
-				assignment.B1 = b1
-				assignment.B2 = b2
-				assignment.curves_to_do = curves_to_do
-				assignment.known_factors = factors
+				assignment = Assignment()
+				assignment.k = 1.0
+				assignment.b = 2
+				assignment.n = p
+				assignment.c = -1
+				if work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
+					assignment.work_type = work_type
+					assignment.sieve_depth = sieve_depth
+					assignment.pminus1ed = int(pminus1ed)
+				elif work_type in {PRIMENET_WORK_TYPE.PRP, 151}:
+					assignment.prp_dblchk = work_type == 151
+					assignment.work_type = PRIMENET_WORK_TYPE.PRP
+					assignment.B1 = b1
+					assignment.B2 = b2
+					assignment.sieve_depth = sieve_depth
+					assignment.tests_saved = tests_saved
+					if work_type == 151:
+						assignment.prp_base = prp_base
+						assignment.prp_residue_type = prp_residue_type
+					assignment.known_factors = factors
+				elif work_type == PRIMENET_WORK_TYPE.FACTOR:
+					assignment.work_type = work_type
+					assignment.sieve_depth = sieve_depth
+					assignment.factor_to = factor_to
+				elif work_type == PRIMENET_WORK_TYPE.PFACTOR:
+					assignment.work_type = work_type
+					assignment.B1 = b1
+					assignment.B2 = b2
+					assignment.sieve_depth = sieve_depth
+					assignment.tests_saved = tests_saved
+					assignment.known_factors = factors
+				elif work_type == PRIMENET_WORK_TYPE.PMINUS1:
+					assignment.work_type = work_type
+					assignment.B1 = b1
+					assignment.B2 = b2
+					assignment.sieve_depth = sieve_depth
+					assignment.known_factors = factors
+				elif work_type == PRIMENET_WORK_TYPE.ECM:
+					assignment.work_type = work_type
+					assignment.B1 = b1
+					assignment.B2 = b2
+					assignment.curves_to_do = curves_to_do
+					assignment.known_factors = factors
 
-			task = output_assignment(assignment)
-			print("\nAdding assignment {!r} to the {!r} file\n".format(task, workfile))
-			file.write(task + "\n")
+				task = output_assignment(assignment)
+				print("\nAdding assignment {!r} to the {!r} file\n".format(task, workfile))
+				file.write(task + "\n")
 
-			if not ask_yn("Do you want to register another exponent?", False):
-				break
+				if not ask_yn("Do you want to register another exponent?", False):
+					break
 
-	with LockFile(workfile):
 		tasks = list(read_workfile(adapter, workfile))
 		register_assignments(adapter, adir, cpu_num, tasks)
 
@@ -8701,7 +8748,7 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 	guid = get_guid(config)
 	data = {"gimps_login": args.user_id}
 	if not recover_all:
-		data.update({"cpu": guid, "worker": cpu_num})
+		data.update((("cpu", guid), ("worker", cpu_num)))
 	if recover or recover_all:
 		adapter.info("Recovering TF1G assignments")
 		data["myassignments"] = 1
@@ -8716,21 +8763,21 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 			", min bits {}, max bits {}".format(args.min_bit, args.max_bit) if args.min_bit or args.max_bit else "",
 			stages,
 		)
-		data.update({
-			"min_exponent": args.min_exp,
-			"max_exponent": args.max_exp,
-			"tf_min": args.min_bit,
-			"tf_limit": args.max_bit,
-			"max_ghd": max_ghd,
-			"max_assignments": None if max_ghd else max_assignments,
-			"download_worktodo": 1,
-			"stages": stages,
-		})
+		data.update((
+			("min_exponent", args.min_exp),
+			("max_exponent", args.max_exp),
+			("tf_min", args.min_bit),
+			("tf_limit", args.max_bit),
+			("max_ghd", max_ghd),
+			("max_assignments", None if max_ghd else max_assignments),
+			("download_worktodo", 1),
+			("stages", stages),
+		))
 		if config.has_option(SEC.PrimeNet, "tf1g_biggest"):
 			data["biggest"] = int(config.getboolean(SEC.PrimeNet, "tf1g_biggest"))
 	retry = False
 	try:
-		with session.post(mersenne_ca_baseurl + "tf1G.php", data, timeout=180, stream=True) as r:
+		with session.post(MERSENNE_CA_BASE_URL + "tf1G.php", data, timeout=MERSENNE_CA_TIMEOUT, stream=True) as r:
 			r.raise_for_status()
 			tests = []
 			for task in r.iter_lines(decode_unicode=True):
@@ -8742,6 +8789,11 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 					else:
 						adapter.info("Got assignment: %r", exponent_to_text(test))
 						tests.append(test)
+	except HTTPError as e:
+		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
+		if retry_count < MAX_RETRIES:
+			handle_retry_after(adapter, r)
+		retry = True
 	except RequestException as e:
 		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
 		retry = True
@@ -8849,7 +8901,7 @@ def send_progress(adapter, cpu_num, assignment, percent, stage, time_left, now, 
 		return None
 	# Assignment Progress fields:
 	# g= the machine's GUID (32 chars, assigned by Primenet on 1st-contact from a given machine, stored in 'guid=' entry of prime.ini file of rundir)
-	params = primenet_v5_bargs.copy()
+	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "ap"  # update compute command
 	params["g"] = guid
 	# k= the assignment ID (32 chars, follows '=' in Primenet-generated workfile entries)
@@ -9088,7 +9140,13 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		num_existing += num_fetched
 
 	if len(new_tasks) > 1:
-		adapter.info("Fetched %s assignment%s", len(new_tasks), "s" if len(new_tasks) != 1 else "")
+		adapter.info(
+			"Fetched %s assignment%s, %s assignment%s total",
+			len(new_tasks),
+			"s" if len(new_tasks) != 1 else "",
+			num_existing,
+			"s" if num_existing != 1 else "",
+		)
 	if tasks and len(tasks) <= 5:
 		output_status((adir,), cpu_num)
 	if num_fetched < num_to_get:
@@ -9245,7 +9303,7 @@ def ping_server(ping_type=1):
 		return None
 
 	guid = get_guid(config)
-	params = primenet_v5_bargs.copy()
+	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "ps"
 	params["q"] = ping_type
 	adapter = logging.LoggerAdapter(logger, None)
@@ -9290,7 +9348,8 @@ def autoprimenet_version_check():
 	"""Check for the latest version of AutoPrimeNet and notify if an update is available."""
 	try:
 		r = session.get(
-			mersenne_ca_baseurl + "versioncheck/autoprimenet/source/{}".format(args.version_check_channel or "stable"), timeout=30
+			MERSENNE_CA_BASE_URL + "versioncheck/autoprimenet/source/{}".format(args.version_check_channel or "stable"),
+			timeout=TIMEOUT,
 		)
 		r.raise_for_status()
 		result = r.json()
@@ -9418,11 +9477,11 @@ def program_version_check():
 
 	try:
 		r = session.get(
-			mersenne_ca_baseurl
+			MERSENNE_CA_BASE_URL
 			+ "versioncheck/{}/{}_{}_{}/{}".format(
 				aname, aos, arch or "", os_version or "", args.version_check_channel or "stable"
 			),
-			timeout=30,
+			timeout=TIMEOUT,
 		)
 		r.raise_for_status()
 		result = r.json()
@@ -10272,8 +10331,8 @@ if not args_no_defaults.__dict__ and not os.path.exists(os.path.join(workdir, ar
 
 args.logfile = os.path.normpath(args.logfile)
 logfile = os.path.join(workdir, args.logfile)
-maxBytes = config.getint(SEC.PrimeNet, "MaxLogFileSize") if config.has_option(SEC.PrimeNet, "MaxLogFileSize") else 2 * 1024 * 1024
-file_handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=maxBytes, backupCount=5, encoding="utf-8")
+max_bytes = config.getint(SEC.PrimeNet, "MaxLogFileSize") if config.has_option(SEC.PrimeNet, "MaxLogFileSize") else 5 * 1024 * 1024
+file_handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=max_bytes, backupCount=5, encoding="utf-8")
 file_handler.setFormatter(Formatter("[%(threadName)s%(worker)s %(asctime)s]  %(levelname)s: %(message)s"))
 logger.addHandler(file_handler)
 
