@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Read Prime95/MPrime, Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files, and display status of them."""
+"""Read Prime95/MPrime, Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto and PrimePath save/checkpoint and proof files, and display status of them."""
 
 # Adapted from: https://github.com/sethtroisi/prime95/blob/py_status_report/prime95_status.py
 
@@ -264,6 +264,15 @@ MFAKTC_TF_RE = re.compile(
 
 # "%u %d %d %d %s: %d %d %s %llu %08X\n", exp, bit_min, bit_max, mystuff.num_classes, MFAKTO_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
 MFAKTO_TF_RE = re.compile(br'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*) (\d+) )?([\dA-F]{8})$')
+
+PRIMEPATH_TF_RE = re.compile(br"""^exponent (\d+)
+bit_lo (\d+)
+bit_hi (\d+)
+current_k (\d+)
+tested (\d+)
+elapsed_sec (\d+(?:\.\d+)?)
+assignment_key (.*)
+timestamp (\d+-\d{2}-\d{2} \d{2}:\d{2}:\d{2})""")
 
 PROOF_NUMBER_RE = re.compile(br"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+))(?(1)\))(?:/(\d+(?:/\d+)*))?$")
 
@@ -2273,6 +2282,38 @@ def parse_work_unit_mfakto(filename):
 	return wu
 
 
+def parse_work_unit_primepath(filename):
+	"""Parses a PrimePath work unit file, extracting important information."""
+	wu = work_unit(WORK_FACTOR)
+
+	try:
+		with open(filename, "rb") as f:
+			header = f.read()
+	except (IOError, OSError):
+		logging.exception("Failed to read the %r file.", filename)
+		return None
+
+	primepath_tf = PRIMEPATH_TF_RE.match(header)
+
+	if primepath_tf:
+		exponent, bit_lo, bit_hi, current_k, _tested, elapsed_sec, _assignment_key, _timestamp = primepath_tf.groups()
+	else:
+		logging.error("Failed to parse checkpoint file header: %s", header)
+		return None
+
+	wu.n = int(exponent)
+	wu.bits = int(bit_lo)
+	wu.test_bits = int(bit_hi)
+	wu.total_time = int(float(elapsed_sec) * 1000 * 1000)
+
+	wu.stage = "TF{}".format(wu.bits)
+	k_start = (1 << wu.bits) // (wu.n << 1)
+	k_end = (1 << wu.test_bits) // (wu.n << 1)
+	wu.pct_complete = (int(current_k) - k_start) / (k_end - k_start)
+
+	return wu
+
+
 def parse_proof(filename):
 	"""Parse a PRP proof file and return a work unit object with extracted data."""
 	wu = work_unit(WORK_PRP)
@@ -2816,6 +2857,16 @@ def main(dirs):
 					else:
 						logging.error("Unable to parse the %r checkpoint file", file)
 
+		if args.primepath:
+			aaresults = aresults["PrimePath"] = []
+			file = os.path.join(adir, "mersenne_tf_checkpoint.txt")
+			if os.path.isfile(file):
+				result = parse_work_unit_primepath(file)
+				if result is not None:
+					aaresults.append((0, -1, file, result))
+				else:
+					logging.error("Unable to parse the %r checkpoint file", file)
+
 		if args.proof:
 			aaresults = aresults["PRP proof"] = []
 			for file in chain.from_iterable(
@@ -2860,7 +2911,7 @@ def main(dirs):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(
-		description="Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc and mfakto save/checkpoint and proof files"
+		description="Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto and PrimePath save/checkpoint and proof files"
 	)
 	parser.suggest_on_error = True  # Python 3.14+
 	parser.add_argument("--version", action="version", version="%(prog)s 1.0")
@@ -2875,6 +2926,7 @@ if __name__ == "__main__":
 	parser.add_argument("--cudapm1", action="store_true", help="Look for CUDAPm1 save/checkpoint files")
 	parser.add_argument("--mfaktc", action="store_true", help="Look for mfaktc save/checkpoint files")
 	parser.add_argument("--mfakto", action="store_true", help="Look for mfakto save/checkpoint files")
+	parser.add_argument("--primepath", action="store_true", help="Look for PrimePath save/checkpoint files")
 	parser.add_argument("--proof", action="store_true", help="Look for PRP proof files")
 	parser.add_argument("-l", "--long", action="store_true", help="Output in long format with the file size and modification time")
 	parser.add_argument(
@@ -2909,6 +2961,7 @@ if __name__ == "__main__":
 		or args.prmers
 		or args.mfaktc
 		or args.mfakto
+		or args.primepath
 		or args.proof
 	):
 		parser.error("Must select at least one GIMPS program to look for save/checkpoint files for")

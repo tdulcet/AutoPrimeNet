@@ -5,7 +5,7 @@ The PrimeNet automated assignment handler program for GIMPS
 
 Copyright © 2024 Teal Dulcet
 
-Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc and mfakto GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports both Python 2 and 3 and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
+Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports both Python 2 and 3 and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
 
 Adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
 
@@ -44,6 +44,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 		* CUDALucas
 		* mfaktc
 		* mfakto
+		* PrimePath
 	* Partial support
 		* CUDAPm1
 	* Report results only
@@ -65,7 +66,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 * Automatically reports assignment progress
 	* Monitor progress on [CPUs page](https://www.mersenne.org/cpus/)
 	* Allows getting much smaller [Category 0 and 1 exponents](https://www.mersenne.org/thresholds/)
-	* Supports using the save/checkpoint files to determine progress
+	* Uses the save/checkpoint files to determine progress
 * Can specify minimum and maximum exponent for assignments
 	* Can specify minimum and maximum bit level for assignments
 * Automatically registers assignments without an assignment ID (AID)
@@ -78,6 +79,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Force TF assignments to factor to the target bit level
 	* Force P-1 factoring before LL/PRP tests
 	* Use the optimal P-1 bounds
+	* Use larger ECM bounds
 	* Convert LL assignments to PRP
 	* Convert PRP assignments to LL
 * Calculates rolling average to improve assignment expected completion dates
@@ -87,6 +89,8 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Optional color output
 	* Automatically rotates log file
 * Monitors available and used disk space
+* Supports configuring connection options 
+	* Supports configuring a proxy server
 * Automatic AutoPrimeNet and GIMPS program version check
 * Optional e-mail and text message notifications
 	* There is an error
@@ -105,7 +109,8 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 		* New version of AutoPrimeNet is available
 		* New version of the GIMPS program is available
 * Automatically detects e-mail configuration when using `--setup` option
-* File locking of both work and results files
+* Supports encrypting any passwords in the configuration file
+* Uses a lockfile and supports locking of both work and results files
 * Optionally archives PRP proof files after upload
 * Saves submitted results to a `results_sent.txt` file
 * Automatically detects system information
@@ -115,10 +120,11 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 		* Total memory
 		* Number of cores/threads
 		* L1/L2/L3 cache sizes
-	* Graphics Processor (GPU) with Nvidia Management Library (NVML) and OpenCL
+	* Graphics Processor (GPU) with CUDA, Nvidia Management Library (NVML) and OpenCL
 		* GPU model
 		* Frequency/Speed
 		* Total memory
+		* Number of cores
 * Optional status report 
 	* Expected completion dates for all assignments
 	* Probability each assignment is prime
@@ -128,6 +134,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 * Optional alert after finding a new Mersenne Prime!
 * Supports both Python 2 and 3 
 * Supports Windows, macOS and Linux
+	* Should support any system from the last 12+ years
 * 100% Open Source
 * Can claim full EFF Awards
 
@@ -135,14 +142,14 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 
 ```
 usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
-                       [-i WORKTODO_FILE] [-r RESULTS_FILE] [-L LOGFILE]
+                       [-i WORK_FILE] [-r RESULTS_FILE] [-L LOGFILE]
                        [-l LOCALFILE] [--archive-proofs ARCHIVE_DIR]
                        [-u USER_ID] [-T WORK_PREFERENCE] [--cert-work]
                        [--no-cert-work] [--cert-work-limit CERT_CPU_LIMIT]
                        [--min-exp MIN_EXP] [--max-exp MAX_EXP]
                        [--min-bit MIN_BIT] [--max-bit MAX_BIT]
                        [--force-target-bits]
-                       [-m | -g | --prpll | --prmers | --cudalucas | --mfaktc | --mfakto]
+                       [-m | -g | --prpll | --prmers | --cudalucas | --mfaktc | --mfakto | --primepath]
                        [--num-workers NUM_WORKERS] [-n NUM_CACHE]
                        [-W DAYS_OF_WORK] [--force-pminus1 TESTS_SAVED]
                        [--pminus1-threshold PM1_MULTIPLIER]
@@ -162,30 +169,34 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
                        [--proxy-type {http,https,socks5,socks5h}] [-x PROXY]
                        [--proxy-username PROXY_USERNAME]
                        [--proxy-password PROXY_PASSWORD] [-H COMPUTER_ID]
-                       [--cpu-model CPU_BRAND] [--features CPU_FEATURES]
-                       [--frequency CPU_SPEED] [--memory MEMORY]
+                       [--processor-model CPU_BRAND]
+                       [--processor-features CPU_FEATURES]
+                       [--processor-frequency CPU_SPEED] [--memory MEMORY]
                        [--max-memory DAY_NIGHT_MEMORY]
                        [--max-disk-space WORKER_DISK_SPACE]
-                       [--l1 CPU_L1_CACHE_SIZE] [--l2 CPU_L2_CACHE_SIZE]
-                       [--l3 CPU_L3_CACHE_SIZE] [--cores NUM_CORES]
-                       [--hyperthreads CPU_HYPERTHREADS] [--hours CPU_HOURS]
-                       [--to TOEMAILS] [-f FROMEMAIL] [-S SMTP] [--tls]
-                       [--no-tls] [--starttls] [--no-starttls]
-                       [-U EMAIL_USERNAME] [-P EMAIL_PASSWORD] [--test-email]
+                       [--processor-l1-size CPU_L1_CACHE_SIZE]
+                       [--processor-l2-size CPU_L2_CACHE_SIZE]
+                       [--processor-l3-size CPU_L3_CACHE_SIZE]
+                       [--processor-cores NUM_CORES]
+                       [--processor-hyperthreads CPU_HYPERTHREADS]
+                       [--hours CPU_HOURS] [--to-email TOEMAILS]
+                       [-f FROMEMAIL] [-S SMTP] [--tls] [--no-tls]
+                       [--starttls] [--no-starttls] [-U EMAIL_USERNAME]
+                       [-P EMAIL_PASSWORD] [--test-email]
 
 This program will automatically get and register assignments, report
 assignment progress and results, upload proof files to and download
 certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL,
-PrMers, CUDALucas, mfaktc and mfakto GIMPS programs. It can get assignments
-and report results to mersenne.ca for exponents above the PrimeNet limit of
-1G. It also saves its configuration to a 'prime.ini' file by default, so it is
-only necessary to give most of the arguments once. The first time it is run,
-it will register the current
-Mlucas/GpuOwl/PRPLL/PrMers/CUDALucas/mfaktc/mfakto instance with PrimeNet (see
-the Registering Options below). Then, it will report assignment results and
-upload any proof files to PrimeNet immediately. It will get assignments on the
---timeout interval, or only once if --timeout is 0. It will additionally
-report the progress on the --checkin interval.
+PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS programs. It can get
+assignments and report results to mersenne.ca for exponents above the PrimeNet
+limit of 1G. It also saves its configuration to a 'prime.ini' file by default,
+so it is only necessary to give most of the arguments once. The first time it
+is run, it will register the current
+Mlucas/GpuOwl/PRPLL/PrMers/CUDALucas/mfaktc/mfakto/PrimePath instance with
+PrimeNet (see the Registering Options below). Then, it will report assignment
+results and upload any proof files to PrimeNet immediately. It will get
+assignments on the --timeout interval, or only once if --timeout is 0. It will
+additionally report the progress on the --checkin interval.
 
 options:
   -h, --help            show this help message and exit
@@ -198,13 +209,13 @@ options:
   -D DIRS, --dir DIRS   Directories relative to --workdir with the work and
                         results files from the GIMPS program. Provide once for
                         each worker. This is incompatible with PRPLL.
-  -i WORKTODO_FILE, --work-file WORKTODO_FILE
+  -i WORK_FILE, --work-file WORK_FILE
                         Work file filename, Default: 'worktodo.txt'. Not used
                         with PRPLL.
   -r RESULTS_FILE, --results-file RESULTS_FILE
                         Results file filename, Default: 'results.json.txt' for
-                        mfaktc/mfakto or 'results.txt' otherwise. Not used
-                        with PRPLL.
+                        mfaktc/mfakto and PrimePath or 'results.txt'
+                        otherwise. Not used with PRPLL.
   -L LOGFILE, --logfile LOGFILE
                         Log file filename, Default: 'autoprimenet.log'
   -l LOCALFILE, --config-file LOCALFILE
@@ -264,6 +275,7 @@ options:
   --cudalucas           Get assignments for CUDALucas.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
+  --primepath           Get assignments for PrimePath.
   --num-workers NUM_WORKERS
                         Number of workers (CPU Cores/GPUs), Default: 1
   -n NUM_CACHE, --num-cache NUM_CACHE
@@ -271,9 +283,9 @@ options:
                         in favor of the --days-work option.
   -W DAYS_OF_WORK, --days-work DAYS_OF_WORK
                         Days of work to queue ((0-180] days), Default: 1 day
-                        for mfaktc/mfakto or 3 days otherwise. Increases
-                        num_cache when the time left for all assignments is
-                        less than this number of days.
+                        for mfaktc/mfakto and PrimePath or 3 days otherwise.
+                        Increases num_cache when the time left for all
+                        assignments is less than this number of days.
   --force-pminus1 TESTS_SAVED
                         Force P-1 factoring before LL/PRP tests and/or change
                         the default PrimeNet PRP and P-1 tests_saved value.
@@ -372,7 +384,7 @@ Connection Options:
                         Proxy server type, 'http', 'https', 'socks5' or
                         'socks5h', Default 'http'. SOCKS proxies require the
                         Requests 2.10 or greater and PySocks libraries.
-  -x PROXY, --proxy PROXY
+  -x PROXY, --proxy-server PROXY
                         Proxy server. Optionally include a port with the
                         'hostname:port' syntax.
   --proxy-username PROXY_USERNAME
@@ -391,14 +403,14 @@ Registering Options:
   a GPU based GIMPS program, it can optionally report the GPU instead of the
   CPU.
 
-  -H COMPUTER_ID, --hostname COMPUTER_ID
+  -H COMPUTER_ID, --computer-name COMPUTER_ID
                         Optional computer name, Default: 'example'
-  --cpu-model CPU_BRAND
-                        Processor (CPU) model, Default: 'cpu.unknown'
-  --features CPU_FEATURES
-                        CPU features, Default: ''
-  --frequency CPU_SPEED
-                        CPU frequency/speed (MHz), Default: 1000 MHz
+  --processor-model CPU_BRAND
+                        Processor (CPU/GPU) model, Default: 'cpu.unknown'
+  --processor-features CPU_FEATURES
+                        Processor features, Default: ''
+  --processor-frequency CPU_SPEED
+                        Processor frequency/speed (MHz), Default: 1000 MHz
   --memory MEMORY       Total physical memory (RAM) (MiB), Default: 1024 MiB
   --max-memory DAY_NIGHT_MEMORY
                         Configured day/night P-1/ECM stage 2 memory (MiB),
@@ -409,15 +421,16 @@ Registering Options:
                         proof interim residues files for PRP tests
                         (GiB/worker), Default: 0.0 GiB/worker. Use 0 to not
                         send.
-  --l1 CPU_L1_CACHE_SIZE
-                        L1 Data Cache size (KiB), Default: 8 KiB
-  --l2 CPU_L2_CACHE_SIZE
-                        L2 Cache size (KiB), Default: 512 KiB
-  --l3 CPU_L3_CACHE_SIZE
-                        L3 Cache size (KiB), Default: 0 KiB
-  --cores NUM_CORES     Number of physical CPU cores, Default: 1
-  --hyperthreads CPU_HYPERTHREADS
-                        Number of CPU threads per core (0 is unknown),
+  --processor-l1-size CPU_L1_CACHE_SIZE
+                        Processor L1 Data Cache size (KiB), Default: 8 KiB
+  --processor-l2-size CPU_L2_CACHE_SIZE
+                        Processor L2 Cache size (KiB), Default: 512 KiB
+  --processor-l3-size CPU_L3_CACHE_SIZE
+                        Processor L3 Cache size (KiB), Default: 0 KiB
+  --processor-cores NUM_CORES
+                        Number of physical processor cores, Default: 1
+  --processor-hyperthreads CPU_HYPERTHREADS
+                        Number of processor threads per core (0 is unknown),
                         Default: 0. Choose 1 for non-hyperthreaded and 2 or
                         more for hyperthreaded.
   --hours CPU_HOURS     Hours per day you expect the GIMPS program will run (1
@@ -433,12 +446,13 @@ Notification Options:
   the --test-email option to verify the configuration. When using the
   --setup option, it will automatically lookup the configuration.
 
-  --to TOEMAILS         To e-mail address. Use multiple times for multiple
-                        To/recipient e-mail addresses. Defaults to the --from
-                        value if not provided.
-  -f FROMEMAIL, --from FROMEMAIL
+  --to-email TOEMAILS   To e-mail address. Use multiple times for multiple
+                        To/recipient e-mail addresses. Defaults to the --from-
+                        email value if not provided.
+  -f FROMEMAIL, --from-email FROMEMAIL
                         From e-mail address
-  -S SMTP, --smtp SMTP  SMTP server. Optionally include a port with the
+  -S SMTP, --smtp-server SMTP
+                        SMTP server. Optionally include a port with the
                         'hostname:port' syntax. Defaults to port 465 with
                         --tls and port 25 otherwise.
   --tls                 Use a secure connection with SSL/TLS
@@ -452,6 +466,7 @@ Notification Options:
   --test-email          Send a test e-mail message and exit
 ```
 
+It respects the [`NO_COLOR`](https://no-color.org/) and [`FORCE_COLOR`](https://force-color.org/) environment variables.
 
 ## Contributing
 
@@ -460,6 +475,8 @@ Pull requests welcome! Ideas for contributions:
 * Support more GIMPS programs.
 * Support FreeBSD and Android.
 	* ⭐ Help wanted
+* Support running the GIMPS program directly.
+* Support multiple instances of PRPLL.
 * Create icon/logo for standalone executables.
 * Support setting more of the program options.
 * Improve the error handling of PrimeNet API calls.
