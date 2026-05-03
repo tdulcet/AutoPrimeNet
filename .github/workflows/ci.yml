@@ -52,6 +52,7 @@ jobs:
         set -x
         wget -qO - https://raw.github.com/tdulcet/Linux-System-Information/master/info.sh | bash -s --
         python3 -X dev -c 'import platform; print(platform.freedesktop_os_release())' || true
+        python3 -X dev -c 'import ssl; from ctypes.util import dllist; print("\n".join(map(repr, dllist())))' || true
         python3 -X dev autoprimenet.py --help
         python3 -X dev autoprimenet.py --debug-info
         python3 -X dev gimps_status.py --help
@@ -64,29 +65,33 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04"] # "ubuntu:20.04"
+        container: ["ubuntu:14.04", "ubuntu:16.04", "ubuntu:18.04", "ubuntu:20.04", "alpine:3.8", "alpine:3.12", "alpine:3.16", "alpine:3.20"]
       fail-fast: false
     steps:
     # - uses: actions/checkout@v6
     - name: Install
+      if: ${{ startsWith(matrix.container, 'ubuntu:') }}
       run: |
         apt-get update
-        apt-get install -y wget python python-requests python3 python3-requests
-        python --version
-        python3 --version
+        apt-get install -y wget python3 python3-requests
+    - name: Install
+      if: ${{ startsWith(matrix.container, 'alpine:') }}
+      run: |
+        apk update
+        apk add wget python3 py3-requests
     - name: Download
       run: |
         wget "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/archive/$GITHUB_SHA.tar.gz"
         tar -xzvf "$GITHUB_SHA.tar.gz" --strip-components=1
+    - name: Before script
+      run: |
+        python3 --version
     - name: Script
       run: |
         set -x
-        python autoprimenet.py --help
-        python autoprimenet.py --debug-info
-        python gimps_status.py --help
-        python3 autoprimenet.py --help
-        python3 autoprimenet.py --debug-info
-        python3 gimps_status.py --help
+        python3 -X dev autoprimenet.py --help
+        python3 -X dev autoprimenet.py --debug-info
+        python3 -X dev gimps_status.py --help
 
   macOS:
     name: macOS
@@ -111,6 +116,7 @@ jobs:
         sysctl -n hw.memsize
         sysctl -n hw.l1dcachesize hw.l2cachesize hw.l3cachesize
         python3 -X dev -c 'import platform; print(platform.mac_ver())'
+        python3 -X dev -c 'import ssl; from ctypes.util import dllist; print("\n".join(map(repr, dllist())))' || true
         python3 -X dev autoprimenet.py --help
         python3 -X dev autoprimenet.py --debug-info
         python3 -X dev gimps_status.py --help
@@ -146,6 +152,7 @@ jobs:
         # wmic path Win32_CacheMemory get CacheType,InstalledSize,Level
         Get-CimInstance Win32_CacheMemory | Select CacheType,InstalledSize,Level
         python -X dev -c "import platform; print(platform.win32_ver())"
+        python -X dev -c "import ssl; from ctypes.util import dllist; print('\n'.join(map(repr, dllist())))"
         python -X dev autoprimenet.py --help
         python -X dev autoprimenet.py --debug-info
         python -X dev gimps_status.py --help
@@ -157,7 +164,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "pypy2.7", "pypy3.6", "pypy3.7", "pypy3.8", "pypy3.9", "pypy3.10", "pypy3.11"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "pypy3.6", "pypy3.7", "pypy3.8", "pypy3.9", "pypy3.10", "pypy3.11"]
         include:
           - os: ubuntu-22.04
             python-version: "3.7"
@@ -174,6 +181,6 @@ jobs:
         python -m pip install requests
     - name: Script
       run: |
-        python autoprimenet.py --help
-        python autoprimenet.py --debug-info
-        python gimps_status.py --help
+        python -X dev autoprimenet.py --help
+        python -X dev autoprimenet.py --debug-info
+        python -X dev gimps_status.py --help
