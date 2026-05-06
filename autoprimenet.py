@@ -2147,7 +2147,13 @@ def ask_str(astr, val, maxlen=0):
 
 def ask_pass(astr, val):
 	"""Prompt the user for a password, displaying asterisks for existing input if provided."""
-	return getpass.getpass("{}{}: ".format(astr, " ({})".format("*" * len(val)) if val else "")) or val
+	return (
+		getpass.getpass(
+			"{}{}: ".format(astr, " ({})".format("*" * len(val)) if val else ""),
+			**({"echo_char": "*"} if sys.version_info >= (3, 14) else {}),
+		)
+		or val
+	)
 
 
 def ask_ok():
@@ -3178,6 +3184,7 @@ def config_write(config):
 	"""Writes the configuration to a prime.ini file."""
 	# generate a new prime.ini file
 	localfile = os.path.join(workdir, args.localfile)
+	# Python 3.3+: opener=partial(os.open, mode=0o600)
 	with open(localfile, "w", **({"encoding": "utf-8"} if sys.version_info >= (3,) else {})) as configfile:
 		config.write(configfile)
 
@@ -7813,14 +7820,25 @@ def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 			return None
 
 	program = ar["program"]
+	name = program["name"]
+	version = program["version"]
 	aprogram = "{}{}".format(
-		program["name"],
-		" {}{}".format(program["version"], " {}".format(program["build"]) if "build" in program else "")
-		if program["version"]
-		else "",
+		name, " {}{}".format(version, " {}".format(program["build"]) if "build" in program else "") if version else ""
 	)
 	# adapter.debug("Program: %s", aprogram)
 	config.set(SEC.Internals, "program", aprogram)
+
+	if "checksum" not in ar and name.lower() in {"mfaktc", "mfakto"}:
+		adapter.error(
+			"Both the PrimeNet and mersenne.ca servers now require that Trial Factor (TF) JSON results include a checksum."
+		)
+		adapter.error(
+			"It appears that you are using %s %s, please upgrade to a more recent version: https://download.mersenne.ca/%s",
+			name,
+			version,
+			name,
+		)
+		return None
 
 	user = ar.setdefault("user", args.user_id)
 	computer = ar.setdefault("computer", args.computer_id)
@@ -8122,7 +8140,7 @@ Python version: {}
 RESULT_PATTERN = re.compile(r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf|PrimePath)"|CUDA(?:Lucas|Pm1) v')
 
 
-def submit_work(dirs, adapter, adir, cpu_num, tasks):
+def submit_work(_dirs, adapter, adir, cpu_num, tasks):
 	"""Submits the results file to the PrimeNet server."""
 	# A cumulative backup
 	sentfile = os.path.join(adir, "results_sent-{}.txt".format(cpu_num) if args.prpll else "results_sent.txt")

@@ -1450,7 +1450,7 @@ def parse_work_unit_cudalucas(filename, p):
 			if args.check and chksum != checksum:
 				logging.error("Checksum error. Got %X, expected %X.", chksum, checksum)
 			total_time <<= 15
-			_time_adj <<= 15
+			# time_adj <<= 15
 
 			wu.n = q
 			wu.counter = j
