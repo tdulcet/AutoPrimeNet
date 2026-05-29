@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /// script
-# requires-python = ">=2.7"
+# requires-python = ">=3.4"
 # dependencies = [
 #   "requests",
 # ]
@@ -56,7 +55,6 @@
 #                                                                              #
 ################################################################################
 # region Imports
-from __future__ import division, print_function, unicode_literals
 
 import argparse
 import atexit
@@ -64,6 +62,7 @@ import base64
 import binascii
 import ctypes
 import datetime as dt
+import decimal
 import errno
 import getpass
 import glob
@@ -76,6 +75,7 @@ import mimetypes
 import operator
 import os
 import platform
+import queue
 import random
 import re
 import shutil
@@ -94,57 +94,21 @@ import xml.etree.ElementTree as ET
 import zipfile
 from array import array
 from collections import namedtuple
+from configparser import ConfigParser
+from configparser import Error as ConfigParserError
 from ctypes.util import find_library
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from email import charset, encoders
-from email.header import Header
-from email.mime.base import MIMEBase
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import formataddr, formatdate, parseaddr
-from hashlib import md5
+from email.message import EmailMessage
+from email.utils import localtime, parseaddr
+from enum import IntEnum
+from functools import partial
+from hashlib import md5, pbkdf2_hmac
+from http.client import HTTP_PORT
+from http.cookiejar import DefaultCookiePolicy
 from itertools import chain, count, starmap
-
-try:
-	# Python 2
-	from future_builtins import map, zip  # ascii, filter, hex, oct
-except ImportError:
-	pass
-
-try:
-	# Python 3+
-	from urllib.parse import urlencode, urlparse, urlunparse
-except ImportError:
-	from urllib import urlencode
-
-	from urlparse import urlparse, urlunparse
-
-try:
-	# Python 3+
-	from http.cookiejar import DefaultCookiePolicy
-except ImportError:
-	from cookielib import DefaultCookiePolicy
-
-try:
-	# Python 3+
-	from http.client import HTTP_PORT
-except ImportError:
-	from httplib import HTTP_PORT
-
-try:
-	# Python 3+
-	from configparser import ConfigParser
-	from configparser import Error as ConfigParserError
-except ImportError:
-	from ConfigParser import Error as ConfigParserError
-	from ConfigParser import SafeConfigParser as ConfigParser
-
-try:
-	# Python 3+
-	import queue
-except ImportError:
-	import Queue as queue
+from statistics import median_low
+from urllib.parse import urlencode, urlparse, urlunparse
 
 if sys.version_info >= (3, 7):
 	# Python 3.7+
@@ -152,24 +116,7 @@ if sys.version_info >= (3, 7):
 	# Since it is also faster, it is better to use raw dict()
 	OrderedDict = dict
 else:
-	try:
-		# Python 2.7 and 3.1+
-		from collections import OrderedDict
-	except ImportError:
-		# Tests will not work correctly but it doesn't affect the
-		# functionality
-		OrderedDict = dict
-
-try:
-	# Python 3.4+
-	from statistics import median_low
-except ImportError:
-
-	def median_low(data):
-		"""Returns the median of the input data, using the lower median for even-length data."""
-		sorts = sorted(data)
-		length = len(sorts)
-		return sorts[(length - 1) // 2]
+	from collections import OrderedDict
 
 
 try:
@@ -199,26 +146,6 @@ except ImportError:
 
 
 try:
-	# Python 3.3+
-	from math import log2
-except ImportError:
-
-	def log2(x):
-		"""Calculate the base-2 logarithm of a given number."""
-		return math.log(x, 2)
-
-
-try:
-	# Python 3.2+
-	from math import expm1
-except ImportError:
-
-	def expm1(x):
-		"""Return exp(x) - 1, the exponential of x minus 1."""
-		return math.exp(x) - 1
-
-
-try:
 	# Python 3.8+
 	from math import prod
 except ImportError:
@@ -232,13 +159,8 @@ except ImportError:
 # endregion
 # region OS
 if sys.platform == "win32":  # Windows
+	import winreg
 	from ctypes import wintypes
-
-	try:
-		# Python 3+
-		import winreg
-	except ImportError:
-		import _winreg as winreg
 
 	kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 	advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
@@ -351,7 +273,7 @@ if sys.platform == "win32":  # Windows
 		def __init__(self):
 			"""Set dwLength for passing this structure to GlobalMemoryStatusEx."""
 			self.dwLength = ctypes.sizeof(self)
-			super(MEMORYSTATUSEX, self).__init__()
+			super().__init__()
 
 	if hasattr(kernel32, "GetLogicalProcessorInformationEx"):  # Windows 7 or greater
 		kernel32.GetLogicalProcessorInformationEx.argtypes = (wintypes.DWORD, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD))
@@ -393,7 +315,7 @@ if sys.platform == "win32":  # Windows
 					if regtype == winreg.REG_SZ:
 						output = product_id
 						break
-			except WindowsError:
+			except OSError:
 				pass
 
 		return output
@@ -484,7 +406,7 @@ elif sys.platform.startswith("linux"):
 			info = {}
 			for candidate in ("/etc/os-release", "/usr/lib/os-release"):
 				if os.path.isfile(candidate):
-					with io.open(candidate, encoding="utf-8") as file:
+					with open(candidate, encoding="utf-8") as file:
 						# lexer = shlex.shlex(file, posix=True)
 						# lexer.whitespace_split = True
 						for line in file:
@@ -636,12 +558,12 @@ if nvml_lib:
 	# nvml.nvmlShutdown.argtypes = ()
 	# nvml.nvmlShutdown.restype = ctypes.c_int
 
-base_exec_prefix = getattr(sys, "base_exec_prefix", sys.exec_prefix)  # Python 3.3+
 if sys.platform == "win32":
 	# sys.platlibdir
 	for file in chain.from_iterable(
 		map(
-			glob.iglob, (os.path.join(base_exec_prefix, "libcrypto*.dll"), os.path.join(base_exec_prefix, "DLLs", "libcrypto*.dll"))
+			glob.iglob,
+			(os.path.join(sys.base_exec_prefix, "libcrypto*.dll"), os.path.join(sys.base_exec_prefix, "DLLs", "libcrypto*.dll")),
 		)
 	):
 		libcrypto = file
@@ -652,7 +574,7 @@ elif sys.platform == "darwin":
 	for file in chain.from_iterable(
 		map(
 			glob.iglob,
-			(os.path.join(base_exec_prefix, "libcrypto*.dylib"), os.path.join(base_exec_prefix, "lib", "libcrypto*.dylib")),
+			(os.path.join(sys.base_exec_prefix, "libcrypto*.dylib"), os.path.join(sys.base_exec_prefix, "lib", "libcrypto*.dylib")),
 		)
 	):
 		libcrypto = file
@@ -682,55 +604,13 @@ if libcrypto:
 	OpenSSL_version.argtypes = (ctypes.c_int,)
 	OpenSSL_version.restype = ctypes.c_char_p
 
-	OPENSSL_VERSION = OpenSSL_version(0).decode("utf-8")  # OPENSSL_VERSION
+	OPENSSL_VERSION = OpenSSL_version(0).decode()  # OPENSSL_VERSION
 
 	if hasattr(crypto, "OPENSSL_add_all_algorithms_noconf"):
 		# OPENSSL_INIT_ADD_ALL_CIPHERS | OPENSSL_INIT_ADD_ALL_DIGESTS
 		# crypto.OPENSSL_init_crypto(0x00000004 | 0x00000008, None)
 		crypto.OPENSSL_add_all_algorithms_noconf()
 		crypto.ERR_load_crypto_strings()
-
-	try:
-		# Python 2.7.8 and 3.4+
-		from hashlib import pbkdf2_hmac
-	except ImportError:
-		crypto.EVP_get_digestbyname.argtypes = (ctypes.c_char_p,)
-		crypto.EVP_get_digestbyname.restype = ctypes.c_void_p
-
-		EVP_MD_get_size = crypto.EVP_MD_get_size if hasattr(crypto, "EVP_MD_get_size") else crypto.EVP_MD_size
-		EVP_MD_get_size.argtypes = (ctypes.c_void_p,)
-		# EVP_MD_get_size.restype = ctypes.c_int
-
-		crypto.PKCS5_PBKDF2_HMAC.argtypes = (
-			ctypes.c_char_p,
-			ctypes.c_int,
-			ctypes.c_char_p,
-			ctypes.c_int,
-			ctypes.c_int,
-			ctypes.c_void_p,
-			ctypes.c_int,
-			ctypes.c_char_p,
-		)
-		# crypto.PKCS5_PBKDF2_HMAC.restype = ctypes.c_int
-
-		def pbkdf2_hmac(hash_name, password, salt, iterations, dklen=None):
-			digest = crypto.EVP_get_digestbyname(hash_name.encode("utf-8"))
-			if not digest:
-				msg = "EVP_get_digestbyname failed"
-				raise ssl_error(msg)
-
-			if dklen is None:
-				dklen = EVP_MD_get_size(digest)
-				if dklen < 0:
-					msg = "EVP_MD_get_size failed"
-					raise ssl_error(msg)
-
-			buffer = ctypes.create_string_buffer(dklen)
-			if crypto.PKCS5_PBKDF2_HMAC(password, len(password), salt, len(salt), iterations, digest, dklen, buffer) != 1:
-				msg = "PKCS5_PBKDF2_HMAC failed"
-				raise ssl_error(msg)
-
-			return buffer.raw
 
 	# crypto.EVP_CIPHER_CTX_new.argtypes = ()
 	crypto.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
@@ -808,7 +688,7 @@ if libcrypto:
 	def aead_encrypt(plaintext, authdata, password):
 		salt = os.urandom(SALT_LEN)
 		nonce = os.urandom(IV_LEN)
-		key = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, KDF_ITERS)
+		key = pbkdf2_hmac("sha256", password.encode(), salt, KDF_ITERS)
 
 		ctx = crypto.EVP_CIPHER_CTX_new()
 		if not ctx:
@@ -853,7 +733,7 @@ if libcrypto:
 		ciphertext = blob[SALT_LEN + IV_LEN : -TAG_LEN]
 		tag = blob[-TAG_LEN:]
 
-		key = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, KDF_ITERS)
+		key = pbkdf2_hmac("sha256", password.encode(), salt, KDF_ITERS)
 
 		ctx = crypto.EVP_CIPHER_CTX_new()
 		if not ctx:
@@ -888,80 +768,6 @@ if libcrypto:
 
 		return outbuf[: outlen.value + tmplen.value]
 
-
-try:
-	# Python 3.3+
-	from shutil import disk_usage
-except ImportError:
-	# Adapted from: https://code.activestate.com/recipes/577972-disk-usage/
-	_ntuple_diskusage = namedtuple("usage", "total used free")
-
-	if hasattr(os, "statvfs"):  # POSIX
-
-		def disk_usage(path):
-			"""Return total, used, and free disk space for path via statvfs (shutil.disk_usage fallback)."""
-			st = os.statvfs(path)
-			free = st.f_bavail * st.f_frsize
-			total = st.f_blocks * st.f_frsize
-			used = (st.f_blocks - st.f_bfree) * st.f_frsize
-			return _ntuple_diskusage(total, used, free)
-
-	elif os.name == "nt":  # Windows
-		ctypes.windll.kernel32.GetDiskFreeSpaceExW.argtypes = (
-			wintypes.LPCWSTR,
-			ctypes.POINTER(wintypes.ULARGE_INTEGER),
-			ctypes.POINTER(wintypes.ULARGE_INTEGER),
-			ctypes.POINTER(wintypes.ULARGE_INTEGER),
-		)
-		# ctypes.windll.kernel32.GetDiskFreeSpaceExW.restype = wintypes.BOOL
-
-		ctypes.windll.kernel32.GetDiskFreeSpaceExA.argtypes = (
-			wintypes.LPCSTR,
-			ctypes.POINTER(wintypes.ULARGE_INTEGER),
-			ctypes.POINTER(wintypes.ULARGE_INTEGER),
-			ctypes.POINTER(wintypes.ULARGE_INTEGER),
-		)
-		# ctypes.windll.kernel32.GetDiskFreeSpaceExA.restype = wintypes.BOOL
-
-		def disk_usage(path):
-			"""Return total, used, and free disk space using GetDiskFreeSpaceEx (shutil.disk_usage fallback)."""
-			_ = wintypes.ULARGE_INTEGER()
-			total = wintypes.ULARGE_INTEGER()
-			free = wintypes.ULARGE_INTEGER()
-			fun = (
-				ctypes.windll.kernel32.GetDiskFreeSpaceExW
-				if sys.version_info >= (3,) or isinstance(path, str)
-				else ctypes.windll.kernel32.GetDiskFreeSpaceExA
-			)
-			if not fun(path, ctypes.byref(_), ctypes.byref(total), ctypes.byref(free)):
-				raise ctypes.WinError()
-			used = total.value - free.value
-			return _ntuple_diskusage(total.value, used, free.value)
-
-
-try:
-	# Python 3.3+
-	from os import replace
-except ImportError:
-	if os.name == "nt":  # Windows
-		ctypes.windll.kernel32.MoveFileExW.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD)
-		# ctypes.windll.kernel32.MoveFileExW.restype = wintypes.BOOL
-
-		ctypes.windll.kernel32.MoveFileExA.argtypes = (wintypes.LPCSTR, wintypes.LPCSTR, wintypes.DWORD)
-		# ctypes.windll.kernel32.MoveFileExA.restype = wintypes.BOOL
-
-		def replace(src, dst):
-			"""Replace dst with src using MoveFileEx (os.replace fallback on Windows)."""
-			fun = (
-				ctypes.windll.kernel32.MoveFileExW
-				if sys.version_info >= (3,) or isinstance(src, str) or isinstance(dst, str)
-				else ctypes.windll.kernel32.MoveFileExA
-			)
-			if not fun(src, dst, 0x1):  # MOVEFILE_REPLACE_EXISTING
-				raise ctypes.WinError()
-
-	else:  # POSIX
-		replace = os.rename
 
 try:
 	# Windows
@@ -1018,17 +824,6 @@ if sys.platform == "win32":
 	)
 	kernel32.CreateFileW.restype = wintypes.HANDLE
 
-	kernel32.CreateFileA.argtypes = (
-		wintypes.LPCSTR,
-		wintypes.DWORD,
-		wintypes.DWORD,
-		ctypes.c_void_p,
-		wintypes.DWORD,
-		wintypes.DWORD,
-		wintypes.HANDLE,
-	)
-	kernel32.CreateFileA.restype = wintypes.HANDLE
-
 	kernel32.ReadDirectoryChangesW.argtypes = (
 		wintypes.HANDLE,
 		wintypes.LPVOID,
@@ -1046,8 +841,7 @@ if sys.platform == "win32":
 
 	def watch_files(adir, cpu_num):
 		"""Monitors a directory for file changes and processes specific file actions."""
-		fun = kernel32.CreateFileW if sys.version_info >= (3,) or isinstance(adir, unicode) else kernel32.CreateFileA
-		handle = fun(
+		handle = kernel32.CreateFileW(
 			adir,
 			1,  # FILE_LIST_DIRECTORY
 			# FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
@@ -1171,7 +965,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		for item in client_info:
 			if item.dir is None:
 				break
-			paths.append((item.dir.decode("utf-8"), item.cpu_num))
+			paths.append((item.dir.decode(), item.cpu_num))
 		((adir, cpu_num),) = paths
 		results = (
 			[os.path.join(adir, "results-{}.txt".format(i)) for i in range(args.num_workers)]
@@ -1181,7 +975,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		proof = os.path.join(adir, "proof")
 
 		for i in range(num_events):
-			path = event_paths[i].decode("utf-8")
+			path = os.fsdecode(event_paths[i])
 			flag = event_flags[i]
 			# aid = event_ids[i]
 			if flag & 0x00000800:  # kFSEventStreamEventFlagItemRenamed
@@ -1198,11 +992,11 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		"""Watches the specified directory for file system events and processes them using a callback function."""
 		paths = ((adir, cpu_num),)
 		strings = (ctypes.c_void_p * len(paths))(
-			*(CoreFoundation.CFStringCreateWithCString(None, s.encode("utf-8"), 0x8000100) for s, _ in paths)
+			*(CoreFoundation.CFStringCreateWithCString(None, os.fsencode(s), 0x8000100) for s, _ in paths)
 		)
 		logging.info("Watching the directory: %r.", os.path.abspath(adir))
 
-		context = FSEventStreamContext(0, (info * len(paths))(*((os.path.abspath(s).encode("utf-8"), i) for s, i in paths)))
+		context = FSEventStreamContext(0, (info * len(paths))(*((os.path.abspath(s).encode(), i) for s, i in paths)))
 
 		stream = CoreServices.FSEventStreamCreate(
 			None,
@@ -1340,7 +1134,7 @@ elif sys.platform.startswith("linux"):
 
 	def add_watch(fd, path, mask):
 		"""Add a watch to the inotify instance for the specified path with the given mask."""
-		wd = libc.inotify_add_watch(fd, path.encode("utf-8"), mask)
+		wd = libc.inotify_add_watch(fd, os.fsencode(path), mask)
 		if wd < 0:
 			raise OSError(ctypes.get_errno(), "Error adding watch to {!r}".format(path))
 		return wd
@@ -1382,7 +1176,7 @@ elif sys.platform.startswith("linux"):
 				offset = 0
 				while offset < len(buffer):
 					event = inotify_event.from_buffer_copy(buffer, offset)
-					name = buffer[offset + size : offset + size + event.len].rstrip(b"\0").decode("utf-8")
+					name = os.fsdecode(buffer[offset + size : offset + size + event.len].rstrip(b"\0"))
 					file = wds[event.wd] + (os.sep + name if name else "")
 					if event.mask & IN_CLOSE_WRITE and event.wd in result_wds:
 						logging.debug("The results file %r was modified.", file)
@@ -1427,17 +1221,13 @@ def has_ipv6(host="::1"):
 	has_ipv6 = False
 
 	if socket.has_ipv6:
-		sock = None
 		try:
-			sock = socket.socket(socket.AF_INET6)
-			sock.bind((host, 0))
+			with socket.socket(socket.AF_INET6) as sock:
+				sock.bind((host, 0))
 		except OSError:
 			pass
 		else:
 			has_ipv6 = True
-		finally:
-			if sock:
-				sock.close()
 
 	return has_ipv6
 
@@ -1482,7 +1272,7 @@ else:
 				# connection_pool_kwargs.pop("assert_hostname", None)
 				connection_pool_kwargs.pop("server_hostname", None)
 
-			return super(HostHeaderSSLAdapter, self).send(request, **kwargs)
+			return super().send(request, **kwargs)
 
 
 try:
@@ -1512,11 +1302,10 @@ else:
 # region Constants and Globals
 locale.setlocale(locale.LC_ALL, "")
 conventions = locale.localeconv()
-if hasattr(sys, "set_int_max_str_digits"):
+if hasattr(sys, "set_int_max_str_digits"):  # Python 3.7.14+, 3.8.14+, 3.9.14+, 3.10.7+, 3.11+
 	sys.set_int_max_str_digits(0)
-charset.add_charset("utf-8", charset.QP, charset.QP, "utf-8")
 
-VERSION = "1.2.2"
+VERSION = "2.0.0"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -1560,13 +1349,13 @@ TIMEOUT = 30
 PRIMENET_TIMEOUT = MERSENNE_CA_TIMEOUT = 180
 
 is_64bit = platform.machine().endswith("64")
-PORT = None
-if sys.platform == "win32":
-	PORT = 4 if is_64bit else 1
-elif sys.platform == "darwin":
-	PORT = 10 if is_64bit else 9
-elif sys.platform.startswith("linux"):
-	PORT = 8 if is_64bit else 2
+# PORT = None
+# if sys.platform == "win32":
+# 	PORT = 4 if is_64bit else 1
+# elif sys.platform == "darwin":
+# 	PORT = 10 if is_64bit else 9
+# elif sys.platform.startswith("linux"):
+# 	PORT = 8 if is_64bit else 2
 
 session = requests.Session()
 session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {} ({} {}/{})".format(
@@ -1592,12 +1381,9 @@ else:
 session.mount("https://", HostHeaderSSLAdapter(max_retries=retries))
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
 atexit.register(session.close)
-# Python 2.7.9 and 3.4+
-if hasattr(ssl, "create_default_context"):
-	context = ssl.create_default_context(cafile=certifi.where() if certifi is not None else certifi)
-	context.options |= getattr(ssl, "OP_ENABLE_KTLS", 0x8)  # Python 3.12+
-else:
-	context = None
+
+context = ssl.create_default_context(cafile=certifi.where() if certifi is not None else certifi)
+context.options |= getattr(ssl, "OP_ENABLE_KTLS", 0x8)  # Python 3.12+
 
 # Mlucas constants
 
@@ -1636,30 +1422,6 @@ class timedelta(dt.timedelta):
 
 # dt.timedelta = timedelta
 
-try:
-	# Python 3.2+
-	from datetime import timezone
-except ImportError:
-	from datetime import tzinfo
-
-	class UTC(tzinfo):
-		__slots__ = ()
-
-		ZERO = timedelta()
-
-		def utcoffset(self, _dt):
-			return self.ZERO
-
-		def tzname(self, _dt):
-			return "UTC"
-
-		def dst(self, _dt):
-			return self.ZERO
-
-	utc = UTC()
-else:
-	utc = timezone.utc
-
 
 # region console IO
 class Formatter(logging.Formatter):
@@ -1672,7 +1434,7 @@ class Formatter(logging.Formatter):
 	def format(self, record):
 		"""Format log record to include worker number if 'cpu_num' attribute is present."""
 		record.worker = ", Worker #{:n}".format(record.cpu_num + 1) if hasattr(record, "cpu_num") else ""
-		return super(Formatter, self).format(record)
+		return super().format(record)
 
 
 class COLORS:
@@ -1709,7 +1471,7 @@ class ColorFormatter(Formatter):
 
 	def format(self, record):
 		"""Format log record with color based on log level."""
-		fmt = super(ColorFormatter, self).format(record)
+		fmt = super().format(record)
 		color = self.FORMATS.get(record.levelno)
 		if COLOR and color:
 			return color + fmt + COLORS.DEFAULT
@@ -1747,21 +1509,17 @@ class LockFile:
 		# logging.debug("Locking %r", self.filename)
 		for i in count():
 			try:
-				# Python 3.3+: with open(self.lockfile, "x") as f:
-				fd = os.open(self.lockfile, os.O_CREAT | os.O_EXCL)
-				os.close(fd)
+				with open(self.lockfile, "x"):
+					pass
+			except FileExistsError:
+				if not i:
+					logging.warning("%r lockfile already exists, waiting…", self.lockfile)
+				time.sleep(min(1 << i, 60 * 1000) / 1000)
+			except OSError as e:
+				logging.exception("Failed to open the %r lockfile: %s: %s", self.lockfile, type(e).__name__, e, exc_info=args.debug)
+				raise
+			else:
 				break
-			# Python 3.3+: FileExistsError
-			except (IOError, OSError) as e:
-				if e.errno == errno.EEXIST:
-					if not i:
-						logging.warning("%r lockfile already exists, waiting…", self.lockfile)
-					time.sleep(min(1 << i, 60 * 1000) / 1000)
-				else:
-					logging.exception(
-						"Failed to open the %r lockfile: %s: %s", self.lockfile, type(e).__name__, e, exc_info=args.debug
-					)
-					raise
 		if i:
 			logging.info("Locked %r", self.filename)
 		return self
@@ -1776,13 +1534,14 @@ class LockFile:
 			raise
 
 
+# class SEC(str, Enum):
 class SEC:
 	Internals = "Internals"
 	PrimeNet = "PrimeNet"
 	Email = "Email"
 
 
-class PRIMENET_ERROR:
+class PRIMENET_ERROR(IntEnum):
 	# Error codes returned to client
 	OK = 0  # no error
 	SERVER_BUSY = 3  # server is too busy now
@@ -1812,6 +1571,7 @@ class PRIMENET_ERROR:
 	ILLEGAL_RESIDUE = 48
 
 
+# class PRIMENET_WP(IntEnum):
 class PRIMENET_WP:
 	# Valid work_preference values
 	WHATEVER = 0  # Whatever makes most sense
@@ -1838,7 +1598,7 @@ class PRIMENET_WP:
 	PRP_COFACTOR_DBLCHK = 161  # PRP double check of Mersenne cofactors
 
 
-class PRIMENET_WORK_TYPE:
+class PRIMENET_WORK_TYPE(IntEnum):
 	# Valid work_types returned by ga
 	FACTOR = 2
 	PMINUS1 = 3
@@ -1851,7 +1611,7 @@ class PRIMENET_WORK_TYPE:
 	CERT = 200
 
 
-class PRIMENET_AR:
+class PRIMENET_AR(IntEnum):
 	# This structure is passed for the ar - Assignment Result call
 	NO_RESULT = 0  # No result, just sending done msg
 	TF_FACTOR = 1  # Trial factoring, factor found
@@ -1869,7 +1629,7 @@ class PRIMENET_AR:
 	CERT = 200  # Certification result
 
 
-ERRORS = {
+PRIMENET_ERRORS = {
 	PRIMENET_ERROR.SERVER_BUSY: "Server busy",
 	PRIMENET_ERROR.INVALID_VERSION: "Invalid version",
 	PRIMENET_ERROR.INVALID_TRANSACTION: "Invalid transaction",
@@ -1895,7 +1655,7 @@ ERRORS = {
 }
 
 
-class Assignment(object):
+class Assignment:
 	"""Assignment(work_type, uid, k, b, n, c, sieve_depth, factor_to, pminus1ed, B1, B2, B2_start, curves_to_do, curve, tests_saved, prp_base, prp_residue_type, prp_dblchk, known_factors, ra_failed, cert_squarings)."""
 
 	__slots__ = (
@@ -1955,18 +1715,6 @@ suffix_power = {"k": 1, "K": 1, "M": 2, "G": 3, "T": 4, "P": 5, "E": 6, "Z": 7, 
 YES_RE = re.compile(r"^[yY]")
 # NO_RE = re.compile(locale.nl_langinfo(locale.NOEXPR))
 NO_RE = re.compile(r"^[nN]")
-
-# Python 2
-if hasattr(__builtins__, "unicode"):
-	str = unicode
-
-# Python 2
-if hasattr(__builtins__, "raw_input"):
-	input = raw_input
-
-# Python 2
-if hasattr(__builtins__, "xrange"):
-	range = xrange
 
 
 def exponent_to_str(assignment):
@@ -2228,7 +1976,7 @@ def get_opencl_devices():
 			mem = get_device_value(device, 0x101F, ctypes.c_uint64)  # CL_DEVICE_GLOBAL_MEM_SIZE
 			memory = mem >> 20
 
-			adevices.append((name.decode("utf-8"), cores, frequency, memory, "OpenCL"))
+			adevices.append((name.decode(), cores, frequency, memory, "OpenCL"))
 
 	return adevices
 
@@ -2271,7 +2019,7 @@ def get_cuda_devices():
 		cuDeviceTotalMem(ctypes.byref(mem), device)
 		memory = mem.value >> 20
 
-		devices.append((name.decode("utf-8"), cores, frequency, memory, "CUDA"))
+		devices.append((name.decode(), cores, frequency, memory, "CUDA"))
 
 	return devices
 
@@ -2313,7 +2061,7 @@ def get_nvml_devices():
 			nvmlDeviceGetMemoryInfo(device, ctypes.byref(mem))
 			memory = mem.total >> 20
 
-			devices.append((name.decode("utf-8"), None, frequency, memory, "NVML"))
+			devices.append((name.decode(), None, frequency, memory, "NVML"))
 	finally:
 		nvml.nvmlShutdown()
 
@@ -2492,15 +2240,15 @@ NONE = "plain"
 STARTTLS = "STARTTLS"
 SSL = "SSL"
 
-EMAILRE = re.compile(
+EMAIL_RE = re.compile(
 	r'^(?=.{6,254}$)(?=.{1,64}@)((?:(?:[^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"(?:[^"\\]|\\.)+")(?:\.(?:(?:[^@"(),:;<>\[\\\].\s]|\\[^():;<>.])+|"(?:[^"\\]|\\.)+"))*)@((?:(?:xn--)?[^\W_](?:[\w-]{0,61}[^\W_])?\.)+(?:xn--)?[^\W\d_]{2,63})$',
-	re.U,
+	re.I,
 )
 
 
 def email_autoconfig(email):
 	"""Automatically configures email settings based on the provided email address."""
-	aemail = EMAILRE.match(email)
+	aemail = EMAIL_RE.match(email)
 	if not aemail:
 		logging.error("Could not parse e-mail address %r", email)
 		return None
@@ -3008,22 +2756,21 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 	# Used when there is no intention to write the file back, so don't
 	# check or write lockfiles. Also returns a single string, no list.
 	try:
-		with io.open(filename, mode, encoding=encoding, errors=errors) as file:
+		with open(filename, mode, encoding=encoding, errors=errors) as file:
 			for line in file:
 				yield line.rstrip("\n")
-	# Python 3.3+: FileNotFoundError
-	except (IOError, OSError) as e:
-		if e.errno != errno.ENOENT:
-			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+	except FileNotFoundError:
+		pass
+	except OSError as e:
+		logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 
 
 def iter_lines_reversed(filename, encoding="utf-8", errors="strict", chunk_size=io.DEFAULT_BUFFER_SIZE):
 	"""Yield lines from last to first without reading the whole file into memory (tail-style)."""
 	buffer = bytearray(chunk_size)
-	view = memoryview(buffer)
 	incomplete = None
 	try:
-		with open(filename, "rb", buffering=0) as f:
+		with memoryview(buffer) as view, open(filename, "rb", buffering=0) as f:
 			f.seek(0, 2)  # os.SEEK_END
 			pos = f.tell()
 			while pos > 0:
@@ -3043,10 +2790,10 @@ def iter_lines_reversed(filename, encoding="utf-8", errors="strict", chunk_size=
 				pos -= size
 			if incomplete:
 				yield incomplete.rstrip(b"\r\n").decode(encoding, errors)
-	# Python 3.3+: FileNotFoundError
-	except (IOError, OSError) as e:
-		if e.errno != errno.ENOENT:
-			logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+	except FileNotFoundError:
+		pass
+	except OSError as e:
+		logging.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 
 
 def read_last_n_lines(filename, n, encoding="utf-8", errors="strict"):
@@ -3168,7 +2915,7 @@ def config_read():
 	config.optionxform = lambda option: option
 	localfile = os.path.join(workdir, args.localfile)
 	try:
-		config.read((localfile,), **({"encoding": "utf-8"} if sys.version_info >= (3, 2) else {}))
+		config.read((localfile,), encoding="utf-8")
 	except ConfigParserError as e:
 		logging.exception("Failed to read the %r file: %s: %s", localfile, type(e).__name__, e, exc_info=args.debug)
 
@@ -3184,8 +2931,7 @@ def config_write(config):
 	"""Writes the configuration to a prime.ini file."""
 	# generate a new prime.ini file
 	localfile = os.path.join(workdir, args.localfile)
-	# Python 3.3+: opener=partial(os.open, mode=0o600)
-	with open(localfile, "w", **({"encoding": "utf-8"} if sys.version_info >= (3,) else {})) as configfile:
+	with open(localfile, "w", encoding="utf-8", opener=partial(os.open, mode=0o600)) as configfile:
 		config.write(configfile)
 
 
@@ -3197,7 +2943,7 @@ def get_guid(config):
 
 
 def calc_hardware_guid():
-	hardware_guid = md5((args.cpu_brand + str(uuid.getnode())).encode("utf-8")).hexdigest()  # similar as MPrime
+	hardware_guid = md5((args.cpu_brand + str(uuid.getnode())).encode()).hexdigest()  # similar as MPrime
 	if config.has_option(SEC.PrimeNet, "HardwareGUID"):
 		guid = config.get(SEC.PrimeNet, "HardwareGUID")
 		if guid != hardware_guid:
@@ -3209,9 +2955,7 @@ def calc_hardware_guid():
 
 
 def calc_windows_guid():
-	windows_guid = (
-		md5((get_windows_serial_number() + get_windows_sid()).encode("utf-8")).hexdigest() if sys.platform == "win32" else None
-	)
+	windows_guid = md5((get_windows_serial_number() + get_windows_sid()).encode()).hexdigest() if sys.platform == "win32" else None
 	if config.has_option(SEC.PrimeNet, "WindowsGUID"):
 		guid = config.get(SEC.PrimeNet, "WindowsGUID")
 		if guid != windows_guid:
@@ -3320,9 +3064,9 @@ def encrypt(config, args):
 				if libcrypto:
 					logging.debug("Encrypting option %s in section %r in %r", option, section, args.localfile)
 					try:
-						new_val = base64.b64encode(
-							aead_encrypt(attr_val.encode("utf-8"), (section + option).encode("utf-8"), guid)
-						).decode("ascii")
+						new_val = base64.b64encode(aead_encrypt(attr_val.encode(), (section + option).encode(), guid)).decode(
+							"ascii"
+						)
 					except (ValueError, ssl.SSLError) as e:
 						logging.exception(
 							"Failed to encrypt option %s in section %r in %r: %s: %s",
@@ -3364,12 +3108,10 @@ def decrypt(config, args):
 					option_val = config.get(section, new_option)
 					logging.debug("Decrypting option %s in section %r in %r", new_option, section, args.localfile)
 					try:
-						# Python 3+: validate=True
-						new_val = aead_decrypt(base64.b64decode(option_val), (section + option).encode("utf-8"), guid).decode(
-							"utf-8"
-						)
-					# Python 3+: binascii.Error, Python 2: TypeError
-					except (ValueError, binascii.Error, TypeError, ssl.SSLError) as e:
+						new_val = aead_decrypt(
+							base64.b64decode(option_val, validate=True), (section + option).encode(), guid
+						).decode()
+					except (ValueError, binascii.Error, ssl.SSLError) as e:
 						logging.critical(
 							"Failed to decrypt option %s in section %r in %r: %s: %s",
 							new_option,
@@ -3552,12 +3294,12 @@ def check_options(parser, args):
 			for toemail in args.toemails:
 				_, toaddress = parseaddr(toemail)
 				temp = toaddress or toemail
-				if not EMAILRE.match(temp):
+				if not EMAIL_RE.match(temp):
 					parser.error("{!r} is not a valid e-mail address.".format(temp))
 
 		_, fromaddress = parseaddr(args.fromemail)
 		temp = fromaddress or args.fromemail
-		if not EMAILRE.match(temp):
+		if not EMAIL_RE.match(temp):
 			parser.error("{!r} is not a valid e-mail address.".format(temp))
 
 	if args.tls and args.starttls:
@@ -3659,10 +3401,9 @@ def primes(limit):
 		if sieve[i]:
 			p = 3 + 2 * i
 			j = (p * p - 3) // 2
-			# sieve[j : size : p] = bytes(len(range(j, size, p)))
-			sieve[j:size:p] = bytearray(len(range(j, size, p)))
+			sieve[j:size:p] = bytes(len(range(j, size, p)))
 
-	return array("H" if sys.version_info >= (2, 7, 11) else b"H", chain((2,), (3 + 2 * i for i in range(size) if sieve[i])))
+	return array("H", chain((2,), (3 + 2 * i for i in range(size) if sieve[i])))
 
 
 # memoryview()
@@ -3723,59 +3464,41 @@ def approximate_digits(assignment):
 	return int(adigits) + 1
 
 
-if sys.version_info >= (3, 3):
-	import decimal
+def digits(assignment, exact=True):
+	"""Calculate the number of decimal digits in the given assignment."""
+	# Maximum exponent on 32-bit systems: 1,411,819,440 (425,000,000 digits)
+	exponent = assignment_to_str(assignment)
+	adigits = approximate_digits(assignment)
+	if exact and adigits <= 300000000:
+		logging.debug("Calculating the number of digits for %s…", exponent)
+		with decimal.localcontext() as ctx:
+			ctx.prec = 425000000  # decimal.MAX_PREC
+			ctx.Emax = decimal.MAX_EMAX
+			ctx.Emin = decimal.MIN_EMIN
+			ctx.traps[decimal.Inexact] = True
 
-	def digits(assignment, exact=True):
-		"""Calculate the number of decimal digits in the given assignment."""
-		# Maximum exponent on 32-bit systems: 1,411,819,440 (425,000,000 digits)
-		exponent = assignment_to_str(assignment)
-		adigits = approximate_digits(assignment)
-		if exact and adigits <= 300000000:
-			logging.debug("Calculating the number of digits for %s…", exponent)
-			with decimal.localcontext() as ctx:
-				ctx.prec = 425000000  # decimal.MAX_PREC
-				ctx.Emax = decimal.MAX_EMAX
-				ctx.Emin = decimal.MIN_EMIN
-				ctx.traps[decimal.Inexact] = True
+			num = int(assignment.k) * Decimal(assignment.b) ** assignment.n + assignment.c
+			if assignment.known_factors:
+				num /= prod(assignment.known_factors)
 
-				num = int(assignment.k) * Decimal(assignment.b) ** assignment.n + assignment.c
-				if assignment.known_factors:
-					num /= prod(assignment.known_factors)
-
-				anum = str(num)
-				adigits = len(anum)
-				logging.info(
-					"%s has %s decimal digits: %s",
-					exponent,
-					format(adigits, "n"),
-					"{}…{}".format(anum[:20], anum[-20:]) if adigits > 50 else anum,
-				)
-		else:
+			anum = str(num)
+			adigits = len(anum)
 			logging.info(
-				"%s has approximately %s decimal digits (using formula log10(%s) + %s * log10(%s) + 1)",
+				"%s has %s decimal digits: %s",
 				exponent,
 				format(adigits, "n"),
-				assignment.k,
-				assignment.n,
-				assignment.b,
+				"{}…{}".format(anum[:20], anum[-20:]) if adigits > 50 else anum,
 			)
-		return adigits
-
-else:
-
-	def digits(assignment, _exact=True):
-		"""Calculate the number of decimal digits in the given assignment."""
-		adigits = approximate_digits(assignment)
+	else:
 		logging.info(
 			"%s has approximately %s decimal digits (using formula log10(%s) + %s * log10(%s) + 1)",
-			assignment_to_str(assignment),
+			exponent,
 			format(adigits, "n"),
 			assignment.k,
 			assignment.n,
 			assignment.b,
 		)
-		return adigits
+	return adigits
 
 
 # endregion
@@ -3940,7 +3663,7 @@ def process_add_file(adapter, workfile):
 	addfile = os.path.splitext(workfile)[0] + ".add"  # ".add.txt"
 	if not os.path.isfile(addfile):
 		return
-	with LockFile(addfile), io.open(workfile, "a", encoding="utf-8") as file:
+	with LockFile(addfile), open(workfile, "a", encoding="utf-8") as file:
 		add = readonly_list_file(addfile)
 		for task in add:
 			adapter.debug("Adding %r line to the %r file", task, workfile)
@@ -4064,12 +3787,10 @@ def output_assignment(assignment):
 def write_workfile(adir, workfile, assignments):
 	"""Writes assignments to a work file in the specified directory."""
 	tasks = (output_assignment(task) if isinstance(task, Assignment) else task for task in assignments)
-	with tempfile.NamedTemporaryFile("w", dir=adir, delete=False) as f:  # Python 3+: encoding="utf-8"
-		pass
-	with io.open(f.name, "w", encoding="utf-8") as file:
+	with tempfile.NamedTemporaryFile("w", dir=adir, encoding="utf-8", delete=False) as f:
 		file.writelines(task + "\n" for task in tasks)
 	try:
-		replace(f.name, workfile)
+		os.replace(f.name, workfile)
 	except OSError as e:
 		logging.exception(
 			"Failed to replace the file %r with %r: %s: %s", f.name, workfile, type(e).__name__, e, exc_info=args.debug
@@ -4106,42 +3827,30 @@ def tail(filename, lines=100):
 
 def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priority=None):
 	"""Send an email with optional attachments and specified recipients."""
-	msg_text = MIMEText(message, "plain", "utf-8")
+	msg = EmailMessage()
+	msg.set_content(message, cte="quoted-printable")
 
 	if attachments:
-		msg = MIMEMultipart()
-		msg.attach(msg_text)
-
 		for filename, file in attachments:
 			ctype, encoding = mimetypes.guess_type(filename)  # guess_file_type(filename)
 			if ctype is None or encoding is not None:
 				ctype = "application/octet-stream"
 			maintype, subtype = ctype.split("/", 1)
-			msg_attach = MIMEBase(maintype, subtype)
-			msg_attach.set_payload(file)
-			encoders.encode_base64(msg_attach)
-			msg_attach.add_header("Content-Disposition", "attachment", filename=("utf-8", "", os.path.basename(filename)))
-			msg.attach(msg_attach)
-	else:
-		msg = msg_text
+			msg.add_attachment(file, maintype=maintype, subtype=subtype, filename=os.path.basename(filename))
 
 	COMMASPACE = ", "
 	msg["User-Agent"] = "AutoPrimeNet assignment handler version {}".format(VERSION)
-	name, from_addr = FROMEMAIL
-	msg["From"] = formataddr((Header(name, "utf-8").encode(), from_addr))
-	to = TOEMAILS + to if to else TOEMAILS
-	msg["To"] = (
-		"undisclosed-recipients:;"
-		if not to and not cc
-		else COMMASPACE.join(formataddr((Header(name, "utf-8").encode(), addr)) for name, addr in to)
-	)
+	msg["From"] = args.fromemail
+	to = TO_EMAILS + to if to else TO_EMAILS
+	msg["To"] = "undisclosed-recipients:;" if not to and not cc else COMMASPACE.join(to)
 	if cc:
-		msg["Cc"] = COMMASPACE.join(formataddr((Header(name, "utf-8").encode(), addr)) for name, addr in cc)
-	msg["Subject"] = Header(subject, "utf-8")
-	msg["Date"] = formatdate(localtime=True)
+		msg["Cc"] = COMMASPACE.join(cc)
+	if bcc:
+		message["Bcc"] = COMMASPACE.join(bcc)
+	msg["Subject"] = subject
+	msg["Date"] = localtime()
 	if priority:
 		msg["X-Priority"] = priority
-	to_addrs = [addr for f in (to, cc, bcc) if f for _, addr in f]
 
 	# Debug code
 	# print(msg.as_string())
@@ -4151,36 +3860,26 @@ def send(subject, message, attachments=None, to=None, cc=None, bcc=None, priorit
 	host = url.hostname
 	port = url.port or 0
 
-	s = None
 	try:
 		if args.tls:
-			# Python 3.3+
-			# with smtplib.SMTP_SSL(host, port context=context, timeout=TIMEOUT) as s:
-			s = smtplib.SMTP_SSL(host, port, timeout=TIMEOUT, **({"context": context} if sys.version_info >= (3, 3) else {}))
-			if args.debug > 1:
-				s.set_debuglevel(2)
-			if args.email_username:
-				s.login(args.email_username, args.email_password)
-			s.sendmail(from_addr, to_addrs, msg.as_string())
+			with smtplib.SMTP_SSL(host, port, context=context, timeout=TIMEOUT) as s:
+				if args.debug > 1:
+					s.set_debuglevel(2)
+				if args.email_username:
+					s.login(args.email_username, args.email_password)
+				s.send_message(msg)
 		else:
-			# Python 3.3+
-			# with smtplib.SMTP(host, port, timeout=TIMEOUT) as s:
-			s = smtplib.SMTP(host, port, timeout=TIMEOUT)
-			if args.debug > 1:
-				s.set_debuglevel(2)
-			if args.starttls:
-				# Python 3.3+
-				# s.starttls(context=context)
-				s.starttls(**({"context": context} if sys.version_info >= (3, 3) else {}))
-			if args.email_username:
-				s.login(args.email_username, args.email_password)
-			s.sendmail(from_addr, to_addrs, msg.as_string())
-	except (IOError, OSError, ssl.CertificateError, smtplib.SMTPException) as e:
+			with smtplib.SMTP(host, port, timeout=TIMEOUT) as s:
+				if args.debug > 1:
+					s.set_debuglevel(2)
+				if args.starttls:
+					s.starttls(context=context)
+				if args.email_username:
+					s.login(args.email_username, args.email_password)
+				s.send_message(msg)
+	except (OSError, ssl.CertificateError, smtplib.SMTPException) as e:
 		logging.exception("Failed to send e-mail: %s: %s", type(e).__name__, e, exc_info=args.debug)
 		return False
-	finally:
-		if s is not None:
-			s.quit()
 	return True
 
 
@@ -4382,10 +4081,10 @@ def get_cpu_model():
 		try:
 			with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as key:
 				output, _ = winreg.QueryValueEx(key, "ProcessorNameString")
-		except WindowsError:
+		except OSError:
 			pass
 	elif sys.platform == "darwin":
-		output = sysctl_str(b"machdep.cpu.brand_string").decode("utf-8")
+		output = sysctl_str(b"machdep.cpu.brand_string").decode()
 	elif sys.platform.startswith("linux"):
 		machine = platform.machine().lower()
 		if machine.startswith("arm") or machine == "aarch64":
@@ -4453,7 +4152,7 @@ def get_cpu_cores_threads():
 			with open(path) as f:
 				acores.add(f.read().rstrip())
 		cores = len(acores)
-		threads = os.sysconf("SC_NPROCESSORS_CONF" if sys.version_info >= (3,) else b"SC_NPROCESSORS_CONF")
+		threads = os.sysconf("SC_NPROCESSORS_CONF")
 	return cores, threads
 
 
@@ -4466,7 +4165,7 @@ def get_cpu_frequency():
 		try:
 			with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as key:
 				frequency, _ = winreg.QueryValueEx(key, "~MHz")
-		except WindowsError:
+		except OSError:
 			pass
 	elif sys.platform == "darwin":
 		output = sysctl_value(b"hw.cpufrequency_max", ctypes.c_uint64)
@@ -4609,7 +4308,7 @@ random.seed()
 
 def secure_v5_url(guid, params):
 	"""Generates a secure v5 URL with a hash based on the provided GUID and arguments."""
-	k = bytearray(md5(guid.encode("utf-8")).digest())
+	k = bytearray(md5(guid.encode()).digest())
 
 	for i in range(16):
 		k[i] ^= k[(k[i] ^ _V5_UNIQUE_TRUSTED_CLIENT_CONSTANT_ & 0xFF) % 16] ^ _V5_UNIQUE_TRUSTED_CLIENT_CONSTANT_ // 256
@@ -4619,7 +4318,7 @@ def secure_v5_url(guid, params):
 	params["ss"] = random.randint(0, 0xFFFF)
 	url = urlencode(params) + "&" + p_v5key
 
-	params["sh"] = md5(url.encode("utf-8")).hexdigest().upper()
+	params["sh"] = md5(url.encode()).hexdigest().upper()
 
 
 def send_request(adapter, guid, params):
@@ -4651,7 +4350,7 @@ def send_request(adapter, guid, params):
 		return None
 	rc = int(result["pnErrorResult"])
 	if rc:
-		resmsg = ERRORS.get(rc, "Unknown error code")
+		resmsg = PRIMENET_ERRORS.get(rc, "Unknown error code")
 		if params["t"] == "ga" and params.get("cert"):
 			adapter.debug("PrimeNet error %s: %s", rc, resmsg)
 			adapter.debug(result["pnErrorDetail"])
@@ -5062,7 +4761,7 @@ def work_for_bounds(B1, B2, factorB1=1.2, factorB2=1.35):
 
 
 # steps of approx 10%
-nice_step = list(chain(range(10, 20), range(20, 40, 2), range(40, 80, 5), range(80, 100, 10)))
+nice_step = tuple(chain(range(10, 20), range(20, 40, 2), range(40, 80, 5), range(80, 100, 10)))
 
 
 def next_nice_number(value):
@@ -5079,14 +4778,14 @@ def next_nice_number(value):
 
 def pm1(exponent, factoredTo, B1, B2):
 	"""Returns the probability of PM1(B1,B2) success for a finding a smooth factor using B1, B2 and already TFed to factoredUpTo."""
-	takeAwayBits = log2(exponent) + 1
+	takeAwayBits = math.log2(exponent) + 1
 
 	SLICE_WIDTH = 0.25
-	MIDDLE_SHIFT = log2(1 + 2**SLICE_WIDTH) - 1
+	MIDDLE_SHIFT = math.log2(1 + 2**SLICE_WIDTH) - 1
 
 	B2 = max(B1, B2)
-	bitsB1 = log2(B1)
-	bitsB2 = log2(B2)
+	bitsB1 = math.log2(B1)
+	bitsB2 = math.log2(B2)
 
 	alpha = (factoredTo + MIDDLE_SHIFT - takeAwayBits) / bitsB1
 	alphaStep = SLICE_WIDTH / bitsB1
@@ -5106,7 +4805,7 @@ def pm1(exponent, factoredTo, B1, B2):
 		alpha += alphaStep
 		invSliceProb += 1
 
-	return -expm1(-sum1), -expm1(-sum2)
+	return -math.expm1(-sum1), -math.expm1(-sum2)
 
 
 def gain(exponent, factoredTo, B1, B2):
@@ -5124,10 +4823,10 @@ def walk(exponent, factoredTo):
 	B2 = next_nice_number(exponent // 100)
 
 	# Changes by James Heinrich for mersenne.ca
-	# B1mult = (60 - log2(exponent)) / 10000
+	# B1mult = (60 - math.log2(exponent)) / 10000
 	# B1 = next_nice_number(int(B1mult * exponent))
 
-	# B2mult = 4 + (log2(exponent) - 20) * 8
+	# B2mult = 4 + (math.log2(exponent) - 20) * 8
 	# B2 = next_nice_number(int(B1 * B2mult))
 	# End of changes by James Heinrich
 
@@ -5185,20 +4884,6 @@ def walk(exponent, factoredTo):
 # End of Mihai Preda's script
 
 # region Savefle parsing
-# Python 3.2+
-if hasattr(int, "from_bytes"):
-
-	def from_bytes(abytes, byteorder="little"):
-		"""Convert a byte sequence to an integer using the specified byte order."""
-		return int.from_bytes(abytes, byteorder)
-
-else:
-
-	def from_bytes(abytes, byteorder="little"):
-		"""Convert a bytes sequence to an integer with the specified byte order."""
-		if byteorder == "big":
-			abytes = reversed(abytes)
-		return sum(b << i * 8 for i, b in enumerate(bytearray(abytes)))
 
 
 def unpack(aformat, file, noraise=False):
@@ -5217,8 +4902,8 @@ def read_residue_mlucas(file, nbytes):
 	file.seek(nbytes, 1)  # os.SEEK_CUR
 
 	res64, res35m1, res36m1 = unpack("<Q5s5s", file)
-	# res35m1 = from_bytes(res35m1)
-	# res36m1 = from_bytes(res36m1)
+	# res35m1 = int.from_bytes(res35m1, "little")
+	# res36m1 = int.from_bytes(res36m1, "little")
 	return res64, res35m1, res36m1
 
 
@@ -5230,7 +4915,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 	try:
 		with open(filename, "rb") as f:
 			t, m, tmp = unpack("<BB8s", f)
-			nsquares = from_bytes(tmp)
+			nsquares = int.from_bytes(tmp, "little")
 
 			p = 1 << exponent if m == MODULUS_TYPE_FERMAT else exponent
 
@@ -5242,7 +4927,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 			kblocks = _res_shift = None
 			if result is not None:
 				kblocks, _res_shift = result
-				kblocks = from_bytes(kblocks)
+				kblocks = int.from_bytes(kblocks, "little")
 
 			if t == TEST_TYPE_PRP or (t == TEST_TYPE_PRIMALITY and m == MODULUS_TYPE_FERMAT):
 				(_prp_base,) = unpack("<I", f)
@@ -5264,8 +4949,8 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 				if astage == 1:
 					iteration = nsquares
 				# elif astage == 2:
-				# 	interim_C = from_bytes(tmp[:-1])
-				# 	_psmall = from_bytes(tmp[-1:])
+				# 	interim_C = int.from_bytes(tmp[:-1], "little")
+				# 	_psmall = int.from_bytes(tmp[-1:], "little")
 			else:
 				adapter.debug("savefile with unknown TEST_TYPE = %s", t)
 				return None
@@ -5278,7 +4963,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 				fftlen = kblocks << 10
 	except EOFError:
 		return None
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5308,7 +4993,7 @@ def parse_work_unit_cudalucas(adapter, filename, p):
 			avg_msec_per_iter = (total_time / j) / 1000
 	except EOFError:
 		return None
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5319,42 +5004,42 @@ def parse_work_unit_cudalucas(adapter, filename, p):
 
 
 # Exponent, iteration, 0, hash
-LL_v1_RE = re.compile(br"^OWL LL (1) (\d+) (\d+) 0 ([\da-f]+)$")
+LL_v1_RE = re.compile(rb"^OWL LL (1) (\d+) (\d+) 0 ([\da-f]+)$")
 
 # E, k, CRC
-LL_v1a_RE = re.compile(br"^OWL LL (1) E=(\d+) k=(\d+) CRC=(\d+)$")
+LL_v1a_RE = re.compile(rb"^OWL LL (1) E=(\d+) k=(\d+) CRC=(\d+)$")
 
 # Exponent, iteration, block-size, res64
-PRP_v9_RE = re.compile(br"^OWL PRP (9) (\d+) (\d+) (\d+) ([\da-f]{16})$")
+PRP_v9_RE = re.compile(rb"^OWL PRP (9) (\d+) (\d+) (\d+) ([\da-f]{16})$")
 
 # E, k, block-size, res64, nErrors
-PRP_v10_RE = re.compile(br"^OWL PRP (10) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)$")
+PRP_v10_RE = re.compile(rb"^OWL PRP (10) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)$")
 
 # Exponent, iteration, block-size, res64, nErrors, B1, nBits, start, nextK, crc
-PRP_v11_RE = re.compile(br"^OWL PRP (11) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)(?: (\d+) (\d+) (\d+) (\d+) (\d+))?$")
+PRP_v11_RE = re.compile(rb"^OWL PRP (11) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)(?: (\d+) (\d+) (\d+) (\d+) (\d+))?$")
 
 # E, k, block-size, res64, nErrors, CRC
-PRP_v12_RE = re.compile(br"^OWL PRP (12) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+) (\d+)$")
+PRP_v12_RE = re.compile(rb"^OWL PRP (12) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+) (\d+)$")
 
 # Exponent, B1, iteration, nBits
-P1_v1_RE = re.compile(br"^OWL PM?1 (1) (\d+) (\d+) (\d+) (\d+)$")
+P1_v1_RE = re.compile(rb"^OWL PM?1 (1) (\d+) (\d+) (\d+) (\d+)$")
 
 # E, B1, k, nextK, CRC
-P1_v2_RE = re.compile(br"^OWL P1 (2) (\d+) (\d+) (\d+) (\d+) (\d+)$")
+P1_v2_RE = re.compile(rb"^OWL P1 (2) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 
-P1_v3_RE = re.compile(br"^OWL P1 (3) E=(\d+) B1=(\d+) k=(\d+)(?: block=(\d+))?$")
+P1_v3_RE = re.compile(rb"^OWL P1 (3) E=(\d+) B1=(\d+) k=(\d+)(?: block=(\d+))?$")
 
 # E, B1, CRC
-P1Final_v1_RE = re.compile(br"^OWL P1F (1) (\d+) (\d+) (\d+)$")
+P1Final_v1_RE = re.compile(rb"^OWL P1F (1) (\d+) (\d+) (\d+)$")
 
 # Exponent, B1, B2, nWords, kDone
-P2_v1_RE = re.compile(br"^OWL P2 (1) (\d+) (\d+) (\d+) (\d+) 2880 (\d+)$")
+P2_v1_RE = re.compile(rb"^OWL P2 (1) (\d+) (\d+) (\d+) (\d+) 2880 (\d+)$")
 
 # E, B1, B2, CRC
-P2_v2_RE = re.compile(br"^OWL P2 (2) (\d+) (\d+) (\d+)(?: (\d+))?$")
+P2_v2_RE = re.compile(rb"^OWL P2 (2) (\d+) (\d+) (\d+)(?: (\d+))?$")
 
 # E, B1, B2, D, nBuf, nextBlock
-P2_v3_RE = re.compile(br"^OWL P2 (3) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)$")
+P2_v3_RE = re.compile(rb"^OWL P2 (3) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 
 
 def parse_work_unit_gpuowl(adapter, filename, p):
@@ -5365,7 +5050,7 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5461,9 +5146,9 @@ def parse_work_unit_gpuowl(adapter, filename, p):
 
 # PRPLL headers
 
-LL_v13_RE = re.compile(br"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
+LL_v13_RE = re.compile(rb"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
 
-PRP_v13_RE = re.compile(br"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
+PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
 
 
 def parse_work_unit_prpll(adapter, filename, p):
@@ -5471,7 +5156,7 @@ def parse_work_unit_prpll(adapter, filename, p):
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5651,7 +5336,7 @@ def parse_work_unit_prmers(adapter, filename, exponent):
 				return None
 	except EOFError:
 		return None
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5725,7 +5410,7 @@ def tf_ghd_credit(exp, bit_min, bit_max):
 
 # "%s%u %d %d %d %s: %d %d %s %llu %08X", NAME_NUMBERS, exp, bit_min, bit_max, NUM_CLASSES, MFAKTC_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
 MFAKTC_TF_RE = re.compile(
-	br'^M(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) ([\dA-F]{8})$'
+	rb'^M(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) ([\dA-F]{8})$'
 )
 
 
@@ -5734,7 +5419,7 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\r\n")
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5765,7 +5450,7 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 
 
 # "%u %d %d %d %s: %d %d %s %llu %08X\n", exp, bit_min, bit_max, mystuff.num_classes, MFAKTO_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
-MFAKTO_TF_RE = re.compile(br'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*) (\d+) ([\dA-F]{8})$')
+MFAKTO_TF_RE = re.compile(rb'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*) (\d+) ([\dA-F]{8})$')
 
 
 def parse_work_unit_mfakto(adapter, filename, p):
@@ -5773,7 +5458,7 @@ def parse_work_unit_mfakto(adapter, filename, p):
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\r\n")
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5803,7 +5488,7 @@ def parse_work_unit_mfakto(adapter, filename, p):
 	return iteration, assignment_ghd, avg_msec_per_iter
 
 
-PRIMEPATH_TF_RE = re.compile(br"""^exponent (\d+)
+PRIMEPATH_TF_RE = re.compile(rb"""^exponent (\d+)
 bit_lo (\d+)
 bit_hi (\d+)
 current_k (\d+)
@@ -5818,7 +5503,7 @@ def parse_work_unit_primepath(adapter, filename, p):
 	try:
 		with open(filename, "rb") as f:
 			header = f.read()
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return None
 
@@ -5860,15 +5545,8 @@ def get_stages_mfaktx_ini(adapter, adir):
 	config = ConfigParser()
 	section = "default"
 	try:
-		with io.open(ini_file, encoding="utf-8") as file:
-			if hasattr(config, "read_file"):  # Python 3.2+
-				config.read_file(chain(("[{}]".format(section),), file))
-			else:
-				with io.StringIO() as stream:
-					stream.write("[{}]\n".format(section))
-					stream.write(file.read())
-					stream.seek(0)
-					config.readfp(stream)
+		with open(ini_file, encoding="utf-8") as file:
+			config.read_file(chain(("[{}]".format(section),), file))
 	except ConfigParserError as e:
 		adapter.exception("Failed to read the %r configuration file: %s: %s", ini_file, type(e).__name__, e, exc_info=args.debug)
 	if config.has_option(section, "Stages"):
@@ -6268,7 +5946,12 @@ def compute_progress(assignment, msec_per_iter, p, progress):
 		return aiterations, None, msec_per_iter
 
 	if assignment.n != p and assignment.work_type != PRIMENET_WORK_TYPE.FACTOR:
-		msec_per_iter *= assignment.n * log2(assignment.n) * log2(log2(assignment.n)) / (p * log2(p) * log2(log2(p)))
+		msec_per_iter *= (
+			assignment.n
+			* math.log2(assignment.n)
+			* math.log2(math.log2(assignment.n))
+			/ (p * math.log2(p) * math.log2(math.log2(p)))
+		)
 
 	if iterations is not None and stage is not None:
 		if stage == 1:
@@ -6310,7 +5993,7 @@ def work_estimate(adapter, adir, cpu_num, assignment):
 
 def string_to_hash(astr):
 	"""Converts a string to a hash value using a modified MD5 algorithm."""
-	md5_hash = md5(astr.encode("utf-8")).hexdigest()
+	md5_hash = md5(astr.encode()).hexdigest()
 
 	ahash = 0
 	for i in range(0, len(md5_hash), 8):
@@ -6442,7 +6125,7 @@ def output_status(dirs, cpu_num=None):
 					(bits - 1)
 					* 1.733
 					* (1.04 if assignment.pminus1ed else 1.0)
-					/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
+					/ (math.log2(assignment.k) + math.log2(assignment.b) * assignment.n)
 				)
 			elif assignment.work_type == PRIMENET_WORK_TYPE.DBLCHK:
 				work_type_str = "Double-check"
@@ -6452,7 +6135,7 @@ def output_status(dirs, cpu_num=None):
 					* 1.733
 					* ERROR_RATE
 					* (1.04 if assignment.pminus1ed else 1.0)
-					/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
+					/ (math.log2(assignment.k) + math.log2(assignment.b) * assignment.n)
 				)
 			elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 				all_and_prp_cnt = True
@@ -6462,7 +6145,7 @@ def output_status(dirs, cpu_num=None):
 						(bits - 1)
 						* 1.733
 						* (1.04 if assignment.pminus1ed else 1.0)
-						/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
+						/ (math.log2(assignment.k) + math.log2(assignment.b) * assignment.n)
 					)
 				else:
 					work_type_str = "PRPDC"
@@ -6471,7 +6154,7 @@ def output_status(dirs, cpu_num=None):
 						* 1.733
 						* PRP_ERROR_RATE
 						* (1.04 if assignment.pminus1ed else 1.0)
-						/ (log2(assignment.k) + log2(assignment.b) * assignment.n)
+						/ (math.log2(assignment.k) + math.log2(assignment.b) * assignment.n)
 					)
 			elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
 				work_type_str = "factor from 2^{:.0f} to 2^{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
@@ -6533,7 +6216,7 @@ def get_disk_usage(path):
 
 def check_disk_space(dirs):
 	"""Check and log the disk space usage and availability, sending alerts if critical thresholds are reached."""
-	usage = disk_usage(workdir)
+	usage = shutil.disk_usage(workdir)
 
 	if args.worker_disk_space:
 		worker_disk_space = args.worker_disk_space * 1024**3
@@ -6609,7 +6292,7 @@ Disk space available: {}
 		config.remove_option(SEC.Internals, "storage_available_critical")
 
 	if args.archive_dir and os.stat(workdir).st_dev != os.stat(args.archive_dir).st_dev:
-		usage = disk_usage(args.archive_dir)
+		usage = shutil.disk_usage(args.archive_dir)
 		logging.debug("Disk space available for the proof file archive: %s", output_available(usage.free, usage.total))
 		precent = usage.free / usage.total
 		if precent * 100 <= critical:
@@ -6651,14 +6334,13 @@ def checksum_md5(filename):
 	"""Calculate and return the MD5 checksum of a given file."""
 	amd5 = md5()
 	buffer = bytearray(amd5.block_size * 4096)
-	view = memoryview(buffer)
-	with open(filename, "rb") as f:
+	with memoryview(buffer) as view, open(filename, "rb") as f:
 		for size in iter(lambda: f.readinto(buffer), 0):
 			amd5.update(view[:size])
 	return amd5.hexdigest()
 
 
-PROOF_NUMBER_RE = re.compile(br"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+))(?(1)\))(?:/(\d+(?:/\d+)*))?$")
+PROOF_NUMBER_RE = re.compile(rb"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+))(?(1)\))(?:/(\d+(?:/\d+)*))?$")
 
 
 def upload_proof_file(adapter, filename):
@@ -6666,8 +6348,9 @@ def upload_proof_file(adapter, filename):
 	max_chunk_size = config.getfloat(SEC.PrimeNet, "UploadChunkSize") if config.has_option(SEC.PrimeNet, "UploadChunkSize") else 7
 	max_chunk_size = int(min(max(max_chunk_size, 1), 8) * 1024 * 1024)
 	starttime = timeit.default_timer()
+	buffer = bytearray(max_chunk_size)
 	try:
-		with open(filename, "rb") as f:
+		with memoryview(buffer) as view, open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
 			if header != b"PRP PROOF":
 				return False
@@ -6746,8 +6429,6 @@ def upload_proof_file(adapter, filename):
 					adapter.info("Resuming from offset %s", format(pos, "n"))
 
 				bytessent = 0
-				buffer = bytearray(max_chunk_size)
-				view = memoryview(buffer)
 				while pos < end:
 					f.seek(pos)
 					chunk_size = min(end - pos + 1, max_chunk_size)
@@ -6798,7 +6479,7 @@ def upload_proof_file(adapter, filename):
 	except (RequestException, JSONDecodeError) as e:
 		adapter.exception("Failed to upload proof file: %s: %s", type(e).__name__, e, exc_info=args.debug)
 		return False
-	except (IOError, OSError) as e:
+	except OSError as e:
 		adapter.exception("Cannot open proof file %r: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
 		return False
 
@@ -6911,7 +6592,7 @@ def program_options(send=False, start=-1, retry_count=0):
 			if tnum < 0:
 				params["nw"] = args.num_workers
 				# params["Priority"] = 1
-				params["DaysOfWork"] = max(1, int(round(args.days_of_work)))
+				params["DaysOfWork"] = max(1, round(args.days_of_work))
 				params["DayMemory"] = args.day_night_memory
 				params["NightMemory"] = args.day_night_memory
 				# params["DayStartTime"] = 0
@@ -7162,7 +6843,7 @@ def get_proof_data(adapter, assignment_aid, file):
 		) as r:
 			r.raise_for_status()
 			length = int(r.headers["Content-Length"])
-			if hasattr(os, "posix_fallocate"):  # Python 3.3+, Linux
+			if hasattr(os, "posix_fallocate"):  # Linux
 				os.posix_fallocate(file.fileno(), 0, length - 32)
 			# amd5 = r.raw.read(32)
 			amd5 = next(r.iter_content(chunk_size=32))
@@ -7185,7 +6866,7 @@ def get_proof_data(adapter, assignment_aid, file):
 	return amd5
 
 
-IS_HEX_RE = re.compile(br"^[0-9a-fA-F]*$")  # string.hexdigits
+IS_HEX_RE = re.compile(rb"^[0-9a-fA-F]*$")  # string.hexdigits
 
 
 def download_cert(adapter, adir, filename, assignment):
@@ -7201,7 +6882,7 @@ def download_cert(adapter, adir, filename, assignment):
 			adapter.exception("Failed to remove the %r file: %s: %s", f.name, type(e).__name__, e, exc_info=args.debug)
 			raise
 		return False
-	amd5 = amd5.decode("utf-8").upper()
+	amd5 = amd5.decode("ascii").upper()
 	residue_md5 = checksum_md5(f.name).upper()
 	if amd5 != residue_md5:
 		adapter.error("MD5 of downloaded starting value %s does not match %s", residue_md5, amd5)
@@ -7270,7 +6951,7 @@ def download_certs(adapter, adir, cpu_num, tasks):
 				tasks.append(assignment)  # appendleft
 				task = output_assignment(assignment)
 				adapter.debug("Moving assignment %r from %r to the %r file", task, certwork_file, workfile)
-				with LockFile(workfile), io.open(workfile, "a", encoding="utf-8") as file:
+				with LockFile(workfile), open(workfile, "a", encoding="utf-8") as file:
 					file.write(task + "\n")
 				changed = True
 			elif failed:
@@ -7509,7 +7190,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 	max_exp = config.getint(SEC.PrimeNet, "CertMaxExponent") if config.has_option(SEC.PrimeNet, "CertMaxExponent") else None
 	cert_quantity = config.getint(SEC.PrimeNet, "CertQuantity") if config.has_option(SEC.PrimeNet, "CertQuantity") else 1
 	certwork_file = os.path.join(adir, "certwork-{}.txt".format(cpu_num) if args.prpll else "certwork.txt")
-	with LockFile(certwork_file), io.open(certwork_file, "a", encoding="utf-8") as file:  # changed = False
+	with LockFile(certwork_file), open(certwork_file, "a", encoding="utf-8") as file:  # changed = False
 		for num_certs in range(1, 5 + 1):
 			test = get_assignment(adapter, cpu_num, get_cert_work=max(1, args.cert_cpu_limit), min_exp=min_exp, max_exp=max_exp)
 			if test is None:
@@ -7524,7 +7205,7 @@ def get_cert_work(adapter, adir, cpu_num, current_time, progress, tasks):
 
 			# TODO: Something better here
 			cpu_quota_used = test.cert_squarings / 110000
-			cpu_quota_used *= 2.1 ** log2(test.n / 97300000)
+			cpu_quota_used *= 2.1 ** math.log2(test.n / 97300000)
 			cpu_limit_remaining -= cpu_quota_used
 			config.set(section, "CertDailyCPURemaining", str(cpu_limit_remaining))
 
@@ -8126,7 +7807,7 @@ Python version: {}
 				"prime" if is_prime(factor) else "composite",
 				factor,
 				len(str(factor)),
-				log2(factor),
+				math.log2(factor),
 			)
 			if result_type == PRIMENET_AR.TF_FACTOR:
 				if pow(2, assignment.n, factor) - 1:
@@ -8180,7 +7861,7 @@ def submit_work(_dirs, adapter, adir, cpu_num, tasks):
 
 	# EWM: Switch to one-result-line-at-a-time submission to support
 	# error-message-on-submit handling:
-	with io.open(sentfile, "a", encoding="utf-8") as file:
+	with open(sentfile, "a", encoding="utf-8") as file:
 		for sendline in results_send:
 			result = parse_result(adapter, adir, cpu_num, resultsfile, sendline)
 			if result is not None:
@@ -8227,7 +7908,7 @@ def submit_work(_dirs, adapter, adir, cpu_num, tasks):
 					"s" if length != 1 else "",
 					", ".join(
 						"{:n} result{} error {} ({})".format(
-							len(lines), "s" if len(lines) != 1 else "", ec, ERRORS.get(ec, "Unknown error code")
+							len(lines), "s" if len(lines) != 1 else "", ec, PRIMENET_ERRORS.get(ec, "Unknown error code")
 						)
 						for ec, lines in rejected.items()
 					),
@@ -8236,7 +7917,7 @@ def submit_work(_dirs, adapter, adir, cpu_num, tasks):
 			adapter.info("Total credit is %s GHz-days.", format(sum(ghzdays), "n"))
 
 		rejected = {
-			"PrimeNet error {} ({})".format(ec, ERRORS.get(ec, "Unknown error code")): lines
+			"PrimeNet error {} ({})".format(ec, PRIMENET_ERRORS.get(ec, "Unknown error code")): lines
 			for ec, lines in rejected.items()
 			if ec not in error_code_ignore
 		}
@@ -8283,7 +7964,7 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 				logfile,
 				tail(logfile, 10),
 			),
-			[(resultsfile, "\n".join(reason + ":\n" + "\n".join(lines) for reason, lines in rejected.items()).encode("utf-8"))]
+			[(resultsfile, "\n".join(reason + ":\n" + "\n".join(lines) for reason, lines in rejected.items()).encode())]
 			if length > 10
 			else None,
 			priority="2 (High)",
@@ -8312,7 +7993,7 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 				logfile,
 				tail(logfile, 10),
 			),
-			[(resultsfile, "\n".join(failed).encode("utf-8"))] if length > 10 else None,
+			[(resultsfile, "\n".join(failed).encode())] if length > 10 else None,
 			priority="2 (High)",
 		)
 		return False
@@ -8656,7 +8337,7 @@ def register_exponents(dirs):
 	adapter = logging.LoggerAdapter(logger, None)
 
 	with LockFile(workfile):
-		with io.open(workfile, "a", encoding="utf-8") as file:
+		with open(workfile, "a", encoding="utf-8") as file:
 			while True:
 				print("""
 Use the following values to select a worktype:
@@ -9237,7 +8918,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 				new_task = assignment
 			anew_tasks.append(new_task)
 
-		with LockFile(workfile), io.open(workfile, "a", encoding="utf-8") as file:
+		with LockFile(workfile), open(workfile, "a", encoding="utf-8") as file:
 			file.writelines(new_task + "\n" for new_task in anew_tasks)
 
 		for assignment in assignments:
@@ -9477,8 +9158,8 @@ def autoprimenet_version_check():
 	release = releases[0]
 	version = release["version"]
 	date_release = release["date_release"]
-	date = datetime.strptime(date_release, "%Y-%m-%d").replace(tzinfo=utc)  # "%F"
-	delta = datetime.now(utc) - date
+	date = datetime.strptime(date_release, "%Y-%m-%d").replace(tzinfo=timezone.utc)  # "%F"
+	delta = datetime.now(timezone.utc) - date
 	latest_version = parse_version(version)
 	if latest_version > parse_version(VERSION):
 		logging.warning(
@@ -9610,8 +9291,8 @@ def program_version_check():
 	aversion = release["version"]
 	abuild = release["build"]
 	date_release = release["date_release"]
-	date = datetime.strptime(date_release, "%Y-%m-%d").replace(tzinfo=utc)  # "%F"
-	delta = datetime.now(utc) - date
+	date = datetime.strptime(date_release, "%Y-%m-%d").replace(tzinfo=timezone.utc)  # "%F"
+	delta = datetime.now(timezone.utc) - date
 	latest_version = parse_version(aversion, abuild)
 	if not latest_version:
 		logging.warning("Unable to parse new version number %r for %s", aversion, name)
@@ -9643,7 +9324,7 @@ def program_version_check():
 				aaversion = program
 			new_version = parse_version(aaversion, aabuild)
 		new_date = (
-			datetime.strptime(config.get(SEC.Internals, option_date), "%Y-%m-%d").replace(tzinfo=utc)
+			datetime.strptime(config.get(SEC.Internals, option_date), "%Y-%m-%d").replace(tzinfo=timezone.utc)
 			if config.has_option(SEC.Internals, option_date)
 			else None
 		)
@@ -9735,7 +9416,7 @@ Python version:			{}
 """.format(
 			sys.argv[0],
 			VERSION,
-			datetime.fromtimestamp(os.path.getmtime(sys.executable if is_pyinstaller() else __file__), utc),
+			datetime.fromtimestamp(os.path.getmtime(sys.executable if is_pyinstaller() else __file__), timezone.utc),
 			requests.__version__,
 			urllib3.__version__,
 			certifi and certifi.__version__,
@@ -9851,7 +9532,7 @@ Computer name:			{!r}
 	frequency = get_cpu_frequency()
 	memory = get_physical_memory()
 	cache_sizes = get_cpu_cache_sizes()
-	usage = disk_usage(workdir)
+	usage = shutil.disk_usage(workdir)
 
 	print(
 		"""\
@@ -10345,11 +10026,8 @@ logger.addHandler(console_handler)
 
 # https://stackoverflow.com/questions/10588644/how-can-i-see-the-entire-http-request-thats-being-sent-by-my-python-application
 if args.debug > 1:
-	try:
-		# Python 3+
-		from http.client import HTTPConnection
-	except ImportError:
-		from httplib import HTTPConnection
+	from http.client import HTTPConnection
+
 	HTTPConnection.debuglevel = 1
 
 	# You must initialize logging, otherwise you'll not see debug output.
@@ -10379,7 +10057,7 @@ workdir = os.path.expanduser(os.path.normpath(args.workdir))
 
 try:
 	lockfile = open(os.path.join(workdir, "~lock"), "w+b")  # noqa: SIM115
-except (IOError, OSError) as e:
+except OSError as e:
 	logging.exception("Failed to open the lockfile: %s: %s", type(e).__name__, e, exc_info=args.debug)
 	sys.exit(1)
 atexit.register(lockfile.close)
@@ -10387,7 +10065,7 @@ atexit.register(lockfile.close)
 try:
 	lock_file(lockfile)
 # Python 3.3+: BlockingIOError, PermissionError
-except (IOError, OSError) as e:
+except OSError as e:
 	if e.errno in {errno.EAGAIN, errno.EACCES}:
 		logging.critical("AutoPrimeNet is already running, as the %r lockfile is locked", lockfile.name)
 	else:
@@ -10567,9 +10245,7 @@ if not args.dirs and args.num_workers > 1:
 	dirs *= args.num_workers
 
 if args.fromemail and args.smtp:
-	FROMEMAIL = parseaddr(args.fromemail)
-
-	TOEMAILS = [parseaddr(toemail) for toemail in args.toemails] if args.toemails else [FROMEMAIL]
+	TO_EMAILS = args.toemails or [args.fromemail]
 
 if args.num_workers > 1:
 	for i in range(args.num_workers):

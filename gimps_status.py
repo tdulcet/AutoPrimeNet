@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Read Prime95/MPrime, Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto and PrimePath save/checkpoint and proof files, and display status of them."""
 
@@ -19,10 +18,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import division, print_function, unicode_literals
-
 import argparse
 import binascii
+import concurrent.futures
 import ctypes
 import glob
 import hashlib
@@ -30,6 +28,7 @@ import json
 import locale
 import logging
 import math
+import multiprocessing
 import os
 import re
 import struct
@@ -39,30 +38,11 @@ from ctypes.util import find_library
 from datetime import datetime, timedelta
 from itertools import chain
 
-try:
-	# Python 2
-	from future_builtins import map, zip  # ascii, filter, hex, oct
-except ImportError:
-	pass
-
 if sys.version_info >= (3, 7):
 	# Python 3.7+
 	OrderedDict = dict
 else:
-	try:
-		# Python 2.7 and 3.1+
-		from collections import OrderedDict
-	except ImportError:
-		OrderedDict = dict
-
-try:
-	# Python 3.3+
-	from math import log2
-except ImportError:
-
-	def log2(x):
-		"""Calculate the base-2 logarithm of a given number."""
-		return math.log(x, 2)
+	from collections import OrderedDict
 
 
 if sys.platform != "win32":
@@ -80,27 +60,10 @@ else:
 	# from wcwidth import wcswidth
 	wcswidth = len
 
-
-try:
-	# Python 3.2+
-	import concurrent.futures
-except ImportError:
-	executor = None
-else:
-	import multiprocessing
-
-	executor = concurrent.futures.ThreadPoolExecutor(multiprocessing.cpu_count())
-	futures = []
-
+executor = concurrent.futures.ThreadPoolExecutor(multiprocessing.cpu_count())
+futures = []
 
 locale.setlocale(locale.LC_ALL, "")
-# Python 2
-if hasattr(__builtins__, "unicode"):
-	str = unicode
-
-# Python 2
-if hasattr(__builtins__, "xrange"):
-	range = xrange
 
 # Prime95/MPrime constants
 
@@ -135,11 +98,11 @@ MODULUS_TYPE_FERMAT = 3
 
 # Exponent, iteration, 0, hash
 # HEADER_v1 = "OWL LL 1 %u %u 0 %" SCNx64 "\n"
-LL_v1_RE = re.compile(br"^OWL LL (1) (\d+) (\d+) 0 ([\da-f]+)$")
+LL_v1_RE = re.compile(rb"^OWL LL (1) (\d+) (\d+) 0 ([\da-f]+)$")
 
 # E, k, CRC
 # LL_v1 = "OWL LL 1 E=%u k=%u CRC=%u\n"
-LL_v1a_RE = re.compile(br"^OWL LL (1) E=(\d+) k=(\d+) CRC=(\d+)$")
+LL_v1a_RE = re.compile(rb"^OWL LL (1) E=(\d+) k=(\d+) CRC=(\d+)$")
 
 # # OWL 1 <exponent> <iteration> <width> <height> <sum> <nErrors>
 # # HEADER = "OWL 1 %d %d %d %d %d %d\n"
@@ -193,21 +156,21 @@ LL_v1a_RE = re.compile(br"^OWL LL (1) E=(\d+) k=(\d+) CRC=(\d+)$")
 
 # Exponent, iteration, block-size, res64
 # HEADER_v9  = "OWL PRP 9 %u %u %u %016llx\n"
-PRP_v9_RE = re.compile(br"^OWL PRP (9) (\d+) (\d+) (\d+) ([\da-f]{16})$")
+PRP_v9_RE = re.compile(rb"^OWL PRP (9) (\d+) (\d+) (\d+) ([\da-f]{16})$")
 
 # E, k, block-size, res64, nErrors
 # PRP_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n"
-PRP_v10_RE = re.compile(br"^OWL PRP (10) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)$")
+PRP_v10_RE = re.compile(rb"^OWL PRP (10) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)$")
 
 # Exponent, iteration, block-size, res64, nErrors
 # HEADER_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u\n"
 # Exponent, iteration, block-size, res64, nErrors, B1, nBits, start, nextK, crc
 # PRP_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u %u %u %u %u %u\n"
-PRP_v11_RE = re.compile(br"^OWL PRP (11) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)(?: (\d+) (\d+) (\d+) (\d+) (\d+))?$")
+PRP_v11_RE = re.compile(rb"^OWL PRP (11) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+)(?: (\d+) (\d+) (\d+) (\d+) (\d+))?$")
 
 # E, k, block-size, res64, nErrors, CRC
 # PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n"
-PRP_v12_RE = re.compile(br"^OWL PRP (12) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+) (\d+)$")
+PRP_v12_RE = re.compile(rb"^OWL PRP (12) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+) (\d+)$")
 
 # # Exponent, iteration, total-iterations, B1.
 # # HEADER = "OWL PF 1 %u %u %u %u\n"
@@ -218,33 +181,33 @@ PRP_v12_RE = re.compile(br"^OWL PRP (12) (\d+) (\d+) (\d+) ([\da-f]{16}) (\d+) (
 # Exponent, B1, iteration, nBits
 # HEADER_v1 = "OWL PM1 1 %u %u %u %u\n"
 # HEADER_v1 = "OWL P1 1 %u %u %u %u\n"
-P1_v1_RE = re.compile(br"^OWL PM?1 (1) (\d+) (\d+) (\d+) (\d+)$")
+P1_v1_RE = re.compile(rb"^OWL PM?1 (1) (\d+) (\d+) (\d+) (\d+)$")
 
 # E, B1, k, nextK, CRC
 # P1_v2 = "OWL P1 2 %u %u %u %u %u\n"
-P1_v2_RE = re.compile(br"^OWL P1 (2) (\d+) (\d+) (\d+) (\d+) (\d+)$")
+P1_v2_RE = re.compile(rb"^OWL P1 (2) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 
 # P1_v3 = "OWL P1 3 E=%u B1=%u k=%u block=%u\n"
 # P1_v3 = "OWL P1 3 E=%u B1=%u k=%u\n"
-P1_v3_RE = re.compile(br"^OWL P1 (3) E=(\d+) B1=(\d+) k=(\d+)(?: block=(\d+))?$")
+P1_v3_RE = re.compile(rb"^OWL P1 (3) E=(\d+) B1=(\d+) k=(\d+)(?: block=(\d+))?$")
 
 # E, B1, CRC
 # P1Final_v1 = "OWL P1F 1 %u %u %u\n"
-P1Final_v1_RE = re.compile(br"^OWL P1F (1) (\d+) (\d+) (\d+)$")
+P1Final_v1_RE = re.compile(rb"^OWL P1F (1) (\d+) (\d+) (\d+)$")
 
 # Exponent, B1, B2, nWords, kDone
 # HEADER_v1 = "OWL P2 1 %u %u %u %u 2880 %u\n"
-P2_v1_RE = re.compile(br"^OWL P2 (1) (\d+) (\d+) (\d+) (\d+) 2880 (\d+)$")
+P2_v1_RE = re.compile(rb"^OWL P2 (1) (\d+) (\d+) (\d+) (\d+) 2880 (\d+)$")
 
 # E, B1, B2, CRC
 # P2_v2 = "OWL P2 2 %u %u %u %u\n"
 # E, B1, B2
 # P2_v2 = "OWL P2 2 %u %u %u\n"
-P2_v2_RE = re.compile(br"^OWL P2 (2) (\d+) (\d+) (\d+)(?: (\d+))?$")
+P2_v2_RE = re.compile(rb"^OWL P2 (2) (\d+) (\d+) (\d+)(?: (\d+))?$")
 
 # E, B1, B2, D, nBuf, nextBlock
 # P2_v3 = "OWL P2 3 %u %u %u %u %u %u\n"
-P2_v3_RE = re.compile(br"^OWL P2 (3) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)$")
+P2_v3_RE = re.compile(rb"^OWL P2 (3) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 
 # # Exponent, bitLo, classDone, classTotal.
 # # HEADER = "OWL TF 1 %d %d %d %d\n"
@@ -253,19 +216,19 @@ P2_v3_RE = re.compile(br"^OWL P2 (3) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 # # HEADER = "OWL TF 2 %d %d %d %d %d\n"
 # # HEADER = "OWL TF 2 %u %d %d %d %d\n"
 # # HEADER = "OWL TF 2 %u %u %u %u %u\n"
-TF_v2_RE = re.compile(br"^OWL TF (2) (\d+) (\d+) (\d+) (\d+) (\d+)$")
+TF_v2_RE = re.compile(rb"^OWL TF (2) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 
 # mfaktc/mfakto headers
 
 # "%s%u %d %d %d %s: %d %d %s %llu %08X", NAME_NUMBERS, exp, bit_min, bit_max, NUM_CLASSES, MFAKTC_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
 MFAKTC_TF_RE = re.compile(
-	br'^([MW])(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) )?([\dA-F]{8})$'
+	rb'^([MW])(\d+) (\d+) (\d+) (\d+) ([^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) )?([\dA-F]{8})$'
 )
 
 # "%u %d %d %d %s: %d %d %s %llu %08X\n", exp, bit_min, bit_max, mystuff.num_classes, MFAKTO_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
-MFAKTO_TF_RE = re.compile(br'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*) (\d+) )?([\dA-F]{8})$')
+MFAKTO_TF_RE = re.compile(rb'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*) (\d+) )?([\dA-F]{8})$')
 
-PRIMEPATH_TF_RE = re.compile(br"""^exponent (\d+)
+PRIMEPATH_TF_RE = re.compile(rb"""^exponent (\d+)
 bit_lo (\d+)
 bit_hi (\d+)
 current_k (\d+)
@@ -274,15 +237,15 @@ elapsed_sec (\d+(?:\.\d+)?)
 assignment_key (.*)
 timestamp (\d+-\d{2}-\d{2} \d{2}:\d{2}:\d{2})""")
 
-PROOF_NUMBER_RE = re.compile(br"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+))(?(1)\))(?:/(\d+(?:/\d+)*))?$")
+PROOF_NUMBER_RE = re.compile(rb"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+))(?(1)\))(?:/(\d+(?:/\d+)*))?$")
 
 # PRPLL headers
 
 # LL_v13 = "OWL LL 13 N=1*2^%u-1 k=%u time=%lf\n"
-LL_v13_RE = re.compile(br"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
+LL_v13_RE = re.compile(rb"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
 
 # PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u time=%lf\n"
-PRP_v13_RE = re.compile(br"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
+PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
 
 
 PRIME95_RE = re.compile(
@@ -369,7 +332,7 @@ PP1_STATE_DONE = 5
 PP1_STATES = ("", "Stage 1", "Midstage", "Stage 2", "GCD", "Done")
 
 
-class work_unit(object):
+class work_unit:
 	"""Represents a work unit for GIMPS computations."""
 
 	__slots__ = (
@@ -477,7 +440,7 @@ class work_unit(object):
 
 
 # CUDALucas, mfaktc and mfakto use a "CRC-32 like checksum"
-REVERSE_BITS = bytearray(int("{:08b}".format(i)[::-1], 2) for i in range(256))
+REVERSE_BITS = bytes(int("{:08b}".format(i)[::-1], 2) for i in range(256))
 
 
 def checkpoint_checksum(buffer):
@@ -582,25 +545,6 @@ def output_unit(number, ascale=scale.IEC_I):
 	return strm
 
 
-# Python 3.2+
-if hasattr(int, "to_bytes"):
-
-	def to_bytes(n, length=1, byteorder="little"):
-		"""Convert an integer to a bytes object of specified length and byte order."""
-		return n.to_bytes(length, byteorder)
-
-else:
-
-	def to_bytes(n, length=1, byteorder="little"):
-		"""Convert an integer to a bytes object of specified length and byte order."""
-		if byteorder == "little":
-			order = range(length)
-		elif byteorder == "big":
-			order = reversed(range(length))
-
-		return bytes(bytearray((n >> i * 8) & 0xFF for i in order))
-
-
 gmp_lib = find_library("libgmp" if sys.platform == "win32" else "gmp")
 if gmp_lib:
 	gmp = ctypes.CDLL(gmp_lib)
@@ -610,7 +554,7 @@ if gmp_lib:
 
 	def mpz_import(value, mpz):
 		"""Imports an integer value into a GMP mpz_t type."""
-		abytes = to_bytes(value, -(value.bit_length() // -8))
+		abytes = value.to_bytes((value.bit_length() + 7) >> 3, "little")
 		gmp.__gmpz_import(ctypes.byref(mpz), len(abytes), -1, 1, 0, 0, abytes)
 
 	def jacobi(a, n):
@@ -666,22 +610,6 @@ def jacobi_test(wu, p, words, filename):
 	# return wu.jacobi
 
 
-# Python 3.2+
-if hasattr(int, "from_bytes"):
-
-	def from_bytes(abytes, byteorder="little"):
-		"""Convert a byte sequence to an integer using the specified byte order."""
-		return int.from_bytes(abytes, byteorder)
-
-else:
-
-	def from_bytes(abytes, byteorder="little"):
-		"""Convert a byte sequence to an integer using the specified byte order."""
-		if byteorder == "big":
-			abytes = reversed(abytes)
-		return sum(b << i * 8 for i, b in enumerate(bytearray(abytes)))
-
-
 def rotr(value, count, p, n):
 	"""Performs a bitwise right rotation on a given value."""
 	return (value >> count) | (value << (p - count) & n)
@@ -718,7 +646,7 @@ def read_array_prime95(file, size, asum):
 	if len(buffer) != size:
 		raise EOFError
 	if args.check:
-		asum += sum(bytearray(buffer))
+		asum += sum(buffer)
 	return buffer, asum
 
 
@@ -747,11 +675,11 @@ def parse_work_unit_prime95(filename):
 		with open(filename, "rb") as f:
 			magicnum, wu.version, wu.k, wu.b, wu.n, wu.c, stage, pct_complete, filesum = unpack("<IIdIIi10sxxdI", f)
 
-			wu.stage = stage.rstrip(b"\0").decode("utf-8")
+			wu.stage = stage.rstrip(b"\0").decode()
 			wu.pct_complete = max(0, min(1, pct_complete))
 
 			if args.check or args.jacobi:
-				bit_len = int(math.ceil(log2(wu.k) + wu.n * log2(wu.b)))
+				bit_len = int(math.ceil(math.log2(wu.k) + wu.n * math.log2(wu.b)))
 
 			asum = 0
 
@@ -766,7 +694,7 @@ def parse_work_unit_prime95(filename):
 
 				if args.check:
 					residue, asum = read_residue_prime95(f, asum)
-					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
+					residue = rotr(int.from_bytes(residue, "little"), wu.shift_count, bit_len, (1 << bit_len) - 1)
 					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 			elif magicnum == FACTOR_MAGICNUM:
@@ -788,14 +716,11 @@ def parse_work_unit_prime95(filename):
 
 				if args.check or args.jacobi:
 					residue, asum = read_residue_prime95(f, asum)
-					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
+					residue = rotr(int.from_bytes(residue, "little"), wu.shift_count, bit_len, (1 << bit_len) - 1)
 					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 				if args.jacobi:
-					if executor:
-						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
-					else:
-						jacobi_test(wu, wu.n, residue, filename)
+					futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 			elif magicnum == PRP_MAGICNUM:
 				if not 1 <= wu.version <= PRP_VERSION:
 					logging.error("PRP savefile with unsupported version = %s", wu.version)
@@ -849,7 +774,7 @@ def parse_work_unit_prime95(filename):
 
 				if args.check:
 					residue, asum = read_residue_prime95(f, asum)
-					residue = rotr(from_bytes(residue), wu.shift_count, bit_len, (1 << bit_len) - 1)
+					residue = rotr(int.from_bytes(residue, "little"), wu.shift_count, bit_len, (1 << bit_len) - 1)
 					ares64 = residue & 0xFFFFFFFFFFFFFFFF
 					if wu.res64:
 						res64 = int(res64, 16)
@@ -869,7 +794,7 @@ def parse_work_unit_prime95(filename):
 						_alt_shift_count = wu.shift_count
 					elif wu.state not in {PRP_STATE_NORMAL, PRP_STATE_GERB_MID_BLOCK, PRP_STATE_GERB_MID_BLOCK_MULT}:
 						_alt_residue, asum = read_residue_prime95(f, asum)
-						# _alt_residue = from_bytes(_alt_residue)
+						# _alt_residue = int.from_bytes(_alt_residue, "little")
 
 					if wu.state not in {
 						PRP_STATE_NORMAL,
@@ -1261,7 +1186,7 @@ def parse_work_unit_prime95(filename):
 				logging.error("Checksum error. Got %X, expected %X.", filesum, asum)
 	except EOFError:
 		return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -1275,13 +1200,13 @@ def read_residue_mlucas(file, nbytes, filename, check=False):
 		buffer = file.read(nbytes)
 		if len(buffer) != nbytes:
 			raise EOFError
-		residue = from_bytes(buffer)
+		residue = int.from_bytes(buffer, "little")
 	else:
 		file.seek(nbytes, 1)  # os.SEEK_CUR
 
 	res64, res35m1, res36m1 = unpack("<Q5s5s", file)
-	res35m1 = from_bytes(res35m1)
-	res36m1 = from_bytes(res36m1)
+	res35m1 = int.from_bytes(res35m1, "little")
+	res36m1 = int.from_bytes(res36m1, "little")
 	# print("{:016X}".format(res64), "{:010X}".format(res35m1), "{:010X}".format(res36m1))
 	if args.check:
 		ares64 = residue & 0xFFFFFFFFFFFFFFFF
@@ -1304,7 +1229,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 	try:
 		with open(filename, "rb") as f:
 			t, m, tmp = unpack("<BB8s", f)
-			nsquares = from_bytes(tmp)
+			nsquares = int.from_bytes(tmp, "little")
 
 			p = 1 << exponent if m == MODULUS_TYPE_FERMAT else exponent
 
@@ -1318,7 +1243,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 			kblocks = res_shift = None
 			if result is not None:
 				kblocks, res_shift = result
-				kblocks = from_bytes(kblocks)
+				kblocks = int.from_bytes(kblocks, "little")
 
 			if t == TEST_TYPE_PRP or (t == TEST_TYPE_PRIMALITY and m == MODULUS_TYPE_FERMAT):
 				(prp_base,) = unpack("<I", f)
@@ -1342,10 +1267,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.pct_complete = nsquares / (p - 2)
 
 					if args.jacobi:
-						if executor:
-							futures.append(executor.submit(jacobi_test, wu, p, residue1, filename))
-						else:
-							jacobi_test(wu, p, residue1, filename)
+						futures.append(executor.submit(jacobi_test, wu, p, residue1, filename))
 				elif m == MODULUS_TYPE_FERMAT:
 					wu.work_type = WORK_PRP  # No Pépin worktype
 
@@ -1384,8 +1306,8 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.counter = nsquares
 				elif stage == 2:
 					wu.state = PM1_STATE_STAGE2
-					wu.interim_C = from_bytes(tmp[:-1])
-					_psmall = from_bytes(tmp[-1:])
+					wu.interim_C = int.from_bytes(tmp[:-1], "little")
+					_psmall = int.from_bytes(tmp[-1:], "little")
 
 				wu.stage = "S{}".format(stage)
 				wu.pct_complete = None  # ?
@@ -1415,7 +1337,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 				return None
 	except EOFError:
 		return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -1434,10 +1356,10 @@ def parse_work_unit_cudalucas(filename, p):
 				buffer = f.read(size)
 				if len(buffer) != size:
 					return None
-				view = memoryview(buffer)
 				if args.check:
 					chksum = checkpoint_checksum(buffer)
-				residue = from_bytes(view[: -9 * 4])
+				with memoryview(buffer) as view:
+					residue = int.from_bytes(view[: -9 * 4], "little")
 
 			f.seek(end * 4)
 
@@ -1466,16 +1388,13 @@ def parse_work_unit_cudalucas(filename, p):
 				wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 				wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 			if args.jacobi:
-				if executor:
-					futures.append(executor.submit(jacobi_test, wu, q, residue, filename))
-				else:
-					jacobi_test(wu, q, residue, filename)
+				futures.append(executor.submit(jacobi_test, wu, q, residue, filename))
 
 			if args.check and f.read():
 				return None
 	except EOFError:
 		return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -1548,7 +1467,7 @@ def parse_work_unit_cudapm1(filename, p):
 				return None
 	except EOFError:
 		return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -1593,7 +1512,7 @@ def parse_work_unit_gpuowl(filename):
 					buffer = f.read(size)
 					if len(buffer) != size:
 						return None
-					residue = from_bytes(buffer)
+					residue = int.from_bytes(buffer, "little")
 					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 
@@ -1606,14 +1525,11 @@ def parse_work_unit_gpuowl(filename):
 					h = hashlib.blake2b(digest_size=8)
 					h.update(struct.pack("=II", wu.n, wu.counter))
 					h.update(buffer)
-					aahash = from_bytes(h.digest())
+					aahash = int.from_bytes(h.digest(), "little")
 					if ahash != aahash:
 						logging.error("Hash error. Expected %X, actual %X.", ahash, aahash)
 				if args.jacobi:
-					if executor:
-						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
-					else:
-						jacobi_test(wu, wu.n, residue, filename)
+					futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 			elif header.startswith(b"OWL PRP "):
 				prp_v9 = PRP_v9_RE.match(header)
 				prp_v10 = PRP_v10_RE.match(header)
@@ -1649,7 +1565,7 @@ def parse_work_unit_gpuowl(filename):
 					buffer = f.read(size)
 					if len(buffer) != size:
 						return None
-					residue = from_bytes(buffer)
+					residue = int.from_bytes(buffer, "little")
 					# Getting the original residue from the GEC residue is currently too computationally expensive in Python
 					# res64 = int(res64, 16)
 					# ares64 = residue & 0xFFFFFFFFFFFFFFFF
@@ -1762,7 +1678,7 @@ def parse_work_unit_gpuowl(filename):
 			# 	return None
 	except EOFError:
 		return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -1813,7 +1729,7 @@ def parse_work_unit_prpll(filename):
 					buffer = f.read(size)
 					if len(buffer) != size:
 						return None
-					residue = from_bytes(buffer)
+					residue = int.from_bytes(buffer, "little")
 					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 
@@ -1821,10 +1737,7 @@ def parse_work_unit_prpll(filename):
 				wu.pct_complete = wu.counter / (wu.n - 2)
 
 				if args.jacobi:
-					if executor:
-						futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
-					else:
-						jacobi_test(wu, wu.n, residue, filename)
+					futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
 			elif header.startswith(b"OWL PRP "):
 				prp_v13 = PRP_v13_RE.match(header)
 
@@ -1852,7 +1765,7 @@ def parse_work_unit_prpll(filename):
 					buffer = f.read(size)
 					if len(buffer) != size:
 						return None
-					residue = from_bytes(buffer)
+					residue = int.from_bytes(buffer, "little")
 					# Getting the original residue from the GEC residue is currently too computationally expensive in Python
 					# res64 = int(res64, 16)
 					# ares64 = residue & 0xFFFFFFFFFFFFFFFF
@@ -1870,7 +1783,7 @@ def parse_work_unit_prpll(filename):
 				return None
 	except EOFError:
 		return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -2101,7 +2014,7 @@ def parse_work_unit_prmers(filename, exponent, curve):
 				return None
 	except EOFError:
 		return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -2199,7 +2112,7 @@ def parse_work_unit_mfaktc(filename):
 
 			if args.check and f.read():
 				return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -2235,7 +2148,7 @@ def parse_work_unit_mfaktc(filename):
 	wu.stage = "TF{}".format(wu.bits)
 	wu.pct_complete = pct_complete_mfakt(wu.n, wu.bits, int(num_classes), int(cur_class), wagstaff)
 
-	wu.version = version.decode("utf-8")
+	wu.version = version.decode()
 	return wu
 
 
@@ -2249,7 +2162,7 @@ def parse_work_unit_mfakto(filename):
 
 			if args.check and f.read():
 				return None
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -2278,7 +2191,7 @@ def parse_work_unit_mfakto(filename):
 	wu.stage = "TF{}".format(wu.bits)
 	wu.pct_complete = pct_complete_mfakt(wu.n, wu.bits, int(num_classes), int(cur_class))
 
-	wu.version = version.decode("utf-8")
+	wu.version = version.decode()
 	return wu
 
 
@@ -2289,7 +2202,7 @@ def parse_work_unit_primepath(filename):
 	try:
 		with open(filename, "rb") as f:
 			header = f.read()
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -2383,7 +2296,7 @@ def parse_proof(filename):
 			proof_header_size = f.tell()
 			f.seek(0, 2)  # os.SEEK_END
 			proof_file_size = f.tell()
-			residue_size = -(int(math.ceil(log2(wu.k) + wu.n * log2(wu.b))) // -8)
+			residue_size = -(int(math.ceil(math.log2(wu.k) + wu.n * math.log2(wu.b))) // -8)
 			proofs_written = (proof_file_size - proof_header_size) // ((wu.proof_power + 1) * residue_size)
 
 			if args.check and wu.version == 2 and proofs_written == wu.proof_power_mult:
@@ -2393,7 +2306,7 @@ def parse_proof(filename):
 				buffer = f.read(residue_size)
 				if len(buffer) != residue_size:
 					return None
-				residue = from_bytes(buffer)
+				residue = int.from_bytes(buffer, "little")
 				if wu.c != 1:
 					modulus = int(wu.k) * (1 << wu.n) + wu.c
 					# Python 3.8+
@@ -2402,7 +2315,7 @@ def parse_proof(filename):
 					residue = (residue * inverse) % modulus
 				wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 				wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
-	except (IOError, OSError):
+	except OSError:
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
@@ -2879,11 +2792,10 @@ def main(dirs):
 					else:
 						logging.error("Unable to parse the %r proof file", file)
 
-	if executor:
-		executor.shutdown()
+	executor.shutdown()
 
-		for future in futures:
-			future.result()
+	for future in futures:
+		future.result()
 
 	parsed = OrderedDict()
 

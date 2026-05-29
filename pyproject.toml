@@ -45,6 +45,7 @@ select = [
 	"PGH",
 	"PL",
 	"TRY",
+	# "PTH",
 	"PERF",
 	"FURB",
 	"LOG",
@@ -55,12 +56,6 @@ ignore = [
 	"D211",
 	"D213",
 	"D401",
-	"UP004",
-	"UP008",
-	"UP009",
-	"UP010",
-	"UP020",
-	"UP024",
 	"UP032",
 	"UP036",
 	"PYI024",
@@ -86,7 +81,7 @@ ignore = [
 split-on-trailing-comma = false
 
 [tool.ruff.format]
-quote-style = "preserve"
+quote-style = "double"
 
 indent-style = "tab"
 
