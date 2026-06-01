@@ -5751,7 +5751,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 			if found == 1:
 				percent = apercent
 				p1 = True
-				stage = 2
+				stage = 1
 			elif apercent > percent:
 				break
 			if len(list_usec_per_iter) < 5:
@@ -5959,7 +5959,7 @@ def compute_progress(assignment, msec_per_iter, p, progress):
 			# 1.5 suggested by EWM for Mlucas v20.0 and 1.13-1.275 for v20.1
 			time_left += msec_per_iter * iterations * 1.2
 		elif stage == 2:
-			time_left = msec_per_iter * (iterations - iteration) if not args.gpuowl else args.timeout
+			time_left = msec_per_iter * (iterations - iteration) if not args.gpuowl else args.timeout * 1000
 
 		if curve is not None and assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 			time_left += msec_per_iter * iterations * 2 * (assignment.curves_to_do - curve)
