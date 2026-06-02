@@ -5,7 +5,7 @@ The PrimeNet automated assignment handler program for GIMPS
 
 Copyright © 2024 Teal Dulcet
 
-Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and later and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
+Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and greater and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
 
 Adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
 
@@ -132,7 +132,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 * Verifies each found factor divides number
 	* Outputs number of decimal digits and bits
 * Optional alert after finding a new Mersenne Prime!
-* Supports Python versions 3.4 and later 
+* Supports Python versions 3.4 and greater 
 * Supports Windows, macOS and Linux
 	* Should support any system from the last 12+ years
 * 100% Open Source
@@ -230,23 +230,21 @@ options:
                         not want a PrimeNet account, you can use ANONYMOUS.
   -T WORK_PREFERENCE, --workpref WORK_PREFERENCE
                         Work preference, Default: 150. Supported work
-                        preferences: 2 (Trial factoring), 4 (P-1 factoring), 5
-                        (ECM factoring), 8 (ECM on Mersenne cofactors), 12
-                        (Trial factoring GPU), 100 (First time LL tests), 101
-                        (Double-check LL tests), 102 (World record LL tests),
-                        104 (100M digit LL tests), 106 (Double-check LL tests
-                        with zero shift count), 150 (First time PRP tests),
-                        151 (Double-check PRP tests), 152 (World record PRP
-                        tests), 153 (100M digit PRP tests), 154 (Smallest
-                        available first time PRP that needs P-1 factoring),
-                        155 (Double-check using PRP with proof), 156 (Double-
-                        check using PRP with proof and nonzero shift count),
-                        160 (First time PRP on Mersenne cofactors), 161
-                        (Double-check PRP on Mersenne cofactors). Provide once
-                        to use the same work preference for all workers or
-                        once for each worker to use different work
-                        preferences. Not all worktypes are supported by all
-                        the GIMPS programs.
+                        preferences: 4 (P-1 factoring), 5 (ECM factoring), 8
+                        (ECM on Mersenne cofactors), 12 (Trial factoring GPU),
+                        101 (Double-check LL tests), 106 (Double-check LL
+                        tests with zero shift count), 150 (First time PRP
+                        tests), 151 (Double-check PRP tests), 152 (World
+                        record PRP tests), 153 (100M digit PRP tests), 154
+                        (Smallest available first time PRP that needs P-1
+                        factoring), 155 (Double-check using PRP with proof),
+                        156 (Double-check using PRP with proof and nonzero
+                        shift count), 160 (First time PRP on Mersenne
+                        cofactors), 161 (Double-check PRP on Mersenne
+                        cofactors). Provide once to use the same work
+                        preference for all workers or once for each worker to
+                        use different work preferences. Not all worktypes are
+                        supported by all the GIMPS programs.
   --cert-work           Get PRP proof certification work, Default: None.
                         Currently only supported by PRPLL.
   --no-cert-work
@@ -267,12 +265,14 @@ options:
                         assignments to factor to the target bit level (as
                         listed on mersenne.ca)
   -m, --mlucas          Get assignments for Mlucas.
-  -g, --gpuowl          Get assignments for GpuOwl.
-  --prpll               Get assignments for PRPLL. Only PRPLL NTT is PrimeNet
+  -g, --gpuowl          Get assignments for GpuOwl. Deprecated in favor of
+                        PRPLL-NTT.
+  --prpll               Get assignments for PRPLL. Only PRPLL-NTT is PrimeNet
                         server compatible and thus is fully supported.
   --prmers              Get assignments for PrMers. This is experimental and
                         for testing only.
-  --cudalucas           Get assignments for CUDALucas.
+  --cudalucas           Get assignments for CUDALucas. Deprecated in favor of
+                        PRPLL-NTT.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
   --primepath           Get assignments for PrimePath.
@@ -307,10 +307,7 @@ options:
                         this multiplier.
   --convert-ll-to-prp   Convert all LL assignments to PRP. This is for use
                         when registering assignments.
-  --convert-prp-to-ll   Convert all PRP assignments to LL. This is
-                        automatically enabled for first time PRP assignments
-                        when the --workpref option is for a first time LL
-                        worktype.
+  --convert-prp-to-ll   Convert all PRP assignments to LL.
   --no-report-100m      Do not report any prime results for exponents greater
                         than or equal to 100 million digits. You must setup
                         another method to notify yourself, such as setting the

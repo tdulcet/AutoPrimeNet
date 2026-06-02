@@ -1233,7 +1233,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 
 			p = 1 << exponent if m == MODULUS_TYPE_FERMAT else exponent
 
-			nbytes = (p + 7) // 8 if m == MODULUS_TYPE_MERSENNE else (p >> 3) + 1 if m == MODULUS_TYPE_FERMAT else 0
+			nbytes = (p + 7) >> 3 if m == MODULUS_TYPE_MERSENNE else (p >> 3) + 1 if m == MODULUS_TYPE_FERMAT else 0
 
 			residue1, res64, res35m1, res36m1 = read_residue_mlucas(
 				f, nbytes, filename, args.jacobi and t == TEST_TYPE_PRIMALITY and m == MODULUS_TYPE_MERSENNE
@@ -1797,7 +1797,7 @@ def parse_work_unit_prpll(filename):
 	return wu
 
 
-def transform_size(exponent):
+def prmers_transform_size(exponent):
 	"""Return a PrMers NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
 	log2_n = 1
 	while True:
@@ -1816,15 +1816,15 @@ def transform_size(exponent):
 	return min(1 << log2_n, 5 << log2_n5)
 
 
-def li(x):
+def prmers_li(x):
 	"""Approximate the logarithmic integral term x/log x + x/log^2 x for prime-count estimates."""
 	l = math.log(x)
 	return x / l + x / (l * l)
 
 
-def prime_count_approx(low, high):
+def prmers_prime_count_approx(low, high):
 	"""Estimate how many primes lie in (low, high] using the difference of li() approximations."""
-	diff = li(high) - li(low)
+	diff = prmers_li(high) - prmers_li(low)
 	return max(0, int(diff))
 
 
@@ -1890,7 +1890,7 @@ def parse_work_unit_prmers(filename, exponent, curve):
 					logging.error("P-1 stage 1 savefile with unknown version = %s", version)
 					return None
 
-				f.seek(11 * transform_size(p) * 8, 1)  # os.SEEK_CUR
+				f.seek(11 * prmers_transform_size(p) * 8, 1)  # os.SEEK_CUR
 
 				_chk, _blks, _bib, _cbl, _inlot, eacc_len = unpack("=QQQQBI", f)
 
@@ -1926,7 +1926,7 @@ def parse_work_unit_prmers(filename, exponent, curve):
 				wu.C_done = B2u
 
 				wu.stage = "S2"
-				wu.pct_complete = wu.counter / prime_count_approx(B1u, B2u)
+				wu.pct_complete = wu.counter / prmers_prime_count_approx(B1u, B2u)
 			elif name.startswith("pm1_s3_m_"):
 				wu.work_type = WORK_PMINUS1
 
@@ -2024,13 +2024,13 @@ def parse_work_unit_prmers(filename, exponent, curve):
 
 	wu.n = p
 	wu.total_time = int(et * 1000 * 1000)
-	wu.fftlen = transform_size(p)
+	wu.fftlen = prmers_transform_size(p)
 
 	wu.version = version
 	return wu
 
 
-def calculate_k(exp, bits):
+def mfaktx_calculate_k(exp, bits):
 	"""calculates biggest possible k in "2 * exp * k + 1 < 2^bits"
 
 	Because Python is not limited to 64-bit integers like C,
@@ -2046,7 +2046,7 @@ def calculate_k(exp, bits):
 	return k
 
 
-def class_needed(exp, k_min, c, more_classes, wagstaff):
+def mfaktx_class_needed(exp, k_min, c, more_classes, wagstaff):
 	"""checks whether the class c must be processed or can be ignored at all because
 	all factor candidates within the class c are a multiple of 3, 5, 7 or 11 (11
 	only if MORE_CLASSES is defined) or are 3 or 5 mod 8 (Mersenne) or are 5 or 7 mod 8 (Wagstaff)
@@ -2066,7 +2066,7 @@ def class_needed(exp, k_min, c, more_classes, wagstaff):
 	return False
 
 
-def pct_complete_mfakt(exp, bits, num_classes, cur_class, wagstaff=False):
+def mfaktx_pct_complete(exp, bits, num_classes, cur_class, wagstaff=False):
 	"""Calculate percentage completeness of an mfaktc/mfakto checkpoint file
 	using the same logic used to display Pct in mfaktc/mfakto output
 
@@ -2091,10 +2091,10 @@ def pct_complete_mfakt(exp, bits, num_classes, cur_class, wagstaff=False):
 			more_classes = False
 			max_class_number = 96
 
-		k_min = calculate_k(exp, bits)
+		k_min = mfaktx_calculate_k(exp, bits)
 		k_min -= k_min % num_classes  # k_min is now 0 mod num_classes
 
-		class_counter = sum(1 for i in range(cur_class) if class_needed(exp, k_min, i, more_classes, wagstaff))
+		class_counter = sum(1 for i in range(cur_class) if mfaktx_class_needed(exp, k_min, i, more_classes, wagstaff))
 
 		return class_counter / max_class_number
 
@@ -2146,7 +2146,7 @@ def parse_work_unit_mfaktc(filename):
 		wu.total_time = int(bit_level_time) * 1000
 
 	wu.stage = "TF{}".format(wu.bits)
-	wu.pct_complete = pct_complete_mfakt(wu.n, wu.bits, int(num_classes), int(cur_class), wagstaff)
+	wu.pct_complete = mfaktx_pct_complete(wu.n, wu.bits, int(num_classes), int(cur_class), wagstaff)
 
 	wu.version = version.decode()
 	return wu
@@ -2189,7 +2189,7 @@ def parse_work_unit_mfakto(filename):
 		wu.total_time = int(bit_level_time) * 1000
 
 	wu.stage = "TF{}".format(wu.bits)
-	wu.pct_complete = pct_complete_mfakt(wu.n, wu.bits, int(num_classes), int(cur_class))
+	wu.pct_complete = mfaktx_pct_complete(wu.n, wu.bits, int(num_classes), int(cur_class))
 
 	wu.version = version.decode()
 	return wu

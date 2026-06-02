@@ -376,11 +376,11 @@ elif sys.platform == "darwin":  # macOS
 	def sysctl_str(name):
 		"""Return a sysctl string value for the given ASCII name (macOS)."""
 		size = ctypes.c_size_t()
-		if libc.sysctlbyname(name, None, ctypes.byref(size), None, 0) != 0:
+		if libc.sysctlbyname(name, None, ctypes.byref(size), None, 0):
 			return None
 
 		buf = ctypes.create_string_buffer(size.value)
-		if libc.sysctlbyname(name, buf, ctypes.byref(size), None, 0) != 0:
+		if libc.sysctlbyname(name, buf, ctypes.byref(size), None, 0):
 			return None
 		return buf.value
 
@@ -388,7 +388,7 @@ elif sys.platform == "darwin":  # macOS
 		"""Return a sysctl value of the given ctypes type for name (macOS)."""
 		size = ctypes.c_size_t(ctypes.sizeof(ctype))
 		value = ctype()
-		if libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0) != 0:
+		if libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0):
 			return None
 		return value.value
 
@@ -1385,15 +1385,6 @@ atexit.register(session.close)
 context = ssl.create_default_context(cafile=certifi.where() if certifi is not None else certifi)
 context.options |= getattr(ssl, "OP_ENABLE_KTLS", 0x8)  # Python 3.12+
 
-# Mlucas constants
-
-TEST_TYPE_PRIMALITY = 1
-TEST_TYPE_PRP = 2
-TEST_TYPE_PM1 = 3
-
-MODULUS_TYPE_MERSENNE = 1
-MODULUS_TYPE_FERMAT = 3
-
 
 # endregion
 class timedelta(dt.timedelta):
@@ -2365,11 +2356,16 @@ def setup(config, args):
 		config.set(SEC.PrimeNet, "ComputerID", compid)
 
 	programs = ("mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "mfaktc", "mfakto", "primepath")
+
+	print(
+		"""Use the following values to select a GIMPS program:
+{}
+""".format("\n".join("\t{} - {}".format(i, program["name"]) for i, program in enumerate(PROGRAMS[1:], 1)))
+	)
+
 	while True:
 		program = ask_int(
-			"Which GIMPS program are you getting assignments for ({})".format(
-				", ".join("{}={}".format(i, program["name"]) for i, program in enumerate(PROGRAMS[1:], 1))
-			),
+			"Which GIMPS program are you getting assignments for",
 			8
 			if args.primepath
 			else 7
@@ -2467,15 +2463,11 @@ def setup(config, args):
 	num_thread = ask_int("Number of workers (CPU cores or GPUs)", args.num_workers, 1)
 
 	print("""Use the following values to select a work preference:
-	2 - Trial factoring
 	4 - P-1 factoring
 	5 - ECM factoring
 	8 - ECM on Mersenne cofactors
 	12 - Trial factoring GPU
-	100 - First time LL tests
 	101 - Double-check LL tests
-	102 - World record LL tests
-	104 - 100 million digit LL tests
 	106 - Double-check LL tests with zero shift count
 	150 - First time PRP tests
 	151 - Double-check PRP tests
@@ -2497,10 +2489,7 @@ def setup(config, args):
 │ 5                                    ✔                                                        │
 │ 8                                    ✔                                                        │
 │ 12                                                                  ✔               ✔         │
-│ 100        ✔        ✔*       ✔       ✔        ✔                                               │
 │ 101        ✔                                  ✔                                               │
-│ 102        ✔        ✔*       ✔       ✔        ✔                                               │
-│ 104        ✔        ✔*       ✔       ✔        ✔                                               │
 │ 106                 ✔*       ✔       ✔                                                        │
 │ 150        ✔        ✔        ✔       ✔                                                        │
 │ 151**      ✔        ✔        ✔       ✔                                                        │
@@ -2521,10 +2510,7 @@ def setup(config, args):
 | 5                                    X                                                        |
 | 8                                    X                                                        |
 | 12                                                                  X               X         |
-| 100        X        X*       X       X        X                                               |
 | 101        X                                  X                                               |
-| 102        X        X*       X       X        X                                               |
-| 104        X        X*       X       X        X                                               |
 | 106                 X*       X       X                                                        |
 | 150        X        X        X       X                                                        |
 | 151**      X        X        X       X                                                        |
@@ -2556,17 +2542,19 @@ def setup(config, args):
 				directories.append(directory)
 
 		work_pref.append(
-			ask_str(
+			ask_int(
 				"Type of work to get",
 				args.work_preference[i]
 				if i < len(args.work_preference)
-				else str(
+				else (
 					PRIMENET_WP.GPU_FACTOR
 					if args.mfaktc or args.mfakto or args.primepath
 					else PRIMENET_WP.LL_DBLCHK
 					if args.cudalucas
 					else PRIMENET_WP.PRP_FIRST
 				),
+				0,
+				161,
 			)
 		)
 
@@ -2810,7 +2798,7 @@ def read_last_n_lines(filename, n, encoding="utf-8", errors="strict"):
 
 
 # region Config
-attr_to_copy = {
+ATTR_TO_COPY = {
 	SEC.PrimeNet: {
 		"work_file": "work_file",
 		"results_file": "results_file",
@@ -2878,7 +2866,7 @@ attr_to_copy = {
 	},
 }
 
-worker_attr_to_copy = {"dirs": "directory", "work_preference": "WorkPreference"}
+WORKER_ATTR_TO_COPY = {"dirs": "directory", "work_preference": "WorkPreference"}
 
 # allows us to give hints for config types that don't have a default argparse value (due to having dynamic defaults)
 OPTIONS_TYPE_HINTS = {
@@ -2905,6 +2893,8 @@ OPTIONS_TYPE_HINTS = {
 	},
 	SEC.Email: {"to_emails": list, "tls": bool, "starttls": bool},
 }
+
+WORKER_OPTIONS_TYPE_HINTS = {"WorkPreference": int}
 
 OPTIONS_ENCRYPT = {SEC.PrimeNet: {"password": "password", "proxy_password": "ProxyPass"}, SEC.Email: {"email_password": "password"}}
 
@@ -2980,14 +2970,14 @@ def merge_config_and_options(config, args):
 	# one line per attribute. Only the attr_to_copy list need to be updated
 	# when adding an option you want to copy from argument args to
 	# prime.ini config.
-	for section, value in attr_to_copy.items():
+	for section, value in ATTR_TO_COPY.items():
 		for attr, option in value.items():
 			# if "attr" has its default value in args, copy it from config
-			attr_val = getattr(args, attr)
-			type_hint = OPTIONS_TYPE_HINTS[section].get(option)
 			if not hasattr(args_no_defaults, attr) and config.has_option(section, option):
 				# If no option is given and the option exists in prime.ini, take it
 				# from prime.ini
+				attr_val = getattr(args, attr)
+				type_hint = OPTIONS_TYPE_HINTS[section].get(option)
 				if isinstance(attr_val, (list, tuple)) or type_hint in {list, tuple}:
 					val = config.get(section, option)
 					new_val = val.split(",") if val else []
@@ -2995,29 +2985,39 @@ def merge_config_and_options(config, args):
 					new_val = config.getboolean(section, option)
 				else:
 					new_val = config.get(section, option)
-				# config file values are always str()
-				# they need to be converted to the expected type from args
-				if attr_val is not None:
-					new_val = type(attr_val)(new_val)
-				elif type_hint is not None:
-					new_val = type_hint(new_val)
+					# config file values are always str()
+					# they need to be converted to the expected type from args
+					if attr_val is not None:
+						new_val = type(attr_val)(new_val)
+					elif type_hint is not None:
+						new_val = type_hint(new_val)
+
 				setattr(args, attr, new_val)
 
 	for i in range(args.num_workers):
 		section = "Worker #{}".format(i + 1) if args.num_workers > 1 else SEC.PrimeNet
-		for attr, option in worker_attr_to_copy.items():
+		for attr, option in WORKER_ATTR_TO_COPY.items():
 			if not hasattr(args_no_defaults, attr) and config.has_option(section, option):
-				new_val = getattr(args, attr)
-				if new_val is None:
-					new_val = []
-					setattr(args, attr, new_val)
-				new_val.append(config.get(section, option))
+				attr_val = getattr(args, attr)
+				if attr_val is None:
+					attr_val = []
+					setattr(args, attr, attr_val)
+
+				type_hint = WORKER_OPTIONS_TYPE_HINTS.get(option)
+				if type_hint is bool:
+					new_val = config.getboolean(section, option)
+				else:
+					new_val = config.get(section, option)
+					if type_hint is not None:
+						new_val = type_hint(new_val)
+
+				attr_val.append(new_val)
 
 
 def merge_options_and_config(config, args):
 	"""Synchronizes args with config, updating config if necessary."""
 	updated = False
-	for section, value in attr_to_copy.items():
+	for section, value in ATTR_TO_COPY.items():
 		for attr, option in value.items():
 			# if "attr" has its default value in args, copy it from config
 			attr_val = getattr(args, attr)
@@ -3041,10 +3041,10 @@ def merge_options_and_config(config, args):
 
 	for i in range(args.num_workers):
 		section = "Worker #{}".format(i + 1) if args.num_workers > 1 else SEC.PrimeNet
-		for attr, option in worker_attr_to_copy.items():
+		for attr, option in WORKER_ATTR_TO_COPY.items():
 			attr_val = getattr(args, attr)
 			if attr_val is not None:
-				new_val = attr_val[i]
+				new_val = str(attr_val[i])
 				if not config.has_option(section, option) or config.get(section, option) != new_val:
 					logging.debug("Updating %r section %r with %s=%s", args.localfile, section, option, new_val)
 					config.set(section, option, new_val)
@@ -3084,7 +3084,7 @@ def encrypt(config, args):
 						new_option = "encrypted_{}".format(option)
 						config.set(section, new_option, new_val)
 						config.remove_option(section, option)
-						attr_to_copy[section].pop(attr, None)
+						ATTR_TO_COPY[section].pop(attr, None)
 				else:
 					logging.warning(
 						"OpenSSL library not found, so unable to encrypt option %s in section %r in %r",
@@ -3128,7 +3128,7 @@ def decrypt(config, args):
 					if args.encrypt is not None and not args.encrypt:
 						config.remove_option(section, new_option)
 					else:
-						attr_to_copy[section].pop(attr, None)
+						ATTR_TO_COPY[section].pop(attr, None)
 				else:
 					logging.critical(
 						"Unable to decrypt option %s in section %r in %r, as OpenSSL library not found",
@@ -3178,12 +3178,8 @@ def check_options(parser, args):
 		if res:
 			logging.warning("CPU features has invalid character: %r", res.group())
 
-	for i, work_preference in enumerate(args.work_preference):
-		if work_preference in worktypes:
-			args.work_preference[i] = work_preference = str(worktypes[work_preference])
-		if not work_preference.isdigit():
-			parser.error("Unrecognized work preference = {}".format(work_preference))
-		if int(work_preference) not in SUPPORTED:
+	for work_preference in args.work_preference:
+		if work_preference not in SUPPORTED:
 			parser.error("Unsupported work preference = {} for {}".format(work_preference, PROGRAM["name"]))
 
 	if len(args.work_preference) not in {1, args.num_workers}:
@@ -3788,7 +3784,7 @@ def write_workfile(adir, workfile, assignments):
 	"""Writes assignments to a work file in the specified directory."""
 	tasks = (output_assignment(task) if isinstance(task, Assignment) else task for task in assignments)
 	with tempfile.NamedTemporaryFile("w", dir=adir, encoding="utf-8", delete=False) as f:
-		file.writelines(task + "\n" for task in tasks)
+		f.writelines(task + "\n" for task in tasks)
 	try:
 		os.replace(f.name, workfile)
 	except OSError as e:
@@ -4897,6 +4893,16 @@ def unpack(aformat, file, noraise=False):
 	return struct.unpack(aformat, buffer)
 
 
+# Mlucas constants
+
+TEST_TYPE_PRIMALITY = 1
+TEST_TYPE_PRP = 2
+TEST_TYPE_PM1 = 3
+
+MODULUS_TYPE_MERSENNE = 1
+MODULUS_TYPE_FERMAT = 3
+
+
 def read_residue_mlucas(file, nbytes):
 	"""Reads and unpacks residue data from a file at a given byte offset."""
 	file.seek(nbytes, 1)  # os.SEEK_CUR
@@ -4919,7 +4925,7 @@ def parse_work_unit_mlucas(adapter, filename, exponent, astage):
 
 			p = 1 << exponent if m == MODULUS_TYPE_FERMAT else exponent
 
-			nbytes = (p + 7) // 8 if m == MODULUS_TYPE_MERSENNE else (p >> 3) + 1 if m == MODULUS_TYPE_FERMAT else 0
+			nbytes = (p + 7) >> 3 if m == MODULUS_TYPE_MERSENNE else (p >> 3) + 1 if m == MODULUS_TYPE_FERMAT else 0
 
 			_res64, _res35m1, _res36m1 = read_residue_mlucas(f, nbytes)
 
@@ -5196,7 +5202,7 @@ def parse_work_unit_prpll(adapter, filename, p):
 	return counter, avg_msec_per_iter
 
 
-def transform_size(exponent):
+def prmers_transform_size(exponent):
 	"""Return a PrMers NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
 	log2_n = 1
 	while True:
@@ -5215,15 +5221,15 @@ def transform_size(exponent):
 	return min(1 << log2_n, 5 << log2_n5)
 
 
-def li(x):
+def prmers_li(x):
 	"""Approximate the logarithmic integral term x/log x + x/log^2 x for prime-count estimates."""
 	l = math.log(x)
 	return x / l + x / (l * l)
 
 
-def prime_count_approx(low, high):
+def prmers_prime_count_approx(low, high):
 	"""Estimate how many primes lie in (low, high] using the difference of li() approximations."""
-	diff = li(high) - li(low)
+	diff = prmers_li(high) - prmers_li(low)
 	return max(0, int(diff))
 
 
@@ -5261,7 +5267,7 @@ def parse_work_unit_prmers(adapter, filename, exponent):
 					adapter.error("P-1 stage 1 savefile with unknown version = %s", version)
 					return None
 
-				f.seek(11 * transform_size(p) * 8, 1)  # os.SEEK_CUR
+				f.seek(11 * prmers_transform_size(p) * 8, 1)  # os.SEEK_CUR
 
 				_chk, _blks, _bib, _cbl, _inlot, eacc_len = unpack("=QQQQBI", f)
 
@@ -5288,7 +5294,7 @@ def parse_work_unit_prmers(adapter, filename, exponent):
 					return None
 
 				iteration = cur_idx + 1
-				iterations = prime_count_approx(B1u, B2u)  # primes
+				iterations = prmers_prime_count_approx(B1u, B2u)  # primes
 				stage = 2
 			elif name.startswith(("ecm_m_", "ecm_te_m_")):
 				version, p, i, nb, _B1, et, _curve_seed, _current_te_family_mode = unpack("=iIIIQdQB", f)
@@ -5346,10 +5352,10 @@ def parse_work_unit_prmers(adapter, filename, exponent):
 
 	avg_msec_per_iter = (et / iteration) * 1000
 
-	return iteration, iterations, avg_msec_per_iter, stage, transform_size(p)
+	return iteration, iterations, avg_msec_per_iter, stage, prmers_transform_size(p)
 
 
-def calculate_k(exp, bits):
+def mfaktx_calculate_k(exp, bits):
 	"""Calculate the value of k based on the given exponent and bit length."""
 	tmp_low = 1 << (bits - 1)
 	tmp_low -= 1
@@ -5360,7 +5366,7 @@ def calculate_k(exp, bits):
 	return k
 
 
-def class_needed(exp, k_min, c, more_classes):
+def mfaktx_class_needed(exp, k_min, c, more_classes):
 	"""Determines if a class is needed based on given parameters and conditions."""
 	if (
 		(2 * (exp % 8) * ((k_min + c) % 8)) % 8 != 2
@@ -5374,7 +5380,7 @@ def class_needed(exp, k_min, c, more_classes):
 	return False
 
 
-def pct_complete_mfakt(exp, bits, num_classes, cur_class):
+def mfaktx_pct_complete(exp, bits, num_classes, cur_class):
 	"""Calculate the percentage of completion for the exponent based on the current class."""
 	# Lines of code with comments below are taken from mfaktc.c
 
@@ -5388,10 +5394,10 @@ def pct_complete_mfakt(exp, bits, num_classes, cur_class):
 			more_classes = False
 			max_class_number = 96
 
-		k_min = calculate_k(exp, bits)
+		k_min = mfaktx_calculate_k(exp, bits)
 		k_min -= k_min % num_classes  # k_min is now 0 mod num_classes
 
-		class_counter = sum(1 for i in range(cur_class) if class_needed(exp, k_min, i, more_classes))
+		class_counter = sum(1 for i in range(cur_class) if mfaktx_class_needed(exp, k_min, i, more_classes))
 
 		return class_counter / max_class_number
 
@@ -5441,7 +5447,7 @@ def parse_work_unit_mfaktc(adapter, filename, p):
 		adapter.debug("Expecting the exponent %s, but found %s", p, n)
 		return None
 
-	pct_complete = pct_complete_mfakt(n, bits, int(num_classes), int(cur_class))
+	pct_complete = mfaktx_pct_complete(n, bits, int(num_classes), int(cur_class))
 	assignment_ghd = tf_ghd_credit(n, bits, int(bit_max))
 	iteration = pct_complete * assignment_ghd
 	avg_msec_per_iter = ms_elapsed / iteration if ms_elapsed else None
@@ -5480,7 +5486,7 @@ def parse_work_unit_mfakto(adapter, filename, p):
 		adapter.debug("Expecting the exponent %s, but found %s", p, n)
 		return None
 
-	pct_complete = pct_complete_mfakt(n, bits, int(num_classes), int(cur_class))
+	pct_complete = mfaktx_pct_complete(n, bits, int(num_classes), int(cur_class))
 	assignment_ghd = tf_ghd_credit(n, bits, int(bit_max))
 	iteration = pct_complete * assignment_ghd
 	avg_msec_per_iter = ms_elapsed / iteration if ms_elapsed else None
@@ -5534,7 +5540,7 @@ def parse_work_unit_primepath(adapter, filename, p):
 	return iteration, assignment_ghd, avg_msec_per_iter
 
 
-def get_stages_mfaktx_ini(adapter, adir):
+def mfaktx_get_stages(adapter, adir):
 	"""Retrieve the number of stages from the mfaktc.ini or mfakto.ini configuration file."""
 	stages = 1
 	ini_file = os.path.join(adir, "mfaktc.ini" if args.mfaktc else "mfakto.ini")
@@ -5630,7 +5636,7 @@ def parse_stat_file(adapter, adir, p):
 	return iteration, iterations, msec_per_iter, None, stage, fftlen
 
 
-def parse_cuda_output_file(adapter, adir, p):
+def get_cuda_progress(adapter, adir, p):
 	"""Parse the CUDALucas output file for the progress of the assignment."""
 	# CUDALucas
 	savefile = os.path.join(adir, "c{}".format(p))
@@ -5785,7 +5791,7 @@ def parse_gpuowl_log_file(adapter, adir, p):
 PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(?:ll|prp)$")
 
 
-def parse_prpll_log_file(adapter, adir, p):
+def get_prpll_progress(adapter, adir, p):
 	"""Parse the PRPLL log file for the progress of the assignment."""
 	savefiles = []
 	for entry in glob.iglob(os.path.join(adir, "*{}".format(p), "{}-[0-9]*.*".format(p))):
@@ -5809,7 +5815,7 @@ def parse_prpll_log_file(adapter, adir, p):
 PRMERS_RE = re.compile(r"^(?:(?:llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt$")
 
 
-def parse_prmers_log_file(adapter, adir, p):
+def get_prmers_progress(adapter, adir, p):
 	"""Parse the PRPLL log file for the progress of the assignment."""
 	savefiles = []
 	for entry in glob.iglob(os.path.join(adir, "*m_{}*.ckpt".format(p))):
@@ -5849,7 +5855,7 @@ def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
 	return "M{}.ckp".format(p)
 
 
-def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
+def get_mfaktc_progress(adapter, adir, p, sieve_depth, factor_to):
 	"""Parse the mfaktc output file for the progress of the assignment."""
 	savefile = os.path.join(adir, get_mfaktc_output_filename(adir, p, sieve_depth, factor_to))
 	iteration = 0
@@ -5867,7 +5873,7 @@ def parse_mfaktc_output_file(adapter, adir, p, sieve_depth, factor_to):
 	return iteration, iterations, avg_msec_per_iter, None, None, None
 
 
-def parse_mfakto_output_file(adapter, adir, p):
+def get_mfakto_progress(adapter, adir, p):
 	"""Parse the mfakto output file for the progress of the assignment."""
 	savefile = os.path.join(adir, "M{}.ckp".format(p))
 	iteration = 0
@@ -5885,7 +5891,7 @@ def parse_mfakto_output_file(adapter, adir, p):
 	return iteration, iterations, avg_msec_per_iter, None, None, None
 
 
-def parse_primepath_output_file(adapter, adir, p):
+def get_primepath_progress(adapter, adir, p):
 	"""Parse the PrimePath output file for the progress of the assignment."""
 	savefile = os.path.join(adir, "mersenne_tf_checkpoint.txt")
 	iteration = 0
@@ -5912,17 +5918,17 @@ def get_progress_assignment(adapter, adir, assignment):
 	if args.gpuowl:  # GpuOwl
 		result = parse_gpuowl_log_file(adapter, adir, assignment.n)
 	elif args.prpll:  # PRPLL
-		result = parse_prpll_log_file(adapter, adir, assignment.n)
+		result = get_prpll_progress(adapter, adir, assignment.n)
 	elif args.prmers:  # PrMers
-		result = parse_prmers_log_file(adapter, adir, assignment.n)
+		result = get_prmers_progress(adapter, adir, assignment.n)
 	elif args.cudalucas:  # CUDALucas
-		result = parse_cuda_output_file(adapter, adir, assignment.n)
+		result = get_cuda_progress(adapter, adir, assignment.n)
 	elif args.mfaktc:  # mfaktc
-		result = parse_mfaktc_output_file(adapter, adir, assignment.n, assignment.sieve_depth, assignment.factor_to)
+		result = get_mfaktc_progress(adapter, adir, assignment.n, assignment.sieve_depth, assignment.factor_to)
 	elif args.mfakto:  # mfakto
-		result = parse_mfakto_output_file(adapter, adir, assignment.n)
+		result = get_mfakto_progress(adapter, adir, assignment.n)
 	elif args.primepath:  # PrimePath
-		result = parse_primepath_output_file(adapter, adir, assignment.n)
+		result = get_primepath_progress(adapter, adir, assignment.n)
 	else:  # Mlucas
 		result = parse_stat_file(adapter, adir, assignment.n)
 	return result
@@ -6586,8 +6592,8 @@ def program_options(send=False, start=-1, retry_count=0):
 		params["c"] = "" if tnum < 0 else tnum
 		if send:
 			options_changed = False
-			if len(set(work_preference)) == 1 if tnum < 0 else len(set(work_preference)) != 1:
-				params["w"] = work_preference[max(0, tnum)]
+			if len(set(args.work_preference)) == 1 if tnum < 0 else len(set(args.work_preference)) != 1:
+				params["w"] = args.work_preference[max(0, tnum)]
 				options_changed = True
 			if tnum < 0:
 				params["nw"] = args.num_workers
@@ -6628,28 +6634,21 @@ def program_options(send=False, start=-1, retry_count=0):
 				return program_options(send, tnum, retry_count + 1)
 			if "w" in result:
 				w = int(result["w"])
-				awork_preference = int(args.work_preference[max(0, tnum)])
-				aw = (
-					next(key for key, value in CONVERT.items() if value == w)
-					if awork_preference in CONVERT and w in CONVERT.values()
-					else w
-				)
-				if awork_preference != aw:
-					logging.warning("Work preference changed to %s", aw)
-				if aw not in SUPPORTED:
-					logging.critical("Unsupported work preference = %s for %s", aw, PROGRAM["name"])
+				awork_preference = args.work_preference[max(0, tnum)]
+				if awork_preference != w:
+					logging.warning("Work preference changed to %s", w)
+				if w not in SUPPORTED:
+					logging.critical("Unsupported work preference = %s for %s", w, PROGRAM["name"])
 					sys.exit(1)
 				if tnum < 0:
 					for i in range(args.num_workers):
-						work_preference[i] = w
-						args.work_preference[i] = str(aw)
+						args.work_preference[i] = w
 						section = "Worker #{}".format(i + 1) if args.num_workers > 1 else SEC.PrimeNet
-						config.set(section, "WorkPreference", str(aw))
+						config.set(section, "WorkPreference", str(w))
 				else:
-					work_preference[tnum] = w
-					args.work_preference[tnum] = str(aw)
+					args.work_preference[tnum] = w
 					section = "Worker #{}".format(tnum + 1) if args.num_workers > 1 else SEC.PrimeNet
-					config.set(section, "WorkPreference", str(aw))
+					config.set(section, "WorkPreference", str(w))
 			if "nw" in result:
 				args.num_workers = int(result["nw"])
 				config.set(SEC.PrimeNet, "NumWorkers", result["nw"])
@@ -7485,12 +7484,11 @@ SCRIPT = {
 	},
 	"os": get_os(),
 }
-CUDA_RESULT_PATTERN = re.compile(r"CUDA(?:Lucas|Pm1) v")
 
 
 def parse_result(adapter, adir, cpu_num, resultsfile, sendline):
 	"""Parses the result from a given sendline, processes it, and sends the appropriate response to the server."""
-	if CUDA_RESULT_PATTERN.search(sendline):  # CUDALucas or CUDAPm1
+	if "CUDALucas v" in sendline or "CUDAPm1 v" in sendline:  # CUDALucas or CUDAPm1
 		ar = cuda_result_to_json(adapter, resultsfile, sendline)
 	else:  # Mlucas or GpuOwl
 		try:
@@ -8103,14 +8101,12 @@ def unreserve_all(dirs):
 				write_workfile(adir, workfile, tasks)
 
 
-def update_assignment(adapter, cpu_num, assignment, task):
+def update_assignment(adapter, assignment, task):
 	"""Update the assignment based on various conditions and options, potentially converting work types and adjusting bounds."""
 	bounds = ("MIN", "MID", "MAX")
 	changed = False
 
-	if assignment.work_type == PRIMENET_WORK_TYPE.PRP and (
-		args.convert_prp_to_ll or (not assignment.prp_dblchk and int(args.work_preference[cpu_num]) in CONVERT)
-	):
+	if assignment.work_type == PRIMENET_WORK_TYPE.PRP and args.convert_prp_to_ll:
 		adapter.info("Converting from PRP to LL")
 		assignment.work_type = PRIMENET_WORK_TYPE.DBLCHK if assignment.prp_dblchk else PRIMENET_WORK_TYPE.FIRST_LL
 		assignment.pminus1ed = int(not assignment.tests_saved)
@@ -8312,7 +8308,7 @@ def register_assignments(adapter, adir, cpu_num, tasks):
 			else:
 				assignment.ra_failed = True
 			task = output_assignment(assignment)
-			assignment, _ = update_assignment(adapter, cpu_num, assignment, task)
+			assignment, _ = update_assignment(adapter, assignment, task)
 			tasks[i] = assignment
 			changed = True
 	if changed:
@@ -8542,7 +8538,7 @@ def tf1g_fetch(adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recov
 		adapter.info("Recovering TF1G assignments")
 		data["myassignments"] = 1
 	else:
-		stages = get_stages_mfaktx_ini(adapter, adir)
+		stages = mfaktx_get_stages(adapter, adir)
 		adapter.info(
 			"Getting %s%s TF1G assignments from mersenne.ca, min exponent %s, max exponent %s%s, stages = %s",
 			format(max_ghd or max_assignments, "n"),
@@ -8625,14 +8621,14 @@ def recover_assignments(dirs, recover_all=False):
 				if test is None:
 					break
 				task = output_assignment(test)
-				test, _ = update_assignment(adapter, i, test, task)
+				test, _ = update_assignment(adapter, test, task)
 				tests.append(test)
 
 			if args.min_exp and args.min_exp >= MAX_PRIMENET_EXP and (not recover_all or not i):
 				for test in tf1g_fetch(adapter, adir, i, recover=True, recover_all=recover_all):
 					if isinstance(test, Assignment):
 						task = output_assignment(test)
-						test, _ = update_assignment(adapter, i, test, task)
+						test, _ = update_assignment(adapter, test, task)
 					tests.append(test)
 
 			if len(tests) > 1:
@@ -8650,31 +8646,6 @@ def recover_assignments(dirs, recover_all=False):
 
 			if certwork or os.path.isfile(certwork_file):
 				write_workfile(adir, certwork_file, certwork)
-
-	# As of early 2018, here is the full list of assignment-type codes supported by the Primenet server; Mlucas
-	# v20 (and thus this script) supports only the subset of these indicated by an asterisk in the left column.
-	# Supported assignment types may be specified via either their PrimeNet number code or the listed Mnemonic:
-	# 			Worktype:
-	# Code		Mnemonic			Description
-	# ----	-----------------	-----------------------
-	#    0						Whatever makes the most sense
-	#    1						Trial factoring to low limits
-	# *  2						Trial factoring
-	# *  4	Pfactor				P-1 factoring
-	#    5						ECM for first factor on Mersenne numbers
-	#    6						ECM on Fermat numbers
-	#    8						ECM on mersenne cofactors
-	#   12                      Trial factoring GPU
-	# *100	SmallestAvail		Smallest available first-time tests
-	# *101	DoubleCheck			Double-checking
-	# *102	WorldRecord			World record primality tests
-	# *104	100Mdigit			100M digit number to LL test (not recommended)
-	# *150	SmallestAvailPRP	First time PRP tests (Gerbicz)
-	# *151	DoubleCheckPRP		Doublecheck PRP tests (Gerbicz)
-	# *152	WorldRecordPRP		World record sized numbers to PRP test (Gerbicz)
-	# *153	100MdigitPRP		100M digit number to PRP test (Gerbicz)
-	#  160						PRP on Mersenne cofactors
-	#  161						PRP double-checks on Mersenne cofactors
 
 
 def send_progress(adapter, cpu_num, assignment, percent, stage, time_left, now, fftlen, retry_count=0):
@@ -8895,7 +8866,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		if (
 			args.min_exp
 			and args.min_exp >= MAX_PRIMENET_EXP
-			and work_preference[cpu_num] in {PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR}
+			and args.work_preference[cpu_num] in {PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR}
 		):
 			ghd_to_request = None
 			if msec_per_iter is not None:
@@ -8912,7 +8883,7 @@ def get_assignments(adapter, adir, cpu_num, progress, tasks, checkin):
 		for i, assignment in enumerate(assignments):
 			if isinstance(assignment, Assignment):
 				new_task = output_assignment(assignment)
-				assignment, new_task = update_assignment(adapter, cpu_num, assignment, new_task)
+				assignment, new_task = update_assignment(adapter, assignment, new_task)
 				assignments[i] = assignment
 			else:
 				new_task = assignment
@@ -9510,7 +9481,7 @@ Computer name:			{!r}
 			program["name"],
 			config.get(SEC.Internals, "program") if config.has_option(SEC.Internals, "program") else None,
 			args.num_workers,
-			", ".join(args.work_preference) or "-",
+			", ".join(map(str, args.work_preference)) or "-",
 			"Yes" if args.cert_work else "No",
 			args.days_of_work,
 			"s" if args.days_of_work != 1 else "",
@@ -9650,17 +9621,14 @@ parser.add_argument(
 	"--workpref",
 	action="append",
 	dest="work_preference",
+	type=int,
 	default=[],
 	help="""Work preference, Default: {}. Supported work preferences:
-2 (Trial factoring),
 4 (P-1 factoring),
 5 (ECM factoring),
 8 (ECM on Mersenne cofactors),
 12 (Trial factoring GPU),
-100 (First time LL tests),
 101 (Double-check LL tests),
-102 (World record LL tests),
-104 (100M digit LL tests),
 106 (Double-check LL tests with zero shift count),
 150 (First time PRP tests),
 151 (Double-check PRP tests),
@@ -9708,17 +9676,21 @@ parser.add_argument(
 
 group = parser.add_mutually_exclusive_group()
 group.add_argument("-m", "--mlucas", action="store_true", default=None, help="Get assignments for Mlucas.")
-group.add_argument("-g", "--gpuowl", action="store_true", default=None, help="Get assignments for GpuOwl.")
+group.add_argument(
+	"-g", "--gpuowl", action="store_true", default=None, help="Get assignments for GpuOwl. Deprecated in favor of PRPLL-NTT."
+)
 group.add_argument(
 	"--prpll",
 	action="store_true",
 	default=None,
-	help="Get assignments for PRPLL. Only PRPLL NTT is PrimeNet server compatible and thus is fully supported.",
+	help="Get assignments for PRPLL. Only PRPLL-NTT is PrimeNet server compatible and thus is fully supported.",
 )
 group.add_argument(
 	"--prmers", action="store_true", default=None, help="Get assignments for PrMers. This is experimental and for testing only."
 )
-group.add_argument("--cudalucas", action="store_true", default=None, help="Get assignments for CUDALucas.")
+group.add_argument(
+	"--cudalucas", action="store_true", default=None, help="Get assignments for CUDALucas. Deprecated in favor of PRPLL-NTT."
+)
 group.add_argument("--mfaktc", action="store_true", default=None, help="Get assignments for mfaktc.")
 group.add_argument("--mfakto", action="store_true", default=None, help="Get assignments for mfakto.")
 group.add_argument("--primepath", action="store_true", default=None, help="Get assignments for PrimePath.")
@@ -9768,12 +9740,7 @@ parser.add_argument(
 	default=None,
 	help="Convert all LL assignments to PRP. This is for use when registering assignments.",
 )
-parser.add_argument(
-	"--convert-prp-to-ll",
-	action="store_true",
-	default=None,
-	help="Convert all PRP assignments to LL. This is automatically enabled for first time PRP assignments when the --workpref option is for a first time LL worktype.",
-)
+parser.add_argument("--convert-prp-to-ll", action="store_true", default=None, help="Convert all PRP assignments to LL.")
 parser.add_argument(
 	"--no-report-100m",
 	action="store_true",
@@ -10142,13 +10109,11 @@ else:
 
 if not args.work_preference:
 	args.work_preference = [
-		str(
-			PRIMENET_WP.GPU_FACTOR
-			if args.mfaktc or args.mfakto or args.primepath
-			else PRIMENET_WP.LL_DBLCHK
-			if args.cudalucas
-			else PRIMENET_WP.PRP_FIRST
-		)
+		PRIMENET_WP.GPU_FACTOR
+		if args.mfaktc or args.mfakto or args.primepath
+		else PRIMENET_WP.LL_DBLCHK
+		if args.cudalucas
+		else PRIMENET_WP.PRP_FIRST
 	]
 
 if args.results_file is None:
@@ -10183,22 +10148,6 @@ PROGRAM = PROGRAMS[
 	else 1
 ]
 
-# Convert mnemonic-form worktypes to corresponding numeric value, check
-# worktype value vs supported ones:
-worktypes = {
-	"Pfactor": PRIMENET_WP.PFACTOR,
-	"SmallestAvail": PRIMENET_WP.LL_FIRST,
-	"DoubleCheck": PRIMENET_WP.LL_DBLCHK,
-	"WorldRecord": PRIMENET_WP.LL_WORLD_RECORD,
-	"100Mdigit": PRIMENET_WP.LL_100M,
-	"SmallestAvailPRP": PRIMENET_WP.PRP_FIRST,
-	"DoubleCheckPRP": PRIMENET_WP.PRP_DBLCHK,
-	"WorldRecordPRP": PRIMENET_WP.PRP_WORLD_RECORD,
-	"100MdigitPRP": PRIMENET_WP.PRP_100M,
-}
-# {"PRP": 150, "PM1": 4, "LL_DC": 101, "PRP_DC": 151, "PRP_WORLD_RECORD": 152, "PRP_100M": 153, "PRP_P1": 154}
-# this and the above line of code enables us to use words or numbers on the cmdline
-
 SUPPORTED = frozenset(
 	[PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR]
 	if args.mfaktc or args.mfakto or args.primepath
@@ -10217,20 +10166,10 @@ SUPPORTED = frozenset(
 	)
 )
 
-# Convert first time LL worktypes to PRP
-CONVERT = {
-	PRIMENET_WP.LL_FIRST: PRIMENET_WP.PRP_FIRST,
-	PRIMENET_WP.LL_WORLD_RECORD: PRIMENET_WP.PRP_WORLD_RECORD,
-	PRIMENET_WP.LL_100M: PRIMENET_WP.PRP_100M,
-}
-
 check_options(parser, args)
-
-work_preference = [CONVERT.get(awork_preference, awork_preference) for awork_preference in map(int, args.work_preference)]
 
 if len(args.work_preference) == 1 and args.num_workers > 1:
 	args.work_preference *= args.num_workers
-	work_preference *= args.num_workers
 
 if args.dirs:
 	args.dirs = [os.path.normpath(adir) for adir in args.dirs]
