@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Read Prime95/MPrime, Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto and PrimePath save/checkpoint and proof files, and display status of them."""
+"""Read Prime95/MPrime, Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto and PrimePath save/checkpoint and proof files, and display status of them."""
 
 # Adapted from: https://github.com/sethtroisi/prime95/blob/py_status_report/prime95_status.py
 
@@ -33,9 +33,10 @@ import os
 import re
 import struct
 import sys
-import timeit
+import time
 from ctypes.util import find_library
 from datetime import datetime, timedelta
+from enum import Enum
 from itertools import chain
 
 if sys.version_info >= (3, 7):
@@ -43,6 +44,27 @@ if sys.version_info >= (3, 7):
 	OrderedDict = dict
 else:
 	from collections import OrderedDict
+
+
+if sys.version_info >= (3, 8):
+
+	def invmod(a, n):
+		return pow(a, -1, n)
+
+else:
+
+	def invmod(a, n):
+		b = 1
+		c = 0
+		while n:
+			q, r = divmod(a, n)
+			a, b, c, n = n, c, b - q * c, r
+
+		if a == 1:
+			return b
+
+		msg = "Not invertible"
+		raise ValueError(msg)
 
 
 if sys.platform != "win32":
@@ -267,13 +289,13 @@ MFAKTC_RE = re.compile(r"^([MW][0-9]+)(?:_[0-9]+-[0-9]+_[0-9]+)?\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
 
 
-# Enum
-class scale:
+class SCALE(Enum):
 	"""Enumeration for different scaling systems."""
 
-	SI = 0
-	IEC = 1
-	IEC_I = 2
+	# none = 0
+	SI = 1
+	IEC = 2
+	IEC_I = 3
 
 
 suffix_power_char = ("", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q")
@@ -511,12 +533,9 @@ def output_table(rows):
 
 
 # Adapted from: https://github.com/tdulcet/Table-and-Graph-Libs/blob/master/python/graphs.py
-def output_unit(number, ascale=scale.IEC_I):
+def output_unit(number, scale=SCALE.IEC_I):
 	"""Converts a number to a human-readable string with appropriate unit suffix based on the given scale."""
-	if ascale in {scale.IEC, scale.IEC_I}:
-		scale_base = 1024
-	elif ascale == scale.SI:
-		scale_base = 1000
+	scale_base = 1000 if scale == SCALE.SI else 1024
 
 	power = 0
 	while abs(number) >= scale_base:
@@ -536,10 +555,10 @@ def output_unit(number, ascale=scale.IEC_I):
 	else:
 		strm = "{:.0f}".format(number)
 
-	# "k" if power == 1 and ascale == scale.SI else
+	# "k" if power == 1 and scale == SCALE.SI else
 	strm += " " + (suffix_power_char[power] if power < len(suffix_power_char) else "(error)")
 
-	if ascale == scale.IEC_I and power > 0:
+	if scale == SCALE.IEC_I and power > 0:
 		strm += "i"
 
 	return strm
@@ -601,9 +620,9 @@ else:
 def jacobi_test(wu, p, words, filename):
 	"""Performs a Jacobi error check on the given work unit."""
 	logging.debug("%r: Performing Jacobi Error Check, this may take a while…", filename)
-	start = timeit.default_timer()
+	start = time.perf_counter()
 	wu.jacobi = jacobi(words - 2, (1 << p) - 1)
-	end = timeit.default_timer()
+	end = time.perf_counter()
 	logging.info(
 		"%r: Jacobi: %s (%s), Time: %.1f ms", filename, wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed", (end - start) * 1000
 	)
@@ -679,7 +698,7 @@ def parse_work_unit_prime95(filename):
 			wu.pct_complete = max(0, min(1, pct_complete))
 
 			if args.check or args.jacobi:
-				bit_len = int(math.ceil(math.log2(wu.k) + wu.n * math.log2(wu.b)))
+				bit_len = math.ceil(math.log2(wu.k) + wu.n * math.log2(wu.b))
 
 			asum = 0
 
@@ -1555,7 +1574,7 @@ def parse_work_unit_gpuowl(filename):
 				wu.counter = int(iteration)
 				wu.shift_count = 0
 				wu.L = int(block_size)
-				wu.res64 = res64.decode().upper()
+				wu.res64 = res64.decode("ascii").upper()
 				if nErrors is not None:
 					wu.nerr_gcheck = int(nErrors)
 
@@ -1755,7 +1774,7 @@ def parse_work_unit_prpll(filename):
 				wu.counter = int(iteration)
 				wu.shift_count = 0
 				wu.L = int(block_size)
-				wu.res64 = res64.decode().upper()
+				wu.res64 = res64.decode("ascii").upper()
 				wu.nerr_gcheck = int(nErrors)
 				wu.total_time = int(float(elapsed) * 1000 * 1000)
 
@@ -2296,7 +2315,7 @@ def parse_proof(filename):
 			proof_header_size = f.tell()
 			f.seek(0, 2)  # os.SEEK_END
 			proof_file_size = f.tell()
-			residue_size = -(int(math.ceil(math.log2(wu.k) + wu.n * math.log2(wu.b))) // -8)
+			residue_size = -(math.ceil(math.log2(wu.k) + wu.n * math.log2(wu.b)) // -8)
 			proofs_written = (proof_file_size - proof_header_size) // ((wu.proof_power + 1) * residue_size)
 
 			if args.check and wu.version == 2 and proofs_written == wu.proof_power_mult:
@@ -2310,8 +2329,10 @@ def parse_proof(filename):
 				if wu.c != 1:
 					modulus = int(wu.k) * (1 << wu.n) + wu.c
 					# Python 3.8+
-					# Much slower: pow(wu.prp_base, wu.c - 1, modulus)
-					inverse = pow(pow(wu.prp_base, 1 - wu.c, modulus), -1, modulus)
+					# pow(pow(wu.prp_base, 1 - wu.c, modulus), -1, modulus)
+					inverse = (
+						invmod(pow(wu.prp_base, 1 - wu.c, modulus), modulus) if wu.c < 1 else pow(wu.prp_base, -(1 - wu.c), modulus)
+					)
 					residue = (residue * inverse) % modulus
 				wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 				wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
@@ -2347,7 +2368,7 @@ def one_line_status(file, num, index, wu):
 		if wu.shift_count is not None:
 			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
-			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, SCALE.IEC)))
 		if args.jacobi:
 			temp.append("Jacobi: {:n} ({})".format(wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed"))
 	elif wu.work_type == WORK_PRP:
@@ -2357,7 +2378,7 @@ def one_line_status(file, num, index, wu):
 		if wu.shift_count is not None:
 			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
-			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, SCALE.IEC)))
 		if wu.L:
 			temp.append("Block Size: {:n}".format(wu.L))
 		if wu.prp_base and wu.prp_base != 3:
@@ -2381,7 +2402,7 @@ def one_line_status(file, num, index, wu):
 		if wu.B2_start:
 			temp.append("B2_start={}".format(wu.B2_start))
 		if wu.fftlen:
-			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, SCALE.IEC)))
 	elif wu.work_type == WORK_PMINUS1:
 		work_type_str = "P-1"
 		stage = PM1_STATES[wu.state]
@@ -2402,7 +2423,7 @@ def one_line_status(file, num, index, wu):
 		if wu.shift_count is not None:
 			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
-			temp.append("FFT: {}".format(output_unit(wu.fftlen, scale.IEC)))
+			temp.append("FFT: {}".format(output_unit(wu.fftlen, SCALE.IEC)))
 	elif wu.work_type == WORK_PPLUS1:
 		work_type_str = "P+1"
 		stage = PP1_STATES[wu.state]

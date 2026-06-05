@@ -7,7 +7,7 @@
 # ]
 # ///
 
-"""Automatic assignment handler for Mlucas, GpuOwl/PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto, PrimePath, cofact and gvtf.
+"""Automatic assignment handler for Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto, PrimePath, cofact and gvtf.
 
 [*] Python can be downloaded from https://www.python.org/downloads/
     * An .exe version of this script (not requiring Python) can be downloaded from:
@@ -88,7 +88,6 @@ import tempfile
 import textwrap
 import threading
 import time
-import timeit
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
@@ -101,7 +100,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from email.message import EmailMessage
 from email.utils import localtime, parseaddr
-from enum import IntEnum
+from enum import Enum, IntEnum
 from functools import partial
 from hashlib import md5, pbkdf2_hmac
 from http.client import HTTP_PORT
@@ -154,6 +153,27 @@ except ImportError:
 	def prod(iterable, start=1):
 		"""Return the product of all elements in iterable, times start (Python 3.8+ math.prod fallback)."""
 		return reduce(operator.mul, iterable, start)
+
+
+if sys.version_info >= (3, 8):
+
+	def invmod(a, n):
+		return pow(a, -1, n)
+
+else:
+
+	def invmod(a, n):
+		b = 1
+		c = 0
+		while n:
+			q, r = divmod(a, n)
+			a, b, c, n = n, c, b - q * c, r
+
+		if a == 1:
+			return b
+
+		msg = "Not invertible"
+		raise ValueError(msg)
 
 
 # endregion
@@ -1689,6 +1709,13 @@ class Assignment:
 		self.cert_squarings = 0
 
 
+class SCALE(Enum):
+	# none = 0
+	SI = 1
+	IEC = 2
+	IEC_I = 3
+
+
 suffix_power_char = ("", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q")
 suffix_power = {"k": 1, "K": 1, "M": 2, "G": 3, "T": 4, "P": 5, "E": 6, "Z": 7, "Y": 8, "R": 9, "Q": 10}
 
@@ -1748,9 +1775,9 @@ def assignment_to_str(assignment):
 	return "{}/{}".format("({})".format(buf) if "^" in buf else buf, "/".join(map(str, assignment.known_factors)))
 
 
-def output_unit(number, scale=False):
+def output_unit(number, scale=SCALE.IEC_I):
 	"""Converts a number to a human-readable string with appropriate scaling and suffix."""
-	scale_base = 1000 if scale else 1024
+	scale_base = 1000 if scale == SCALE.SI else 1024
 
 	power = 0
 	while abs(number) >= scale_base:
@@ -1770,21 +1797,21 @@ def output_unit(number, scale=False):
 	else:
 		strm = "{:.0f}".format(number)
 
-	# "k" if power == 1 and scale else
+	# "k" if power == 1 and scale == SCALE.SI else
 	strm += " " + (suffix_power_char[power] if power < len(suffix_power_char) else "(error)")
 
-	if not scale and power > 0:
+	if scale == SCALE.IEC_I and power > 0:
 		strm += "i"
 
 	return strm
 
 
-INPUT_UNIT_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(?:\s*([" + "".join(suffix_power) + r"])i?)?$")
+INPUT_UNIT_RE = re.compile(r"^([+-]?[0-9]+(?:\.[0-9]+)?)(?:\s*([" + "".join(suffix_power) + r"])i?)?$")
 
 
-def input_unit(astr, scale=False):
+def input_unit(astr, scale=SCALE.IEC):
 	"""Converts a string with a unit suffix to an integer value."""
-	scale_base = 1000 if scale else 1024
+	scale_base = 1000 if scale == SCALE.SI else 1024
 
 	input_unit = INPUT_UNIT_RE.match(astr)
 	if not input_unit:
@@ -1794,7 +1821,7 @@ def input_unit(astr, scale=False):
 	number, unit = input_unit.groups()
 
 	if unit:
-		return int(Decimal(number) * scale_base ** suffix_power[unit])
+		return round(Decimal(number) * scale_base ** suffix_power[unit])
 
 	return int(number)
 
@@ -1804,7 +1831,7 @@ def output_available(available, total):
 	return "{}B / {}B{}".format(
 		output_unit(available),
 		output_unit(total),
-		" ({}B / {}B)".format(output_unit(available, True), output_unit(total, True)) if total >= 1000 else "",
+		" ({}B / {}B)".format(output_unit(available, SCALE.SI), output_unit(total, SCALE.SI)) if total >= 1000 else "",
 	)
 
 
@@ -2442,7 +2469,7 @@ def setup(config, args):
 		config.set(SEC.PrimeNet, "CpuSpeed", str(frequency))
 		args.memory = memory
 		config.set(SEC.PrimeNet, "memory", str(memory))
-		args.day_night_memory = int(memory * 0.9)
+		args.day_night_memory = round(memory * 0.9)
 	if tf1g:
 		args.min_exp = MAX_PRIMENET_EXP
 		config.set(SEC.PrimeNet, "GetMinExponent", str(MAX_PRIMENET_EXP))
@@ -2630,7 +2657,7 @@ def setup(config, args):
 			print(
 				wrapper.fill(
 					"Setting disk space limit below {}B ({}B) may preclude getting first time prime tests from the PrimeNet server. Consider setting it to 0 instead to not send.".format(
-						output_unit(threshold), output_unit(threshold, True)
+						output_unit(threshold), output_unit(threshold, SCALE.SI)
 					)
 				)
 			)
@@ -2818,6 +2845,7 @@ ATTR_TO_COPY = {
 		"pm1_multiplier": "pm1_multiplier",
 		"pm1_bounds": "pm1_bounds",
 		"ecm_multiplier": "ECMBoundsMultiplier",
+		"max_ecm_curves": "MaxECMCurves",
 		"no_report_100m": "no_report_100m",
 		"convert_ll_to_prp": "convert_ll_to_prp",
 		"convert_prp_to_ll": "convert_prp_to_ll",
@@ -2876,7 +2904,8 @@ OPTIONS_TYPE_HINTS = {
 		"DaysOfWork": float,
 		"tests_saved": float,
 		"pm1_multiplier": float,
-		"ecm_multiplier": float,
+		"ECMBoundsMultiplier": float,
+		"MaxECMCurves": int,
 		"version_check": bool,
 		"watch": bool,
 		"color": bool,
@@ -3450,48 +3479,63 @@ def is_prime(n):
 	return not any(miller_rabin(n, nm1, a, d, r) for a in bases)
 
 
-def approximate_digits(assignment):
-	"""Calculate the number of decimal digits in the given assignment."""
-	adigits = Decimal(assignment.k).log10() + assignment.n * Decimal(assignment.b).log10()
-	if assignment.known_factors:
-		adigits -= sum(Decimal(factor).log10() for factor in assignment.known_factors)
-	return int(adigits) + 1
-
-
-def digits(assignment, exact=True):
-	"""Calculate the number of decimal digits in the given assignment."""
-	# Maximum exponent on 32-bit systems: 1,411,819,440 (425,000,000 digits)
+def digits(assignment, width=20):
 	exponent = assignment_to_str(assignment)
-	adigits = approximate_digits(assignment)
-	if exact and adigits <= 300000000:
-		logging.debug("Calculating the number of digits for %s…", exponent)
-		with decimal.localcontext() as ctx:
-			ctx.prec = 425000000  # decimal.MAX_PREC
-			ctx.Emax = decimal.MAX_EMAX
-			ctx.Emin = decimal.MIN_EMIN
-			ctx.traps[decimal.Inexact] = True
+	divisor = prod(assignment.known_factors) if assignment.known_factors else None
+	modulus = 10**width
 
-			num = int(assignment.k) * Decimal(assignment.b) ** assignment.n + assignment.c
-			if assignment.known_factors:
-				num /= prod(assignment.known_factors)
+	with decimal.localcontext() as ctx:
+		ctx.prec = width + 40
+		ctx.Emax = decimal.MAX_EMAX
+		ctx.Emin = decimal.MIN_EMIN
 
-			anum = str(num)
-			adigits = len(anum)
-			logging.info(
-				"%s has %s decimal digits: %s",
-				exponent,
-				format(adigits, "n"),
-				"{}…{}".format(anum[:20], anum[-20:]) if adigits > 50 else anum,
-			)
-	else:
+		num = int(assignment.k) * Decimal(assignment.b) ** assignment.n + assignment.c
+		if assignment.known_factors:
+			num /= divisor
+
+		log10_num = num.log10()
+		floor_log = int(log10_num)
+		adigits = floor_log + 1
+
+		first = int(Decimal(10) ** ((log10_num - floor_log) + width - 1))
+
+		if first >= modulus:
+			first //= 10
+			adigits += 1
+
+	if adigits <= 1000:
+		num = int(assignment.k) * assignment.b**assignment.n + assignment.c
+		if assignment.known_factors:
+			num //= divisor
+
+		anum = str(num)
+		adigits = len(anum)
 		logging.info(
-			"%s has approximately %s decimal digits (using formula log10(%s) + %s * log10(%s) + 1)",
+			"%s has %s decimal digits: %s",
 			exponent,
 			format(adigits, "n"),
-			assignment.k,
-			assignment.n,
-			assignment.b,
+			"{}…{}".format(anum[:width], anum[-width:]) if adigits > 50 else anum,
 		)
+	else:
+		if assignment.known_factors:
+			g = 1
+			while not divisor & 1:
+				divisor >>= 1
+				g <<= 1
+
+			while not divisor % 5:
+				divisor //= 5
+				g *= 5
+
+			big_modulus = g * modulus
+			residue = (int(assignment.k) * pow(assignment.b, assignment.n, big_modulus) + assignment.c) % big_modulus
+
+			last = ((residue // g) * invmod(divisor, modulus)) % modulus
+		else:
+			last = (int(assignment.k) * pow(assignment.b, assignment.n, modulus) + assignment.c) % modulus
+
+		logging.info("%s has %s decimal digits: %0*d…%0*d", exponent, format(adigits, "n"), width, first, width, last)
+
 	return adigits
 
 
@@ -6199,7 +6243,7 @@ def output_status(config, args, dirs, cpu_num=None):
 					format(int(1.0 / aprob), "n"),
 					format(aprob, "%"),
 				)
-			digits(assignment, args.status)
+			digits(assignment)
 	if ll_and_prp_cnt > 1:
 		logging.info(
 			"The chance that one of the %s exponents you are testing will yield a %sprime is about 1 in %s (%s).",
@@ -6358,7 +6402,7 @@ def upload_proof_file(config, args, adapter, filename):
 	"""Uploads a proof file to the server in chunks, resuming from the last uploaded position if interrupted."""
 	max_chunk_size = config.getfloat(SEC.PrimeNet, "UploadChunkSize") if config.has_option(SEC.PrimeNet, "UploadChunkSize") else 7
 	max_chunk_size = int(min(max(max_chunk_size, 1), 8) * 1024 * 1024)
-	starttime = timeit.default_timer()
+	starttime = time.perf_counter()
 	buffer = bytearray(max_chunk_size)
 	try:
 		with memoryview(buffer) as view, open(filename, "rb") as f:
@@ -6397,7 +6441,9 @@ def upload_proof_file(config, args, adapter, filename):
 			adapter.info("Proof file %r exponent is %s", filename, exponent)
 			filesize = os.path.getsize(filename)
 			adapter.info(
-				"Filesize is %sB%s", output_unit(filesize), " ({}B)".format(output_unit(filesize, True)) if filesize >= 1000 else ""
+				"Filesize is %sB%s",
+				output_unit(filesize),
+				" ({}B)".format(output_unit(filesize, SCALE.SI)) if filesize >= 1000 else "",
 			)
 			filehash = checksum_md5(filename)
 			adapter.info("MD5 checksum is %s", filehash)
@@ -6463,12 +6509,12 @@ def upload_proof_file(config, args, adapter, filename):
 					response.raise_for_status()
 					if "FileUploaded" in result:
 						adapter.info("Proof file %r successfully uploaded", filename)
-						endtime = timeit.default_timer()
+						endtime = time.perf_counter()
 						totaltime = endtime - starttime
 						adapter.info(
 							"Uploaded %sB%s in %s, %sB/sec",
 							output_unit(bytessent),
-							" ({}B)".format(output_unit(bytessent, True)) if bytessent >= 1000 else "",
+							" ({}B)".format(output_unit(bytessent, SCALE.SI)) if bytessent >= 1000 else "",
 							timedelta(seconds=totaltime),
 							output_unit(bytessent / totaltime),
 						)
@@ -6846,7 +6892,7 @@ def get_proof_data(config, args, adapter, assignment_aid, file):
 		if config.has_option(SEC.PrimeNet, "DownloadChunkSize")
 		else None
 	)
-	start = timeit.default_timer()
+	start = time.perf_counter()
 	try:
 		with session.get(
 			PRIMENET_BASE_URL + "proof_get_data/", params={"aid": assignment_aid}, timeout=PRIMENET_TIMEOUT, stream=True
@@ -6864,12 +6910,12 @@ def get_proof_data(config, args, adapter, assignment_aid, file):
 	except RequestException as e:
 		adapter.exception("%s: %s", type(e).__name__, e, exc_info=args.debug)
 		return None
-	end = timeit.default_timer()
+	end = time.perf_counter()
 	totaltime = end - start
 	adapter.info(
 		"Downloaded %sB%s in %s, %sB/sec",
 		output_unit(length),
-		" ({}B)".format(output_unit(length, True)) if length >= 1000 else "",
+		" ({}B)".format(output_unit(length, SCALE.SI)) if length >= 1000 else "",
 		timedelta(seconds=totaltime),
 		output_unit(length / totaltime),
 	)
@@ -7275,8 +7321,7 @@ def cuda_result_to_json(adapter, resultsfile, sendline):
 		ar["worktype"] = "P-1"
 		if factor:
 			ar["factors"] = [factor]
-		b1 = int(b1)
-		ar["b1"] = b1
+		ar["b1"] = b1 = int(b1)
 		b2 = int(b2)
 		if b2 > b1:
 			ar["b2"] = b2
@@ -7546,7 +7591,7 @@ def parse_result(config, args, adapter, adir, cpu_num, resultsfile, sendline):
 	user = ar.setdefault("user", args.user_id)
 	computer = ar.setdefault("computer", args.computer_id)
 	ar["script"] = SCRIPT
-	message = json.dumps(ar, ensure_ascii=False, separators=(",", ":"))
+	message = json.dumps(ar, separators=(",", ":"))  # ensure_ascii=False # James requested ASCII JSON results
 
 	assignment = Assignment()
 	assignment.uid = ar.get("aid", 0)
@@ -8038,7 +8083,7 @@ def results_worker(args, dirs):
 		except queue.Empty:
 			pass
 
-		start = timeit.default_timer()
+		start = time.perf_counter()
 		time.sleep(1)  # Prevent race condition reading the work file before the assignment is removed
 		failed = False
 
@@ -8054,7 +8099,7 @@ def results_worker(args, dirs):
 		for _ in results:
 			results_queue.task_done()
 
-		elapsed = timeit.default_timer() - start
+		elapsed = time.perf_counter() - start
 		if failed:
 			logging.info("Will retry reporting the results in %.0f minute%s", args.timeout / 60, "s" if args.timeout != 60 else "")
 			time.sleep(max(args.timeout - elapsed, 0))
@@ -8136,13 +8181,13 @@ def update_assignment(args, adapter, assignment, task):
 	bounds = ("MIN", "MID", "MAX")
 	changed = False
 
-	if assignment.work_type == PRIMENET_WORK_TYPE.PRP and args.convert_prp_to_ll:
+	if args.convert_prp_to_ll and assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		adapter.info("Converting from PRP to LL")
 		assignment.work_type = PRIMENET_WORK_TYPE.DBLCHK if assignment.prp_dblchk else PRIMENET_WORK_TYPE.FIRST_LL
 		assignment.pminus1ed = int(not assignment.tests_saved)
 		changed = True
 
-	if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK} and args.convert_ll_to_prp:
+	if args.convert_ll_to_prp and assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 		adapter.info("Converting from LL to PRP")
 		assignment.tests_saved = float(not assignment.pminus1ed)
 		assignment.prp_dblchk = assignment.work_type == PRIMENET_WORK_TYPE.DBLCHK
@@ -8239,6 +8284,11 @@ def update_assignment(args, adapter, assignment, task):
 		if assignment.B2:
 			assignment.B2 = int(assignment.B2 * args.ecm_multiplier)
 		changed = True
+
+	if args.max_ecm_curves is not None and assignment.work_type == PRIMENET_WORK_TYPE.ECM:
+		if assignment.curves_to_do > args.max_ecm_curves:
+			assignment.curves_to_do = args.max_ecm_curves
+			changed = True
 
 	if changed:
 		adapter.debug("Original assignment: %r", task)
@@ -9608,7 +9658,7 @@ Computer GUID:			{}
 
 parser = argparse.ArgumentParser(
 	# usage="%(prog)s [options]\nUse -h/--help to see all options\nUse --setup to configure this instance of the program",
-	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS programs. It can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to give most of the arguments once. The first time it is run, it will register the current Mlucas/GpuOwl/PRPLL/PrMers/CUDALucas/mfaktc/mfakto/PrimePath instance with PrimeNet (see the Registering Options below). Then, it will report assignment results and upload any proof files to PrimeNet immediately. It will get assignments on the --timeout interval, or only once if --timeout is 0. It will additionally report the progress on the --checkin interval."
+	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. It can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to provide most of the arguments once. The first time it is run, it will register the current GIMPS software instance with PrimeNet (see the Registering Options below). Then, it will report assignment results and upload any proof files to PrimeNet immediately. It will get assignments on the --timeout interval, or only once if --timeout is 0, and it will additionally report the progress on the --checkin interval."
 )
 parser.suggest_on_error = True  # Python 3.14+
 parser.add_argument("--version", action="version", version="%(prog)s " + VERSION)
@@ -9737,7 +9787,12 @@ group.add_argument(
 )
 group.add_argument("--mfaktc", action="store_true", default=None, help="Get assignments for mfaktc.")
 group.add_argument("--mfakto", action="store_true", default=None, help="Get assignments for mfakto.")
-group.add_argument("--primepath", action="store_true", default=None, help="Get assignments for PrimePath.")
+group.add_argument(
+	"--primepath",
+	action="store_true",
+	default=None,
+	help="Get assignments for PrimePath. This is experimental and for testing only.",
+)
 parser.add_argument("--prime95", action="store_true", help=argparse.SUPPRESS)
 parser.add_argument("--num-workers", type=int, default=1, help="Number of workers (CPU Cores/GPUs), Default: %(default)r")
 parser.add_argument(
@@ -9778,6 +9833,7 @@ parser.add_argument(
 	type=float,
 	help="Multiply the PrimeNet server assigned ECM bounds by this multiplier.",
 )
+parser.add_argument("--max-ecm-curves", type=int, help="Reduce the number of PrimeNet server assigned ECM curves.")
 parser.add_argument(
 	"--convert-ll-to-prp",
 	action="store_true",
@@ -9937,7 +9993,7 @@ group.add_argument(
 	"--max-memory",
 	dest="day_night_memory",
 	type=int,
-	default=int(0.9 * memory),
+	default=round(memory * 0.9),
 	help="Configured day/night P-1/ECM stage 2 memory (MiB), Default: %(default)r MiB (90%% of physical memory). Required for P-1 assignments.",
 )
 group.add_argument(
@@ -10387,7 +10443,7 @@ Run --help for a full list of available options.
 		)
 
 	for j in count():
-		start = timeit.default_timer()
+		start = time.perf_counter()
 		config = config_read(args)
 		current_time = time.time()
 		last_time = config.getint(SEC.Internals, "LastEndDatesSent") if config.has_option(SEC.Internals, "LastEndDatesSent") else 0
@@ -10483,7 +10539,7 @@ Run --help for a full list of available options.
 			logging.info("Done communicating with server.")
 			break
 		logging.debug("Done communicating with server.")
-		elapsed = timeit.default_timer() - start
+		elapsed = time.perf_counter() - start
 		if args.timeout > elapsed:
 			if args.watch is None or args.watch:
 				logging.info(

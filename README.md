@@ -5,9 +5,9 @@ The PrimeNet automated assignment handler program for GIMPS
 
 Copyright © 2024 Teal Dulcet
 
-Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS programs. Additionally, it can get assignments and report results to mersenne.ca for exponents above the PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and greater and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
+Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. Additionally, it can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and greater, and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
 
-Adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
+Originally adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
 
 AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Scripts](https://github.com/tdulcet/Distributed-Computing-Scripts#primenet) repository.
 
@@ -155,11 +155,11 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
                        [--pminus1-threshold PM1_MULTIPLIER]
                        [--force-pminus1-bounds {MIN,MID,MAX}]
                        [--ecm-bounds-multiplier ECM_MULTIPLIER]
-                       [--convert-ll-to-prp] [--convert-prp-to-ll]
-                       [--no-report-100m] [--report-100m]
-                       [--checkin HOURS_BETWEEN_CHECKINS] [-t TIMEOUT] [-s]
-                       [--report-results] [--upload-proofs] [--recover]
-                       [--recover-all] [--register-exponents]
+                       [--max-ecm-curves MAX_ECM_CURVES] [--convert-ll-to-prp]
+                       [--convert-prp-to-ll] [--no-report-100m]
+                       [--report-100m] [--checkin HOURS_BETWEEN_CHECKINS]
+                       [-t TIMEOUT] [-s] [--report-results] [--upload-proofs]
+                       [--recover] [--recover-all] [--register-exponents]
                        [--unreserve EXPONENT] [--unreserve-all]
                        [--no-more-work] [--resume-work] [--ping] [--v6]
                        [--debug-info] [--no-version-check] [--version-check]
@@ -187,16 +187,15 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
 This program will automatically get and register assignments, report
 assignment progress and results, upload proof files to and download
 certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL,
-PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS programs. It can get
-assignments and report results to mersenne.ca for exponents above the PrimeNet
-limit of 1G. It also saves its configuration to a 'prime.ini' file by default,
-so it is only necessary to give most of the arguments once. The first time it
-is run, it will register the current
-Mlucas/GpuOwl/PRPLL/PrMers/CUDALucas/mfaktc/mfakto/PrimePath instance with
-PrimeNet (see the Registering Options below). Then, it will report assignment
-results and upload any proof files to PrimeNet immediately. It will get
-assignments on the --timeout interval, or only once if --timeout is 0. It will
-additionally report the progress on the --checkin interval.
+PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. It can get
+assignments and report results to mersenne.ca for exponents above the current
+PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by
+default, so it is only necessary to provide most of the arguments once. The
+first time it is run, it will register the current GIMPS software instance
+with PrimeNet (see the Registering Options below). Then, it will report
+assignment results and upload any proof files to PrimeNet immediately. It will
+get assignments on the --timeout interval, or only once if --timeout is 0, and
+it will additionally report the progress on the --checkin interval.
 
 options:
   -h, --help            show this help message and exit
@@ -275,7 +274,8 @@ options:
                         PRPLL-NTT.
   --mfaktc              Get assignments for mfaktc.
   --mfakto              Get assignments for mfakto.
-  --primepath           Get assignments for PrimePath.
+  --primepath           Get assignments for PrimePath. This is experimental
+                        and for testing only.
   --num-workers NUM_WORKERS
                         Number of workers (CPU Cores/GPUs), Default: 1
   -n NUM_CACHE, --num-cache NUM_CACHE
@@ -305,6 +305,9 @@ options:
   --ecm-bounds-multiplier ECM_MULTIPLIER
                         Multiply the PrimeNet server assigned ECM bounds by
                         this multiplier.
+  --max-ecm-curves MAX_ECM_CURVES
+                        Reduce the number of PrimeNet server assigned ECM
+                        curves.
   --convert-ll-to-prp   Convert all LL assignments to PRP. This is for use
                         when registering assignments.
   --convert-prp-to-ll   Convert all PRP assignments to LL.
@@ -485,7 +488,7 @@ Pull requests welcome! Ideas for contributions:
 * Add an optional GUI using [Tk](https://en.wikipedia.org/wiki/Tk_(software)) and the [tkinter library](https://docs.python.org/3/library/tkinter.html).
 * Add docstrings to all functions.
 * Support submitting P-1 results for Fermat numbers.
-* Support configuring the DNS server.
+* Support configuring the DNS server/resolver.
 
 Thanks to [Daniel Connelly](https://github.com/Danc2050) for updating the PrimeNet Python script from Mlucas to eliminate the password requirement by getting assignments using the [PrimeNet API](https://v5.mersenne.org/v5design/v5webAPI_0.97.html) and to support reporting the assignment results and progress for CUDALucas using the PrimeNet API!
 
