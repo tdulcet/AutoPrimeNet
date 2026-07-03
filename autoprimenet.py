@@ -932,7 +932,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		ctypes.c_void_p,
 		ctypes.c_void_p,
 		ctypes.c_size_t,
-		ctypes.POINTER(ctypes.c_void_p),
+		ctypes.POINTER(ctypes.c_char_p),
 		ctypes.POINTER(ctypes.c_ulong),
 		ctypes.POINTER(ctypes.c_uint64),
 	)
@@ -1612,7 +1612,8 @@ class PRIMENET_WORK_TYPE(IntEnum):
 	CERT = 200
 
 
-class PRIMENET_AR(IntEnum):
+# class PRIMENET_AR(IntEnum):
+class PRIMENET_AR:
 	# This structure is passed for the ar - Assignment Result call
 	NO_RESULT = 0  # No result, just sending done msg
 	TF_FACTOR = 1  # Trial factoring, factor found
