@@ -273,7 +273,7 @@ PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res
 PRIME95_RE = re.compile(
 	r"^[pfemnc](?:[0-9]{2}[B-T][0-9]{4}|[0-9][A-Z][0-9]{5}|[A-Y][0-9]{6}|[0-9]+)(?:_[0-9]+){0,2}(?:\.(?:[0-9]{3,}|(bu([0-9]*))|bad[0-9]+))?$"
 )
-MLUCAS_RE = re.compile(r"^([pfq])([0-9]+)(?:\.(?:s([12])|([0-9]+)M|G))?$")
+MLUCAS_RE = re.compile(r"^([pfq])([0-9]+)(?:\.(?:s([12])(?:_prod)?|([0-9]+)M|G))?$")
 CUDALUCAS_RE = re.compile(r"^([ct])([0-9]+)$")
 CUDAPM1_RE = re.compile(r"^([ct])([0-9]+)s([12])$")
 GPUOWL_RE = re.compile(
@@ -1239,6 +1239,63 @@ def read_residue_mlucas(file, nbytes, filename, check=False):
 			logging.error("%r: Res36m1 checksum error. Expected %s, got %s.", filename, res36m1, ares36m1)
 		# print("{:016X}".format(ares64), "{:010X}".format(ares35m1), "{:010X}".format(ares36m1))
 	return residue, res64, res35m1, res36m1
+
+
+def parse_work_unit_mlucas_s1_prod(filename, exponent):
+	"""Parses a Mlucas work unit file, extracting important information."""
+	wu = work_unit()
+
+	try:
+		with open(filename, "rb") as f:
+			t, m, b1, nbits = unpack("<BBII", f)
+
+			nbytes = (nbits + 7) >> 3
+			nlimbs = (nbytes + 7) >> 3
+
+			if args.check:
+				buffer = f.read(nbytes)
+				if len(buffer) != nbytes:
+					raise EOFError
+
+				ares64 = sum(struct.unpack("<{}Q".format(nlimbs), buffer.ljust(nlimbs << 3, b"\0"))) & 0xFFFFFFFFFFFFFFFF
+			else:
+				f.seek(nbytes, 1)  # os.SEEK_CUR
+
+			(res64,) = unpack("<Q", f)
+
+			if args.check and res64 != ares64:
+				logging.error("%r: Res64 checksum error. Expected %X, got %X.", filename, res64, ares64)
+
+			if t == TEST_TYPE_PM1:
+				wu.work_type = WORK_PMINUS1
+
+				wu.state = PM1_STATE_STAGE1
+				wu.interim_B = b1
+
+				wu.stage = "S1"
+				wu.pct_complete = None
+			else:
+				logging.error("savefile with unknown TEST_TYPE = %s", t)
+				return None
+
+			if m == MODULUS_TYPE_MERSENNE:
+				wu.n = exponent
+			elif m == MODULUS_TYPE_FERMAT:
+				wu.n = 1 << exponent
+				wu.c = 1
+			else:
+				logging.error("savefile with unknown MODULUS_TYPE = %s", m)
+				return None
+
+			if args.check and f.read():
+				return None
+	except EOFError:
+		return None
+	except OSError:
+		logging.exception("Failed to read the %r file.", filename)
+		return None
+
+	return wu
 
 
 def parse_work_unit_mlucas(filename, exponent, stage):
@@ -2657,7 +2714,10 @@ def main(dirs):
 					))
 			for exponent, entry in entries.items():
 				for j, (stage, num, file) in enumerate(sorted(entry)):
-					result = parse_work_unit_mlucas(file, exponent, stage)
+					if file.endswith("_prod"):
+						result = parse_work_unit_mlucas_s1_prod(file, exponent)
+					else:
+						result = parse_work_unit_mlucas(file, exponent, stage)
 					if result is not None:
 						aaresults.append((j, num, file, result))
 					else:
