@@ -381,7 +381,7 @@ if sys.platform == "win32":  # Windows
 
 		return output
 
-elif sys.platform == "darwin":  # macOS
+elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):  # macOS or FreeBSD
 	libc = ctypes.CDLL(find_library("c"), use_errno=True)
 
 	libc.sysctlbyname.argtypes = (
@@ -1031,7 +1031,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 			CoreServices.FSEventStreamInvalidate(stream)
 			CoreServices.FSEventStreamRelease(stream)
 
-elif sys.platform == "darwin":
+elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):
 	import select
 
 	def add_watch(path, fflags):
@@ -1064,7 +1064,8 @@ elif sys.platform == "darwin":
 			for result in results:
 				if os.path.isfile(result):
 					result_fd, event = add_watch(result, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
-					fds[result_fd] = result_fds[result_fd] = result, event
+					fds[result_fd] = result, event
+					result_fds[result_fd] = result
 					changelist.append(event)
 					logging.debug("Watching the file: %r.", result)
 
@@ -1095,7 +1096,8 @@ elif sys.platform == "darwin":
 							for idx, result in enumerate(results):
 								if result not in result_fds.values() and os.path.isfile(result):
 									result_fd, aevent = add_watch(result, select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE)
-									fds[result_fd] = result_fds[result_fd] = result, aevent
+									fds[result_fd] = result, aevent
+									result_fds[result_fd] = result
 									changelist.append(aevent)
 									logging.debug("Watching the file: %r.", result)
 									results_queue.put((adir, idx if args.prpll else cpu_num))
@@ -1364,6 +1366,8 @@ is_64bit = platform.machine().endswith("64")
 # 	PORT = 4 if is_64bit else 1
 # elif sys.platform == "darwin":
 # 	PORT = 10 if is_64bit else 9
+# elif sys.platform.startswith("freebsd"):
+# 	PORT = 12 if is_64bit else 6
 # elif sys.platform.startswith("linux"):
 # 	PORT = 8 if is_64bit else 2
 
@@ -4027,6 +4031,8 @@ def generate_application_str(config, args):
 	"""Generates a formatted application string based on the platform and selected program."""
 	if sys.platform == "darwin":
 		aplatform = "Mac OS X" + (" 64-bit" if is_64bit else "")
+	elif sys.platform.startswith("freebsd"):
+		aplatform = platform.system() + (" 64-bit" if is_64bit else "")
 	else:
 		aplatform = platform.system() + ("64" if is_64bit else "")
 	program = PROGRAMS[
@@ -4086,6 +4092,9 @@ def get_os():
 		release, _versioninfo, machine = platform.mac_ver()
 		if release:
 			result["release"] = release
+	elif sys.platform.startswith("freebsd"):
+		result["os"] = "FreeBSD"  # sysctl_str(b"kern.ostype")
+		result["release"] = sysctl_str(b"kern.osrelease").decode()
 	elif sys.platform.startswith("linux"):
 		result["os"] = "Linux"
 		try:
@@ -4127,6 +4136,8 @@ def get_cpu_model():
 			pass
 	elif sys.platform == "darwin":
 		output = sysctl_str(b"machdep.cpu.brand_string").decode()
+	elif sys.platform.startswith("freebsd"):
+		output = sysctl_str(b"hw.model").decode()
 	elif sys.platform.startswith("linux"):
 		machine = platform.machine().lower()
 		if machine.startswith("arm") or machine == "aarch64":
@@ -4186,6 +4197,10 @@ def get_cpu_cores_threads():
 	elif sys.platform == "darwin":
 		cores = sysctl_value(b"hw.physicalcpu_max", ctypes.c_int)
 		threads = sysctl_value(b"hw.logicalcpu_max", ctypes.c_int)
+	elif sys.platform.startswith("freebsd"):
+		# output = sysctl_str(b"kern.sched.topology_spec")
+		cores = sysctl_value(b"kern.smp.cores", ctypes.c_int)
+		threads = sysctl_value(b"hw.ncpu", ctypes.c_int)
 	elif sys.platform.startswith("linux"):
 		acores = set()
 		for path in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/topology/core_cpus_list") or glob.glob(
@@ -4213,6 +4228,11 @@ def get_cpu_frequency():
 		output = sysctl_value(b"hw.cpufrequency_max", ctypes.c_uint64)
 		if output:
 			frequency = output // 1000 // 1000
+	elif sys.platform.startswith("freebsd"):
+		# output = sysctl_value(b"dev.cpu.0.freq", ctypes.c_uint64)
+		output = sysctl_str(b"dev.cpu.0.freq_levels")
+		if output:
+			frequency = int(output.rsplit(None, 1)[-1].split(b"/", 1)[0])
 	elif sys.platform.startswith("linux"):
 		freqs = []
 		for path in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/cpuinfo_max_freq"):
@@ -4241,6 +4261,10 @@ def get_physical_memory():
 		memory = memory_status.ullTotalPhys >> 20
 	elif sys.platform == "darwin":
 		output = sysctl_value(b"hw.memsize", ctypes.c_uint64)
+		if output:
+			memory = output >> 20
+	elif sys.platform.startswith("freebsd"):
+		output = sysctl_value(b"hw.physmem", ctypes.c_uint64)
 		if output:
 			memory = output >> 20
 	elif sys.platform.startswith("linux"):
@@ -4293,6 +4317,8 @@ def get_cpu_cache_sizes():
 			output = sysctl_value(cache, ctypes.c_int64)
 			if output:
 				cache_sizes[level].append(output)
+	elif sys.platform.startswith("freebsd"):
+		pass
 	elif sys.platform.startswith("linux"):
 		for path in glob.iglob("/sys/devices/system/cpu/cpu[0-9]*/cache"):
 			for file in glob.iglob(os.path.join(path, "index[0-9]*", "size")):
@@ -9508,6 +9534,9 @@ Python version:			{}
 		release, _versioninfo, machine = platform.mac_ver()
 		if release:
 			arelease = release
+	elif sys.platform.startswith("freebsd"):
+		aos = "FreeBSD"
+		arelease = sysctl_str(b"kern.osrelease").decode()
 	elif sys.platform.startswith("linux"):
 		aos = "Linux"
 		try:
@@ -10253,7 +10282,8 @@ SUPPORTED = frozenset(
 	[PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR]
 	if args.mfaktc or args.mfakto or args.primepath
 	else (
-		[PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_DBLCHK, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M]
+		[PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M]
+		+ ([PRIMENET_WP.LL_DBLCHK] if args.mlucas or args.cudalucas else [])
 		+ (
 			[]
 			if args.cudalucas

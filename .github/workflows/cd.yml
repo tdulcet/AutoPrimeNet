@@ -9,7 +9,7 @@ on:
       - 'wrapper.py'
       - 'autoprimenet.py'
   schedule:
-    - cron:  '0 0 1 * *'
+    - cron: '0 0 1 * *'
   workflow_dispatch:
 
 env:

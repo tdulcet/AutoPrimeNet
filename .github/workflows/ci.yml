@@ -3,7 +3,7 @@ on:
   push:
   pull_request:
   schedule:
-    - cron:  '0 0 1 * *'
+    - cron: '0 0 1 * *'
 
 env:
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -99,7 +99,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-15-intel, macos-latest]
+        os: [macos-26-intel, macos-latest]
       fail-fast: false
     steps:
     - uses: actions/checkout@v7
@@ -115,7 +115,58 @@ jobs:
         sysctl -n hw.cpufrequency hw.cpufrequency_max hw.tbfrequency kern.clockrate
         sysctl -n hw.memsize
         sysctl -n hw.l1dcachesize hw.l2cachesize hw.l3cachesize
+        sysctl hw
         python3 -X dev -c 'import platform; print(platform.mac_ver())'
+        python3 -X dev -c 'import ssl; from ctypes.util import dllist; print("\n".join(map(repr, dllist())))' || true
+        python3 -X dev autoprimenet.py --help
+        python3 -X dev autoprimenet.py --debug-info
+        python3 -X dev gimps_status.py --help
+
+  FreeBSD:
+    name: FreeBSD
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        release: [12, 13, 14, 15]
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v7
+    - name: Script
+      uses: vmactions/freebsd-vm@v1
+      with:
+        release: ${{ matrix.release }}
+        usesh: true
+        sync: scp
+        prepare: |
+          set -e
+          if [ "${{ matrix.release }}" = "12" ]; then
+            cat >/etc/pkg/FreeBSD.conf <<'EOF'
+          FreeBSD: {
+            url: "https://mirror.sg.gs/freebsd-pkg/${ABI}/latest",
+            mirror_type: "none",
+            signature_type: "fingerprints",
+            fingerprints: "/usr/share/keys/pkg",
+            enabled: yes
+          }
+          EOF
+            env PACKAGESITE='https://mirror.sg.gs/freebsd-pkg/FreeBSD:12:amd64/latest' /usr/sbin/pkg bootstrap -f -y
+            pkg update -f
+          fi
+          pkg install -y python3
+          python3 --version
+          PYTHON_SUFFIX=$(python3 -c 'import sys; print("{}{}".format(*sys.version_info[:2]))')
+          pkg install -y "py${PYTHON_SUFFIX}-requests"
+    - name: Script
+      shell: freebsd {0} 
+      run: |
+        set -ex -o pipefail
+        sysctl -n kern.osrelease
+        sysctl -n hw.model
+        sysctl -n kern.sched.topology_spec kern.smp.cores hw.ncpu
+        sysctl -n dev.cpu.0.freq dev.cpu.0.freq_levels kern.clockrate || true
+        sysctl -n hw.physmem
+        sysctl hw
         python3 -X dev -c 'import ssl; from ctypes.util import dllist; print("\n".join(map(repr, dllist())))' || true
         python3 -X dev autoprimenet.py --help
         python3 -X dev autoprimenet.py --debug-info
