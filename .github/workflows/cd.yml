@@ -34,7 +34,7 @@ jobs:
     - uses: actions/checkout@v7
     - name: Set up Python
       if: ${{ matrix.python-version == '3.x' || matrix.python-version == '3.4' }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
         architecture: ${{ matrix.architecture }}
