@@ -60,6 +60,7 @@ import argparse
 import atexit
 import base64
 import binascii
+import bisect
 import ctypes
 import datetime as dt
 import decimal
@@ -132,14 +133,14 @@ except ImportError:
 		if n == 0:
 			return 0
 
-		c = (n.bit_length() - 1) // 2
+		c = (n.bit_length() - 1) >> 1
 		a = 1
 		d = 0
 		for s in reversed(range(c.bit_length())):
 			# Loop invariant: (a-1)**2 < (n >> 2*(c - d)) < (a+1)**2
 			e = d
 			d = c >> s
-			a = (a << d - e - 1) + (n >> 2 * c - e - d + 1) // a
+			a = (a << d - e - 1) + (n >> (c << 1) - e - d + 1) // a
 
 		return a - (a * a > n)
 
@@ -3423,19 +3424,18 @@ def primes(limit):
 	"""Generate a list of prime numbers up to a given limit."""
 	if not limit & 1:
 		limit -= 1
-	size = (limit - 1) // 2
+	size = (limit - 1) >> 1
 	sieve = bytearray((1,)) * size
 	for i in range(isqrt(size) + 1):
 		if sieve[i]:
-			p = 3 + 2 * i
-			j = (p * p - 3) // 2
+			p = 3 + (i << 1)
+			j = (p * p - 3) >> 1
 			sieve[j:size:p] = bytes(len(range(j, size, p)))
 
-	return array("H", chain((2,), (3 + 2 * i for i in range(size) if sieve[i])))
+	return array("H", chain((2,), (3 + (i << 1) for i in range(size) if sieve[i])))
 
 
-# memoryview()
-PRIMES = primes(3671)
+PRIMES = memoryview(primes(3671))
 BASES = PRIMES[: PRIME_BASES[-1][0]]
 
 
@@ -3467,21 +3467,34 @@ def is_prime(n):
 		if not n % p:
 			return False
 
-	d = nm1 = n - 1
-	r = 0
-	while not d & 1:
-		d >>= 1
-		r += 1
+	nm1 = n - 1
+	r = (nm1 & -nm1).bit_length() - 1
+	d = nm1 >> r
 
 	for i, num in PRIME_BASES:
 		if n < num:
 			bases = BASES[:i]
 			break
 	else:
-		idx = n.bit_length() >> 1
-		bases = PRIMES[:idx]
+		bases = PRIMES[: n.bit_length() >> 1]
 
 	return not any(miller_rabin(n, nm1, a, d, r) for a in bases)
+
+
+def next_prime(p):
+	if p < PRIMES[-1]:
+		return PRIMES[bisect.bisect_right(PRIMES, p)]
+
+	q = (p + 1 - 11) // 210
+	n = 11 + q * 210
+
+	steps = bytes((2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10))  # fmt: skip
+
+	while True:
+		for s in steps:
+			if n > p and is_prime(n):
+				return n
+			n += s
 
 
 def digits(assignment, width=20):
@@ -4965,6 +4978,14 @@ def unpack(aformat, file, noraise=False):
 	return struct.unpack(aformat, buffer)
 
 
+def pm1_stage1_bits_estimate(exponent, b1, multiplier=1, block=1):
+	"""Estimate P-1 Stage 1 exponent bits without constructing the huge exponent."""
+	bits = int(b1 / math.log(2) + math.log2(multiplier * exponent)) + 1
+	if block > 1:
+		bits += (-bits) % block
+	return bits
+
+
 # Mlucas constants
 
 TEST_TYPE_PRIMALITY = 1
@@ -4983,6 +5004,34 @@ def read_residue_mlucas(file, nbytes):
 	# res35m1 = int.from_bytes(res35m1, "little")
 	# res36m1 = int.from_bytes(res36m1, "little")
 	return res64, res35m1, res36m1
+
+
+def parse_work_unit_mlucas_s1_prod(args, adapter, filename):
+	"""Parses a Mlucas work unit file, extracting important information."""
+	try:
+		with open(filename, "rb") as f:
+			t, m, _b1, nbits = unpack("<BBII", f)
+
+			nbytes = (nbits + 7) >> 3
+
+			f.seek(nbytes, 1)  # os.SEEK_CUR
+
+			(_res64,) = unpack("<Q", f)
+
+			if t != TEST_TYPE_PM1:
+				adapter.error("savefile with unknown TEST_TYPE = %s", t)
+				return None
+
+			if m != MODULUS_TYPE_MERSENNE:
+				adapter.error("savefile with unknown MODULUS_TYPE = %s", m)
+				return None
+	except EOFError:
+		return None
+	except OSError as e:
+		adapter.exception("Failed to read the %r file: %s: %s", filename, type(e).__name__, e, exc_info=args.debug)
+		return None
+
+	return nbits
 
 
 def parse_work_unit_mlucas(args, adapter, filename, exponent, astage):
@@ -5064,11 +5113,11 @@ def parse_work_unit_cudalucas(args, adapter, filename, p):
 				adapter.debug("savefile with unknown magic_number = %s", magic_number)
 				return None
 			total_time <<= 15
-			# _time_adj <<= 15
+			# time_adj <<= 15
 
-			iteration = j
+			iteration = j - 1
 			fftlen = n
-			avg_msec_per_iter = (total_time / j) / 1000
+			avg_msec_per_iter = (total_time / iteration) / 1000
 	except EOFError:
 		return None
 	except OSError as e:
@@ -5174,18 +5223,20 @@ def parse_work_unit_gpuowl(args, adapter, filename, p):
 		p1final_v1 = P1Final_v1_RE.match(header)
 
 		if p1_v3:
-			_version, exponent, _B1, iteration, _block = p1_v3.groups()
+			_version, exponent, B1, iteration, block = p1_v3.groups()
 			counter = int(iteration)
+			iterations = pm1_stage1_bits_estimate(int(exponent), int(B1), 256, int(block) if block else 200)
 		elif p1_v2:
-			_version, exponent, _B1, iteration, _nextK, _crc = p1_v2.groups()
+			_version, exponent, B1, iteration, _nextK, _crc = p1_v2.groups()
 			counter = int(iteration)
+			iterations = pm1_stage1_bits_estimate(int(exponent), int(B1), 256)
 		elif p1_v1:
 			_version, exponent, _B1, iteration, nBits = p1_v1.groups()
 			counter = int(iteration)
 			iterations = int(nBits)  # bits
 		elif p1final_v1:
-			_version, exponent, _B1, _crc = p1final_v1.groups()
-			# pct_complete = 1.0
+			_version, exponent, B1, _crc = p1final_v1.groups()
+			counter = iterations = pm1_stage1_bits_estimate(int(exponent), int(B1), 256)
 		else:
 			adapter.debug("P-1 stage 1 savefile with unknown version: %r", header)
 			return None
@@ -5293,18 +5344,6 @@ def prmers_transform_size(exponent):
 	return min(1 << log2_n, 5 << log2_n5)
 
 
-def prmers_li(x):
-	"""Approximate the logarithmic integral term x/log x + x/log^2 x for prime-count estimates."""
-	l = math.log(x)
-	return x / l + x / (l * l)
-
-
-def prmers_prime_count_approx(low, high):
-	"""Estimate how many primes lie in (low, high] using the difference of li() approximations."""
-	diff = prmers_li(high) - prmers_li(low)
-	return max(0, int(diff))
-
-
 def parse_work_unit_prmers(args, adapter, filename, exponent):
 	"""Parses a PrMers work unit file and extract information."""
 	iterations = stage = None
@@ -5353,20 +5392,21 @@ def parse_work_unit_prmers(args, adapter, filename, exponent):
 				if len(wbits_hex_c) != wbits_len:
 					raise EOFError
 
-				_chunkIdx, _startP, _first, processedBits, bitsInChunk = unpack("=QQBQQ", f)
+				_chunkIdx, _startP, _first, processedBits, _bitsInChunk = unpack("=QQBQQ", f)
 
-				iteration = processedBits - bitsInChunk + i
+				iteration = processedBits
 				iterations = processedBits + i  # bits
 				stage = 1
 			elif name.startswith("pm1_s2_m_"):
-				version, p, B1u, B2u, _D, _cur_p, cur_idx, et = unpack("=iIQQQQQd", f)
+				version, p, B1u, B2u, _D, cur_p, _cur_idx, et = unpack("=iIQQQQQd", f)
 
 				if version != 10:
 					adapter.error("P-1 stage 2 savefile with unknown version = %s", version)
 					return None
 
-				iteration = cur_idx + 1
-				iterations = prmers_prime_count_approx(B1u, B2u)  # primes
+				p0 = next_prime(B1u)
+				iteration = cur_p - p0
+				iterations = B2u - p0
 				stage = 2
 			elif name.startswith(("ecm_m_", "ecm_te_m_")):
 				version, p, i, nb, _B1, et, _curve_seed, _current_te_family_mode = unpack("=iIIIQdQB", f)
@@ -5599,7 +5639,7 @@ def parse_work_unit_primepath(args, adapter, filename, p):
 	ms_elapsed = int(float(elapsed_sec) * 1000)
 
 	if p != n:
-		# adapter.debug("Expecting the exponent %s, but found %s", p, n)
+		adapter.debug("Expecting the exponent %s, but found %s", p, n)
 		return None
 
 	k_start = (1 << bits) // (n << 1)
@@ -5637,7 +5677,7 @@ MLUCAS_RE = re.compile(r"^p([0-9]+)(?:\.s([12]))?$")
 MLUCAS_STAT_ITER_RE = re.compile(
 	r"(Iter#|S1|S2)(?: bit| at q)? = ([0-9]+) \[ ?([0-9]+\.[0-9]+)% complete\] .*\[ *([0-9]+\.[0-9]+) (m?sec)/iter\]"
 )
-MLUCAS_STAT_FFT_RE = re.compile(r"FFT length [0-9]{3,}K = ([0-9]{6,})")
+# MLUCAS_STAT_FFT_RE = re.compile(r"FFT length [0-9]{3,}K = ([0-9]{6,})")
 MLUCAS_STAT_S2Q0_RE = re.compile(r"Stage 2 q0 = ([0-9]+)")
 
 
@@ -5670,10 +5710,16 @@ def parse_stat_file(args, adapter, adir, p):
 	found = 0
 	list_msec_per_iter = []
 	s2 = bits = 0
+	savefile = os.path.join(adir, "p{}.s1_prod".format(p))
+	if os.path.isfile(savefile):
+		result = parse_work_unit_mlucas_s1_prod(args, adapter, savefile)
+		if result is not None:
+			bits = result
+
 	# get the 5 most recent Iter line
 	for line in iter_lines_reversed(statfile):
 		res = MLUCAS_STAT_ITER_RE.search(line)
-		fft_res = MLUCAS_STAT_FFT_RE.search(line)
+		# fft_res = MLUCAS_STAT_FFT_RE.search(line)
 		s2_res = MLUCAS_STAT_S2Q0_RE.search(line)
 		if res and found < 5:
 			astage = res.group(1)
@@ -5682,7 +5728,7 @@ def parse_stat_file(args, adapter, adir, p):
 				iteration = int(res.group(2))
 				percent = float(res.group(3))
 				if astage == "S1":
-					iterations = bits = int(iteration / (percent / 100))
+					iterations = bits = bits or int(iteration / (percent / 100))
 					stage = 1
 				elif astage == "S2":
 					s2 = iteration
@@ -5696,9 +5742,9 @@ def parse_stat_file(args, adapter, adir, p):
 		elif s2 and iteration == s2 and s2_res:
 			iterations = s2 = int((iteration - int(s2_res.group(1))) / (percent / 100) / 20)
 			iteration = int(s2 * (percent / 100))
-		elif fft_res and not fftlen:
-			fftlen = int(fft_res.group(1))
-		if found == 5 and not s2 and fftlen:
+		# elif fft_res and not fftlen:
+		# 	fftlen = int(fft_res.group(1))
+		if found == 5 and not s2:  # and fftlen
 			break
 	if not found:
 		# iteration is 0, but don't know the estimated speed yet
@@ -5965,7 +6011,7 @@ def get_mfakto_progress(args, adapter, adir, p):
 
 def get_primepath_progress(args, adapter, adir, p):
 	"""Parse the PrimePath output file for the progress of the assignment."""
-	savefile = os.path.join(adir, "mersenne_tf_checkpoint.txt")
+	savefile = os.path.join(adir, "mersenne_tf_checkpoint_M{}.txt".format(p))
 	iteration = 0
 	iterations = None
 	avg_msec_per_iter = None
@@ -5973,8 +6019,8 @@ def get_primepath_progress(args, adapter, adir, p):
 		result = parse_work_unit_primepath(args, adapter, savefile, p)
 		if result is not None:
 			iteration, iterations, avg_msec_per_iter = result
-		# else:
-		# 	adapter.error("Unable to parse the %r checkpoint file", savefile)
+		else:
+			adapter.error("Unable to parse the %r checkpoint file", savefile)
 	# else:
 	# 	adapter.debug("Checkpoint file %r does not exist", savefile)
 
@@ -8843,10 +8889,7 @@ def update_progress(config, args, adapter, cpu_num, assignment, progress, msec_p
 		elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 			stage = "PRP"
 		elif assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
-			if int(assignment.factor_to) == int(assignment.sieve_depth) + 1:
-				stage = "TF{:.0f}".format(assignment.sieve_depth)
-			else:
-				stage = "TF{:.0f}-{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
+			stage = "TF{:.0f}-{:.0f}".format(assignment.sieve_depth, assignment.factor_to)
 		elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 			stage = "CERT"
 	if time_left is None:

@@ -20,6 +20,7 @@
 
 import argparse
 import binascii
+import bisect
 import concurrent.futures
 import ctypes
 import glob
@@ -34,6 +35,7 @@ import re
 import struct
 import sys
 import time
+from array import array
 from ctypes.util import find_library
 from datetime import datetime, timedelta
 from enum import Enum
@@ -65,6 +67,47 @@ else:
 
 		msg = "Not invertible"
 		raise ValueError(msg)
+
+
+try:
+	# Python 3.8+
+	from math import isqrt
+except ImportError:
+
+	def isqrt(n):
+		if n < 0:
+			msg = "isqrt() argument must be nonnegative"
+			raise ValueError(msg)
+		if not n:
+			return 0
+
+		c = (n.bit_length() - 1) >> 1
+		a = 1
+		d = 0
+		for s in reversed(range(c.bit_length())):
+			# Loop invariant: (a-1)**2 < (n >> 2*(c - d)) < (a+1)**2
+			e = d
+			d = c >> s
+			a = (a << d - e - 1) + (n >> (c << 1) - e - d + 1) // a
+
+		return a - (a * a > n)
+
+
+def integer_root(n, k):
+	if k == 1:
+		return n
+	if k == 2:
+		return isqrt(n)
+
+	lo = 1
+	hi = 1 << ((n.bit_length() + k - 1) // k)
+	while lo < hi:
+		mid = (lo + hi + 1) >> 1
+		if mid**k <= n:
+			lo = mid
+		else:
+			hi = mid - 1
+	return lo
 
 
 if sys.platform != "win32":
@@ -287,6 +330,7 @@ PRMERS_RE = re.compile(
 )
 MFAKTC_RE = re.compile(r"^([MW][0-9]+)(?:_[0-9]+-[0-9]+_[0-9]+)?\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
+PRIMEPATH_RE = re.compile(r"^mersenne_tf_checkpoint_M([0-9]+)\.txt$")
 
 
 class SCALE(Enum):
@@ -408,6 +452,7 @@ class work_unit:
 		"denominator",
 		"version",
 		"jacobi",
+		"jacobi_expected",
 	)
 
 	def __init__(self, work_type=None):
@@ -430,6 +475,8 @@ class work_unit:
 		self.res36m1 = None
 		self.total_time = None
 		self.version = None
+		self.jacobi = None
+		self.jacobi_expected = None
 
 		# Factor
 		self.factor_found = None
@@ -571,10 +618,56 @@ if gmp_lib:
 	class mpz_t(ctypes.Structure):
 		_fields_ = (("mp_alloc", ctypes.c_int), ("mp_size", ctypes.c_int), ("mp_d", ctypes.POINTER(ctypes.c_ulong)))
 
+	gmp.__gmpz_init.argtypes = (ctypes.POINTER(mpz_t),)
+	# gmp.__gmpz_init.restype = None
+
+	gmp.__gmpz_sizeinbase.argtypes = (ctypes.POINTER(mpz_t), ctypes.c_int)
+	gmp.__gmpz_sizeinbase.restype = ctypes.c_size_t
+
+	gmp.__gmpz_import.argtypes = (
+		ctypes.POINTER(mpz_t),
+		ctypes.c_size_t,
+		ctypes.c_int,
+		ctypes.c_size_t,
+		ctypes.c_int,
+		ctypes.c_size_t,
+		ctypes.c_void_p,
+	)
+	# gmp.__gmpz_import.restype = None
+
+	gmp.__gmpz_export.argtypes = (
+		ctypes.c_void_p,
+		ctypes.POINTER(ctypes.c_size_t),
+		ctypes.c_int,
+		ctypes.c_size_t,
+		ctypes.c_int,
+		ctypes.c_size_t,
+		ctypes.POINTER(mpz_t),
+	)
+	gmp.__gmpz_export.restype = ctypes.c_void_p
+
+	gmp.__gmpz_jacobi.argtypes = (ctypes.POINTER(mpz_t), ctypes.POINTER(mpz_t))
+	# gmp.__gmpz_jacobi.restype = ctypes.c_int
+
+	gmp.__gmpz_primorial_ui.argtypes = (ctypes.POINTER(mpz_t), ctypes.c_ulong)
+	# gmp.__gmpz_primorial_ui.restype = None
+
+	gmp.__gmpz_mul.argtypes = (ctypes.POINTER(mpz_t), ctypes.POINTER(mpz_t), ctypes.POINTER(mpz_t))
+	# gmp.__gmpz_mul.restype = None
+
+	gmp.__gmpz_clear.argtypes = (ctypes.POINTER(mpz_t),)
+	# gmp.__gmpz_clear.restype = None
+
 	def mpz_import(value, mpz):
 		"""Imports an integer value into a GMP mpz_t type."""
 		abytes = value.to_bytes((value.bit_length() + 7) >> 3, "little")
-		gmp.__gmpz_import(ctypes.byref(mpz), len(abytes), -1, 1, 0, 0, abytes)
+		gmp.__gmpz_import(ctypes.byref(mpz), 1, -1, len(abytes), -1, 0, abytes)
+
+	def mpz_export(mpz):
+		size = (gmp.__gmpz_sizeinbase(mpz, 2) + 7) >> 3
+		buffer = ctypes.create_string_buffer(size)
+		gmp.__gmpz_export(ctypes.byref(buffer), None, -1, size, -1, 0, ctypes.byref(mpz))
+		return int.from_bytes(buffer, "little")
 
 	def jacobi(a, n):
 		"""Calculate the Jacobi symbol (a/n) using GMP library functions."""
@@ -585,6 +678,7 @@ if gmp_lib:
 		gmp.__gmpz_init(ctypes.byref(n_mpz))
 
 		try:
+			a %= n
 			mpz_import(a, a_mpz)
 			mpz_import(n, n_mpz)
 
@@ -592,6 +686,25 @@ if gmp_lib:
 		finally:
 			gmp.__gmpz_clear(ctypes.byref(a_mpz))
 			gmp.__gmpz_clear(ctypes.byref(n_mpz))
+
+	def pm1_stage1_exponent(b1):
+		exponent = mpz_t()
+		tmp = mpz_t()
+
+		gmp.__gmpz_init(ctypes.byref(exponent))
+		gmp.__gmpz_init(ctypes.byref(tmp))
+
+		try:
+			mpz_import(1, exponent)
+
+			for k in range(1, b1.bit_length()):
+				gmp.__gmpz_primorial_ui(ctypes.byref(tmp), integer_root(b1, k))
+				gmp.__gmpz_mul(ctypes.byref(exponent), ctypes.byref(exponent), ctypes.byref(tmp))
+
+			return mpz_export(exponent)
+		finally:
+			gmp.__gmpz_clear(ctypes.byref(exponent))
+			gmp.__gmpz_clear(ctypes.byref(tmp))
 
 else:
 	# Adapted from: https://rosettacode.org/wiki/Jacobi_symbol#Python
@@ -616,17 +729,189 @@ else:
 			a %= n
 		return result if n == 1 else 0
 
+	def pm1_stage1_exponent(b1):
+		size = (b1 - 1) >> 1
+		sieve = bytearray((1,)) * size
+		for i in range(isqrt(size) + 1):
+			if sieve[i]:
+				prime = 3 + (i << 1)
+				j = (prime * prime - 3) >> 1
+				sieve[j:size:prime] = bytes(len(range(j, size, prime)))
 
-def jacobi_test(wu, p, words, filename):
-	"""Performs a Jacobi error check on the given work unit."""
+		powers = [1 << (b1.bit_length() - 1)]
+		for i in range(size):
+			if sieve[i]:
+				prime = power = 3 + (i << 1)
+				while power * prime <= b1:
+					power *= prime
+				powers.append(power)
+
+		# smooth = prod(powers)
+		while len(powers) > 1:
+			powers = [powers[i] * powers[i + 1] if i + 1 < len(powers) else powers[i] for i in range(0, len(powers), 2)]
+		(smooth,) = powers
+
+		return smooth
+
+
+# https://en.wikipedia.org/wiki/Miller%E2%80%93Rabin_primality_test#Testing_against_small_sets_of_bases
+# https://oeis.org/A006945
+PRIME_BASES = (
+	(1, 2047),
+	(2, 1373653),
+	(3, 25326001),
+	(4, 3215031751),
+	(5, 2152302898747),
+	(6, 3474749660383),
+	(7, 341550071728321),
+	(9, 3825123056546413051),
+	(12, 318665857834031151167461),
+	(13, 3317044064679887385961981),
+	# Propositions only
+	# https://www.ams.org/journals/mcom/2007-76-260/S0025-5718-07-01977-1/S0025-5718-07-01977-1.pdf
+	# (14, 6003094289670105800312596501),
+	# (15, 59276361075595573263446330101),
+	# (16, 564132928021909221014087501701),
+	# (18, 1543267864443420616877677640751301),
+)
+
+
+def primes(limit):
+	"""Generate a list of prime numbers up to a given limit."""
+	if not limit & 1:
+		limit -= 1
+	size = (limit - 1) >> 1
+	sieve = bytearray((1,)) * size
+	for i in range(isqrt(size) + 1):
+		if sieve[i]:
+			p = 3 + (i << 1)
+			j = (p * p - 3) >> 1
+			sieve[j:size:p] = bytes(len(range(j, size, p)))
+
+	return array("H", chain((2,), (3 + (i << 1) for i in range(size) if sieve[i])))
+
+
+PRIMES = memoryview(primes(3671))
+BASES = PRIMES[: PRIME_BASES[-1][0]]
+
+
+def miller_rabin(n, nm1, a, d, s):
+	"""Performs the Miller-Rabin primality test for a given base 'a'."""
+	x = pow(a, d, n)
+
+	if x in {1, nm1}:
+		return False
+
+	for _ in range(1, s):
+		x = pow(x, 2, n)
+
+		if x == nm1:
+			return False
+		if x == 1:
+			return True
+
+	return True
+
+
+def is_prime(n):
+	"""Check if a number is prime using trial division and the Miller-Rabin primality test."""
+	if n < 2:
+		return False
+	for p in BASES:
+		if n == p:
+			return True
+		if not n % p:
+			return False
+
+	nm1 = n - 1
+	r = (nm1 & -nm1).bit_length() - 1
+	d = nm1 >> r
+
+	for i, num in PRIME_BASES:
+		if n < num:
+			bases = BASES[:i]
+			break
+	else:
+		bases = PRIMES[: n.bit_length() >> 1]
+
+	return not any(miller_rabin(n, nm1, a, d, r) for a in bases)
+
+
+def next_prime(p):
+	if p < PRIMES[-1]:
+		return PRIMES[bisect.bisect_right(PRIMES, p)]
+
+	q = (p + 1 - 11) // 210
+	n = 11 + q * 210
+
+	steps = bytes((2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10))  # fmt: skip
+
+	while True:
+		for s in steps:
+			if n > p and is_prime(n):
+				return n
+			n += s
+
+
+def jacobi_test_residue(wu, modulus, residue, expected, filename):
+	"""Performs the Jacobi error check on the given work unit."""
 	logging.debug("%r: Performing Jacobi Error Check, this may take a while…", filename)
 	start = time.perf_counter()
-	wu.jacobi = jacobi(words - 2, (1 << p) - 1)
+	wu.jacobi_expected = expected
+	wu.jacobi = jacobi(residue, modulus)
 	end = time.perf_counter()
 	logging.info(
-		"%r: Jacobi: %s (%s), Time: %.1f ms", filename, wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed", (end - start) * 1000
+		"%r: Jacobi: %s (%s), Time: %.1f ms",
+		filename,
+		wu.jacobi,
+		"Passed" if wu.jacobi == wu.jacobi_expected else "Failed",
+		(end - start) * 1000,
 	)
 	# return wu.jacobi
+
+
+def jacobi_test_ll(wu, p, words, filename):
+	return jacobi_test_residue(wu, (1 << p) - 1, words - 2, 1 if not wu.counter else -1, filename)
+
+
+def jacobi_test_pp1(wu, modulus, V, filename):
+	logging.debug("%r: Performing Jacobi Error Check, this may take a while…", filename)
+	start = time.perf_counter()
+	actual = jacobi(V - 2, modulus) * jacobi(V + 2, modulus)
+	expected = 0 if actual == 0 else jacobi(wu.numerator * wu.numerator - 4 * wu.denominator * wu.denominator, modulus)
+	wu.jacobi_expected = expected
+	wu.jacobi = actual
+	end = time.perf_counter()
+	logging.info(
+		"%r: Jacobi: %s (%s), Time: %.1f ms",
+		filename,
+		wu.jacobi,
+		"Passed" if wu.jacobi == wu.jacobi_expected else "Failed",
+		(end - start) * 1000,
+	)
+	# return wu.jacobi
+
+
+def pm1_stage1_bits_estimate(exponent, b1, multiplier=1, block=1):
+	"""Estimate P-1 Stage 1 exponent bits without constructing the huge exponent."""
+	bits = int(b1 / math.log(2) + math.log2(multiplier * exponent)) + 1
+	if block > 1:
+		bits += (-bits) % block
+	return bits
+
+
+def pm1_prefix_jacobi(p, b1, multiplier, bits_done, block=1, base_jacobi=-1):
+	if bits_done <= 0:
+		return 1
+	if not base_jacobi:
+		return 0
+
+	exponent = multiplier * p * pm1_stage1_exponent(b1)
+	bits = exponent.bit_length()
+	if block > 1:
+		exponent <<= (-bits) % block
+	bit = exponent.bit_length() - bits_done
+	return base_jacobi if bit >= 0 and exponent >> bit & 1 else 1
 
 
 def rotr(value, count, p, n):
@@ -739,7 +1024,7 @@ def parse_work_unit_prime95(filename):
 					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 				if args.jacobi:
-					futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
+					futures.append(executor.submit(jacobi_test_ll, wu, wu.n, residue, filename))
 			elif magicnum == PRP_MAGICNUM:
 				if not 1 <= wu.version <= PRP_VERSION:
 					logging.error("PRP savefile with unsupported version = %s", wu.version)
@@ -1003,9 +1288,9 @@ def parse_work_unit_prime95(filename):
 					(state,), asum = read_value_prime95(f, "<I", asum)
 
 					if wu.version == 2:
-						_max_stage0_prime = 13333333
+						max_stage0_prime = 13333333
 					else:
-						(_max_stage0_prime,), asum = read_value_prime95(f, "<I", asum)
+						(max_stage0_prime,), asum = read_value_prime95(f, "<I", asum)
 
 					(
 						(
@@ -1038,16 +1323,16 @@ def parse_work_unit_prime95(filename):
 					elif state == 2:
 						wu.state = PM1_STATE_DONE
 
-					if args.check:
-						_x, asum = read_residue_prime95(f, asum)
+					if args.check or args.jacobi:
+						x, asum = read_residue_prime95(f, asum)
 
-						if state == 1:
-							_gg, asum = read_residue_prime95(f, asum)
+					if args.check and state == 1:
+						_gg, asum = read_residue_prime95(f, asum)
 				else:  # 4 <= version <= 7  # 30.4 to 30.7
 					(wu.state,), asum = read_value_prime95(f, "<i", asum)
 
 					if wu.state == PM1_STATE_STAGE0:
-						(wu.interim_B, _max_stage0_prime, wu.stage0_bitnum), asum = read_value_prime95(
+						(wu.interim_B, max_stage0_prime, wu.stage0_bitnum), asum = read_value_prime95(
 							f, "<Q" + ("II" if wu.version <= 5 else "QQ"), asum
 						)
 					elif wu.state == PM1_STATE_STAGE1:
@@ -1116,14 +1401,15 @@ def parse_work_unit_prime95(filename):
 					elif wu.state in {PM1_STATE_GCD, PM1_STATE_DONE}:
 						(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
 
-					if args.check:
+					if args.check or args.jacobi:
 						if wu.version == 4:
 							have_x = True
 						else:
 							(have_x,), asum = read_value_prime95(f, "<i", asum)
 						if have_x:
-							_x, asum = read_residue_prime95(f, asum)
+							x, asum = read_residue_prime95(f, asum)
 
+					if args.check:
 						if wu.version >= 5 and PM1_STATE_MIDSTAGE <= wu.state <= PM1_STATE_STAGE2:
 							_invx, asum = read_residue_prime95(f, asum)
 
@@ -1134,6 +1420,22 @@ def parse_work_unit_prime95(filename):
 								(have_gg,), asum = read_value_prime95(f, "<i", asum)
 							if have_gg:
 								_gg, asum = read_residue_prime95(f, asum)
+
+				if args.jacobi:
+					modulus = int(wu.k) * wu.b**wu.n + wu.c
+					if modulus > 0 and modulus & 1:
+						residue = int.from_bytes(x, "little")
+						base_symbol = jacobi(3 if wu.b != 3 else 5, modulus)
+						expected = 0 if not base_symbol else 1
+						if wu.state == PM1_STATE_STAGE0:
+							if wu.stage0_bitnum == 0:
+								expected = base_symbol
+							elif wu.version >= 2 and wu.interim_B <= max_stage0_prime:
+								expected = pm1_prefix_jacobi(wu.n, wu.interim_B, 2, wu.stage0_bitnum + 1, base_jacobi=base_symbol)
+							else:
+								expected = None
+						if expected is not None:
+							futures.append(executor.submit(jacobi_test_residue, wu, modulus, residue, expected, filename))
 			elif magicnum == PP1_MAGICNUM:
 				if not 1 <= wu.version <= PP1_VERSION:
 					logging.error("P+1 savefile with unsupported version = %s", wu.version)
@@ -1182,16 +1484,22 @@ def parse_work_unit_prime95(filename):
 				elif wu.state in {PP1_STATE_GCD, PP1_STATE_DONE}:
 					(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
 
-				if args.check:
-					_V, asum = read_residue_prime95(f, asum)
+				if args.check or args.jacobi:
+					V, asum = read_residue_prime95(f, asum)
 
-					if PP1_STATE_MIDSTAGE <= wu.state <= PP1_STATE_GCD:
-						if wu.version == 4:  # Prime95/MPrime bug
-							have_gg = True
-						else:
-							(have_gg,), asum = read_value_prime95(f, "<i", asum)
-						if have_gg:
-							_gg, asum = read_residue_prime95(f, asum)
+				if args.jacobi:
+					modulus = int(wu.k) * wu.b**wu.n + wu.c
+					if modulus > 0 and modulus & 1:
+						residue = int.from_bytes(V, "little")
+						futures.append(executor.submit(jacobi_test_pp1, wu, modulus, residue, filename))
+
+				if args.check and PP1_STATE_MIDSTAGE <= wu.state <= PP1_STATE_GCD:
+					if wu.version == 4:  # Prime95/MPrime bug
+						have_gg = True
+					else:
+						(have_gg,), asum = read_value_prime95(f, "<i", asum)
+					if have_gg:
+						_gg, asum = read_residue_prime95(f, asum)
 			else:
 				logging.error("savefile with unknown magicnum = %#x", magicnum)
 				return None
@@ -1252,11 +1560,13 @@ def parse_work_unit_mlucas_s1_prod(filename, exponent):
 			nbytes = (nbits + 7) >> 3
 			nlimbs = (nbytes + 7) >> 3
 
-			if args.check:
+			residue = None
+			if args.check or args.jacobi:
 				buffer = f.read(nbytes)
 				if len(buffer) != nbytes:
 					raise EOFError
 
+				residue = int.from_bytes(buffer, "little")
 				ares64 = sum(struct.unpack("<{}Q".format(nlimbs), buffer.ljust(nlimbs << 3, b"\0"))) & 0xFFFFFFFFFFFFFFFF
 			else:
 				f.seek(nbytes, 1)  # os.SEEK_CUR
@@ -1295,7 +1605,7 @@ def parse_work_unit_mlucas_s1_prod(filename, exponent):
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
-	return wu
+	return wu, nbits, residue
 
 
 def parse_work_unit_mlucas(filename, exponent, stage):
@@ -1312,7 +1622,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 			nbytes = (p + 7) >> 3 if m == MODULUS_TYPE_MERSENNE else (p >> 3) + 1 if m == MODULUS_TYPE_FERMAT else 0
 
 			residue1, res64, res35m1, res36m1 = read_residue_mlucas(
-				f, nbytes, filename, args.jacobi and t == TEST_TYPE_PRIMALITY and m == MODULUS_TYPE_MERSENNE
+				f, nbytes, filename, args.jacobi and (t == TEST_TYPE_PRIMALITY or (t == TEST_TYPE_PM1 and stage == 1))
 			)
 
 			result = unpack("<3sQ", f, True)
@@ -1343,7 +1653,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.pct_complete = nsquares / (p - 2)
 
 					if args.jacobi:
-						futures.append(executor.submit(jacobi_test, wu, p, residue1, filename))
+						futures.append(executor.submit(jacobi_test_ll, wu, p, residue1, filename))
 				elif m == MODULUS_TYPE_FERMAT:
 					wu.work_type = WORK_PRP  # No Pépin worktype
 
@@ -1352,7 +1662,13 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 					wu.stage = "Pépin"
 					wu.pct_complete = nsquares / (p - 1)
 
-				if args.check or (args.jacobi and m == MODULUS_TYPE_MERSENNE):
+					if args.jacobi:
+						modulus = (1 << p) + 1
+						base_symbol = jacobi(3, modulus)
+						expected = base_symbol if not nsquares else 0 if not base_symbol else 1
+						futures.append(executor.submit(jacobi_test_residue, wu, modulus, residue1, expected, filename))
+
+				if args.check or args.jacobi:
 					wu.res2048 = "{:0512X}".format(residue1 & (1 << 2048) - 1)
 			elif t == TEST_TYPE_PRP:
 				wu.work_type = WORK_PRP
@@ -1380,6 +1696,26 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 				if stage == 1:
 					wu.state = PM1_STATE_STAGE1
 					wu.counter = nsquares
+
+					if args.jacobi:
+						modulus = (1 << p) - 1 if m == MODULUS_TYPE_MERSENNE else (1 << p) + 1
+						base_symbol = jacobi(3, modulus)
+						expected = None
+						if not nsquares:
+							expected = base_symbol
+						else:
+							result = parse_work_unit_mlucas_s1_prod(
+								os.path.join(
+									os.path.dirname(filename),
+									"{}{}.s1_prod".format("p" if m == MODULUS_TYPE_MERSENNE else "f", exponent),
+								),
+								exponent,
+							)
+							if result is not None:
+								_, _, residue = result
+								expected = 0 if not base_symbol else base_symbol if residue >> (nsquares - 1) & 1 else 1
+						if expected is not None:
+							futures.append(executor.submit(jacobi_test_residue, wu, modulus, residue1, expected, filename))
 				elif stage == 2:
 					wu.state = PM1_STATE_STAGE2
 					wu.interim_C = int.from_bytes(tmp[:-1], "little")
@@ -1451,20 +1787,20 @@ def parse_work_unit_cudalucas(filename, p):
 			# time_adj <<= 15
 
 			wu.n = q
-			wu.counter = j
+			wu.counter = j - 1
 			wu.shift_count = offset
 			wu.fftlen = n
 			wu.total_time = total_time
 
 			wu.stage = "LL"
-			wu.pct_complete = j / (q - 2)
+			wu.pct_complete = wu.counter / (q - 2)
 
 			if args.check or args.jacobi:
 				residue = rotr(residue, offset, q, (1 << q) - 1)
 				wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
 				wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
 			if args.jacobi:
-				futures.append(executor.submit(jacobi_test, wu, q, residue, filename))
+				futures.append(executor.submit(jacobi_test_ll, wu, q, residue, filename))
 
 			if args.check and f.read():
 				return None
@@ -1484,7 +1820,13 @@ def parse_work_unit_cudapm1(filename, p):
 
 	try:
 		with open(filename, "rb") as f:
-			f.seek(end * 4)
+			if args.jacobi:
+				buffer = f.read(end * 4)
+				if len(buffer) != end * 4:
+					return None
+				residue = int.from_bytes(buffer, "little")
+			else:
+				f.seek(end * 4)
 
 			(
 				q,
@@ -1526,6 +1868,13 @@ def parse_work_unit_cudapm1(filename, p):
 				wu.stage = "S1"
 				if stage == 2:
 					wu.pct_complete = 1.0
+				else:
+					wu.pct_complete = (j - 1) / pm1_stage1_bits_estimate(q, b1, 2)
+
+				if args.jacobi:
+					expected = pm1_prefix_jacobi(q, b1, 2, j - 1) if stage == 1 else 1
+					if expected is not None:
+						futures.append(executor.submit(jacobi_test_residue, wu, (1 << q) - 1, residue, expected, filename))
 			else:
 				wu.state = PM1_STATE_STAGE2
 				wu.counter = itran_done1 + itran_done2 + ptran_done
@@ -1605,7 +1954,7 @@ def parse_work_unit_gpuowl(filename):
 					if ahash != aahash:
 						logging.error("Hash error. Expected %X, actual %X.", ahash, aahash)
 				if args.jacobi:
-					futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
+					futures.append(executor.submit(jacobi_test_ll, wu, wu.n, residue, filename))
 			elif header.startswith(b"OWL PRP "):
 				prp_v9 = PRP_v9_RE.match(header)
 				prp_v10 = PRP_v10_RE.match(header)
@@ -1661,13 +2010,17 @@ def parse_work_unit_gpuowl(filename):
 				wu.pct_complete = None  # ?
 
 				if p1_v3:
-					version, exponent, B1, iteration, _block = p1_v3.groups()
+					version, exponent, B1, iteration, block = p1_v3.groups()
 					wu.counter = int(iteration)
+					wu.pct_complete = wu.counter / pm1_stage1_bits_estimate(
+						int(exponent), int(B1), 256, int(block) if block else 200
+					)
 
 					(crc,) = unpack("=I", f)
 				elif p1_v2:
 					version, exponent, B1, iteration, _nextK, crc = p1_v2.groups()
 					wu.counter = int(iteration)
+					wu.pct_complete = wu.counter / pm1_stage1_bits_estimate(int(exponent), int(B1), 256)
 				elif p1_v1:
 					version, exponent, B1, iteration, nBits = p1_v1.groups()
 					wu.counter = int(iteration)
@@ -1683,12 +2036,23 @@ def parse_work_unit_gpuowl(filename):
 				wu.n = int(exponent)
 				wu.B_done = int(B1)
 
-				if args.check:
+				if args.check or args.jacobi:
 					nWords = (wu.n - 1) // 32 + 1
 					size = nWords * 4
 					buffer = f.read(size)
 					if len(buffer) != size:
 						return None
+					residue = int.from_bytes(buffer, "little")
+
+				if args.jacobi:
+					if p1_v3:
+						expected = pm1_prefix_jacobi(wu.n, wu.B_done, 256, wu.counter, block=int(block) if block else 200)
+					elif p1_v1:
+						expected = pm1_prefix_jacobi(wu.n, wu.B_done, 256, wu.counter)
+					elif p1_v2 or p1final_v1:
+						expected = 1
+					if expected is not None:
+						futures.append(executor.submit(jacobi_test_residue, wu, (1 << wu.n) - 1, residue, expected, filename))
 
 				wu.stage = "S1"
 			elif header.startswith(b"OWL P2 "):
@@ -1707,6 +2071,7 @@ def parse_work_unit_gpuowl(filename):
 						wu.pct_complete = 1.0
 				elif p2_v2:
 					version, exponent, B1, B2, crc = p2_v2.groups()
+					wu.pct_complete = 1.0
 				elif p2_v1:
 					version, exponent, B1, B2, nWords, kDone = p2_v1.groups()
 					nWords = int(nWords)
@@ -1744,7 +2109,7 @@ def parse_work_unit_gpuowl(filename):
 				wu.bits = int(bitLo)
 				wu.test_bits = int(bitHi)
 
-				wu.stage = "TF{}".format(wu.bits)
+				wu.stage = "TF{}-{}".format(wu.bits, wu.test_bits)
 				wu.pct_complete = int(classDone) / int(classTotal)
 			else:
 				logging.error("Unknown save/checkpoint file header: %s", header)
@@ -1813,7 +2178,7 @@ def parse_work_unit_prpll(filename):
 				wu.pct_complete = wu.counter / (wu.n - 2)
 
 				if args.jacobi:
-					futures.append(executor.submit(jacobi_test, wu, wu.n, residue, filename))
+					futures.append(executor.submit(jacobi_test_ll, wu, wu.n, residue, filename))
 			elif header.startswith(b"OWL PRP "):
 				prp_v13 = PRP_v13_RE.match(header)
 
@@ -1892,18 +2257,6 @@ def prmers_transform_size(exponent):
 	return min(1 << log2_n, 5 << log2_n5)
 
 
-def prmers_li(x):
-	"""Approximate the logarithmic integral term x/log x + x/log^2 x for prime-count estimates."""
-	l = math.log(x)
-	return x / l + x / (l * l)
-
-
-def prmers_prime_count_approx(low, high):
-	"""Estimate how many primes lie in (low, high] using the difference of li() approximations."""
-	diff = prmers_li(high) - prmers_li(low)
-	return max(0, int(diff))
-
-
 def parse_work_unit_prmers(filename, exponent, curve):
 	"""Parses a PrMers work unit file, extracting important information."""
 	wu = work_unit()
@@ -1980,29 +2333,30 @@ def parse_work_unit_prmers(filename, exponent, curve):
 				if len(wbits_hex_c) != wbits_len:
 					raise EOFError
 
-				_chunkIdx, _startP, _first, processedBits, bitsInChunk = unpack("=QQBQQ", f)
+				_chunkIdx, _startP, _first, processedBits, _bitsInChunk = unpack("=QQBQQ", f)
 
 				wu.state = PM1_STATE_STAGE1
-				wu.counter = processedBits - bitsInChunk + i
+				wu.counter = processedBits
 
 				wu.stage = "S1"
-				wu.pct_complete = wu.counter / (processedBits + i)
+				wu.pct_complete = processedBits / (processedBits + i)
 			elif name.startswith("pm1_s2_m_"):
 				wu.work_type = WORK_PMINUS1
 
-				version, p, B1u, B2u, _D, _cur_p, cur_idx, et = unpack("=iIQQQQQd", f)
+				version, p, B1u, B2u, _D, cur_p, _cur_idx, et = unpack("=iIQQQQQd", f)
 
 				if version != 10:
 					logging.error("P-1 stage 2 savefile with unknown version = %s", version)
 					return None
 
 				wu.state = PM1_STATE_STAGE2
-				wu.counter = cur_idx + 1
+				p0 = next_prime(B1u)
+				wu.counter = cur_p - p0
 				wu.B_done = B1u
 				wu.C_done = B2u
 
 				wu.stage = "S2"
-				wu.pct_complete = wu.counter / prmers_prime_count_approx(B1u, B2u)
+				wu.pct_complete = wu.counter / (B2u - p0)
 			elif name.startswith("pm1_s3_m_"):
 				wu.work_type = WORK_PMINUS1
 
@@ -2030,7 +2384,7 @@ def parse_work_unit_prmers(filename, exponent, curve):
 				wu.counter = cur_i
 
 				wu.stage = "S4"
-				wu.pct_complete = cur_i / tb
+				wu.pct_complete = (tb - cur_i) / tb
 			elif name.startswith(("ecm_m_", "ecm_te_m_")):
 				wu.work_type = WORK_ECM
 
@@ -2195,7 +2549,7 @@ def parse_work_unit_mfaktc(filename):
 	mfaktc_tf = MFAKTC_TF_RE.match(header)
 
 	if mfaktc_tf:
-		name_numbers, exp, bit_min, bit_max, num_classes, version, cur_class, num_factors, _factors_string, bit_level_time, i = (
+		name_numbers, exp, bit_min, bit_max, num_classes, version, cur_class, num_factors, factors_string, bit_level_time, i = (
 			mfaktc_tf.groups()
 		)
 	else:
@@ -2217,11 +2571,18 @@ def parse_work_unit_mfaktc(filename):
 	wu.bits = int(bit_min)
 	wu.test_bits = int(bit_max)
 	wu.num_factors = int(num_factors)
+
+	if args.check and factors_string and factors_string != b"0":
+		factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
+		for factor in factors:
+			modulus = 3 * factor if wagstaff else factor
+			if pow(2, wu.n, modulus) != (modulus - 1 if wagstaff else 1):
+				logging.error("%r file contained bad factor: %s.", filename, factor)
+
 	if bit_level_time:
-		# wu.known_factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
 		wu.total_time = int(bit_level_time) * 1000
 
-	wu.stage = "TF{}".format(wu.bits)
+	wu.stage = "TF{}-{}".format(wu.bits, wu.test_bits)
 	wu.pct_complete = mfaktx_pct_complete(wu.n, wu.bits, int(num_classes), int(cur_class), wagstaff)
 
 	wu.version = version.decode()
@@ -2245,7 +2606,7 @@ def parse_work_unit_mfakto(filename):
 	mfakto_tf = MFAKTO_TF_RE.match(header)
 
 	if mfakto_tf:
-		exp, bit_min, bit_max, num_classes, version, cur_class, num_factors, _factors_string, bit_level_time, i = mfakto_tf.groups()
+		exp, bit_min, bit_max, num_classes, version, cur_class, num_factors, factors_string, bit_level_time, i = mfakto_tf.groups()
 	else:
 		logging.error("Failed to parse checkpoint file header: %s", header)
 		return None
@@ -2260,11 +2621,17 @@ def parse_work_unit_mfakto(filename):
 	wu.bits = int(bit_min)
 	wu.test_bits = int(bit_max)
 	wu.num_factors = int(num_factors)
+
+	if args.check and factors_string and factors_string != b"0":
+		factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
+		for factor in factors:
+			if pow(2, wu.n, factor) != 1:
+				logging.error("%r file contained bad factor: %s.", filename, factor)
+
 	if bit_level_time:
-		# wu.known_factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
 		wu.total_time = int(bit_level_time) * 1000
 
-	wu.stage = "TF{}".format(wu.bits)
+	wu.stage = "TF{}-{}".format(wu.bits, wu.test_bits)
 	wu.pct_complete = mfaktx_pct_complete(wu.n, wu.bits, int(num_classes), int(cur_class))
 
 	wu.version = version.decode()
@@ -2295,7 +2662,7 @@ def parse_work_unit_primepath(filename):
 	wu.test_bits = int(bit_hi)
 	wu.total_time = int(float(elapsed_sec) * 1000 * 1000)
 
-	wu.stage = "TF{}".format(wu.bits)
+	wu.stage = "TF{}-{}".format(wu.bits, wu.test_bits)
 	k_start = (1 << wu.bits) // (wu.n << 1)
 	k_end = (1 << wu.test_bits) // (wu.n << 1)
 	wu.pct_complete = (int(current_k) - k_start) / (k_end - k_start)
@@ -2426,8 +2793,6 @@ def one_line_status(file, num, index, wu):
 			temp.append("Shift: {:n}".format(wu.shift_count))
 		if wu.fftlen:
 			temp.append("FFT: {}".format(output_unit(wu.fftlen, SCALE.IEC)))
-		if args.jacobi:
-			temp.append("Jacobi: {:n} ({})".format(wu.jacobi, "Passed" if wu.jacobi == -1 else "Failed"))
 	elif wu.work_type == WORK_PRP:
 		work_type_str = "PRP"
 		# temp = ["Iter: {:n} / {:n}".format(wu.counter, wu.n)]
@@ -2502,6 +2867,8 @@ def one_line_status(file, num, index, wu):
 			))
 		else:
 			temp.append("Residue: {}".format(wu.res64))
+	if wu.jacobi is not None:
+		temp.append("Jacobi: {:n} ({})".format(wu.jacobi, "Passed" if wu.jacobi == wu.jacobi_expected else "Failed"))
 	if wu.total_time:
 		temp.append(
 			"Time: {}{}".format(
@@ -2579,8 +2946,6 @@ def json_status(file, wu, program):
 			result["shift_count"] = wu.shift_count
 		if wu.fftlen:
 			result["fftlen"] = wu.fftlen
-		if args.jacobi:
-			result["jacobi"] = wu.jacobi
 	elif wu.work_type == WORK_PRP:
 		if wu.counter is not None:
 			result["counter"] = wu.counter
@@ -2661,6 +3026,9 @@ def json_status(file, wu, program):
 		result["res36m1"] = wu.res36m1
 	if wu.res2048:
 		result["res2048"] = wu.res2048
+	if wu.jacobi is not None:
+		result["jacobi"] = wu.jacobi
+		result["jacobi_expected"] = wu.jacobi_expected
 	if wu.total_time:
 		result["total_time"] = wu.total_time
 	if wu.error_count is not None:
@@ -2716,6 +3084,8 @@ def main(dirs):
 				for j, (stage, num, file) in enumerate(sorted(entry)):
 					if file.endswith("_prod"):
 						result = parse_work_unit_mlucas_s1_prod(file, exponent)
+						if result is not None:
+							result, _, _ = result
 					else:
 						result = parse_work_unit_mlucas(file, exponent, stage)
 					if result is not None:
@@ -2853,13 +3223,13 @@ def main(dirs):
 
 		if args.primepath:
 			aaresults = aresults["PrimePath"] = []
-			file = os.path.join(adir, "mersenne_tf_checkpoint.txt")
-			if os.path.isfile(file):
-				result = parse_work_unit_primepath(file)
-				if result is not None:
-					aaresults.append((0, -1, file, result))
-				else:
-					logging.error("Unable to parse the %r checkpoint file", file)
+			for file in glob.iglob(os.path.join(adir, "mersenne_tf_checkpoint_M[0-9]*.txt")):
+				if PRIMEPATH_RE.match(os.path.basename(file)):
+					result = parse_work_unit_primepath(file)
+					if result is not None:
+						aaresults.append((0, -1, file, result))
+					else:
+						logging.error("Unable to parse the %r checkpoint file", file)
 
 		if args.proof:
 			aaresults = aresults["PRP proof"] = []
@@ -2930,7 +3300,7 @@ if __name__ == "__main__":
 	parser.add_argument(
 		"--jacobi",
 		action="store_true",
-		help="Run the Jacobi Error Check on LL save/checkpoint files (except PrMers). This may be very computationally expensive.",
+		help="Run the Jacobi Error Check on LL, Pepin, P-1 and P+1 save/checkpoint files (except PrMers). This may be very computationally expensive.",
 	)
 	parser.add_argument("--json", help="Export data as JSON to this file")
 	parser.add_argument("dirs", nargs="*", help="Directories relative to --workdir with the save/checkpoint or PRP proof files.")
