@@ -125,7 +125,7 @@ try:
 except ImportError:
 
 	def isqrt(n):
-		"""Compute the integer square root of a nonnegative integer."""
+		"""Return the integer square root of a nonnegative integer."""
 		# return int(math.sqrt(x))
 		if n < 0:
 			msg = "isqrt() argument must be nonnegative"
@@ -159,11 +159,13 @@ except ImportError:
 if sys.version_info >= (3, 8):
 
 	def invmod(a, n):
+		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
 		return pow(a, -1, n)
 
 else:
 
 	def invmod(a, n):
+		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
 		b = 1
 		c = 0
 		while n:
@@ -187,9 +189,13 @@ if sys.platform == "win32":  # Windows
 	advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
 
 	class GROUP_AFFINITY(ctypes.Structure):
+		"""Windows processor-group affinity structure used by logical-processor APIs."""
+
 		_fields_ = (("Mask", wintypes.WPARAM), ("Group", wintypes.WORD), ("Reserved", wintypes.WORD * 3))
 
 	class PROCESSOR_RELATIONSHIP(ctypes.Structure):
+		"""Windows extended processor-core relationship structure."""
+
 		_fields_ = (
 			("Flags", wintypes.BYTE),
 			("EfficiencyClass", wintypes.BYTE),
@@ -199,9 +205,13 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class union(ctypes.Union):
+		"""Union of one or multiple Windows processor-group affinity records."""
+
 		_fields_ = (("GroupMask", GROUP_AFFINITY), ("GroupMasks", GROUP_AFFINITY * 1))
 
 	class NUMA_NODE_RELATIONSHIP(ctypes.Structure):
+		"""Windows extended NUMA-node relationship structure."""
+
 		_anonymous_ = ("union",)
 		_fields_ = (
 			("NodeNumber", wintypes.DWORD),
@@ -211,6 +221,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class CACHE_RELATIONSHIP(ctypes.Structure):
+		"""Windows extended processor-cache relationship structure."""
+
 		_anonymous_ = ("union",)
 		_fields_ = (
 			("Level", wintypes.BYTE),
@@ -224,6 +236,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class PROCESSOR_GROUP_INFO(ctypes.Structure):
+		"""Windows processor-group capacity and affinity structure."""
+
 		_fields_ = (
 			("MaximumProcessorCount", wintypes.BYTE),
 			("ActiveProcessorCount", wintypes.BYTE),
@@ -232,6 +246,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class GROUP_RELATIONSHIP(ctypes.Structure):
+		"""Windows extended processor-group relationship structure."""
+
 		_fields_ = (
 			("MaximumGroupCount", wintypes.WORD),
 			("ActiveGroupCount", wintypes.WORD),
@@ -240,6 +256,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class union(ctypes.Union):
+		"""Union of Windows extended logical-processor relationship payloads."""
+
 		_fields_ = (
 			("Processor", PROCESSOR_RELATIONSHIP),
 			("NumaNode", NUMA_NODE_RELATIONSHIP),
@@ -248,16 +266,24 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX(ctypes.Structure):
+		"""Windows extended logical-processor information structure."""
+
 		_anonymous_ = ("union",)
 		_fields_ = (("Relationship", wintypes.DWORD), ("Size", wintypes.DWORD), ("union", union))
 
 	class ProcessorCore(ctypes.Structure):
+		"""Windows legacy processor-core relationship payload."""
+
 		_fields_ = (("Flags", wintypes.BYTE),)
 
 	class NumaNode(ctypes.Structure):
+		"""Windows legacy NUMA-node relationship payload."""
+
 		_fields_ = (("NodeNumber", wintypes.DWORD),)
 
 	class CACHE_DESCRIPTOR(ctypes.Structure):
+		"""Windows legacy processor-cache descriptor."""
+
 		_fields_ = (
 			("Level", wintypes.BYTE),
 			("Associativity", wintypes.BYTE),
@@ -267,6 +293,8 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class union(ctypes.Union):
+		"""Union of Windows legacy logical-processor relationship payloads."""
+
 		_fields_ = (
 			("ProcessorCore", ProcessorCore),
 			("NumaNode", NumaNode),
@@ -275,10 +303,14 @@ if sys.platform == "win32":  # Windows
 		)
 
 	class SYSTEM_LOGICAL_PROCESSOR_INFORMATION(ctypes.Structure):
+		"""Windows legacy logical-processor information structure."""
+
 		_anonymous_ = ("union",)
 		_fields_ = (("ProcessorMask", wintypes.WPARAM), ("Relationship", wintypes.DWORD), ("union", union))
 
 	class MEMORYSTATUSEX(ctypes.Structure):
+		"""Windows physical and virtual memory status structure."""
+
 		_fields_ = (
 			("dwLength", wintypes.DWORD),
 			("dwMemoryLoad", wintypes.DWORD),
@@ -292,7 +324,7 @@ if sys.platform == "win32":  # Windows
 		)
 
 		def __init__(self):
-			"""Set dwLength for passing this structure to GlobalMemoryStatusEx."""
+			"""Initialize the structure length required by GlobalMemoryStatusEx."""
 			self.dwLength = ctypes.sizeof(self)
 			super().__init__()
 
@@ -327,7 +359,7 @@ if sys.platform == "win32":  # Windows
 	# advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
 
 	def get_windows_serial_number():
-		"""Retrieves the Windows Product ID from the system registry."""
+		"""Return the Windows Product ID stored in the system registry."""
 		output = ""
 		for path in (r"Software\Microsoft\Windows\CurrentVersion", r"Software\Microsoft\Windows NT\CurrentVersion"):
 			try:
@@ -342,7 +374,7 @@ if sys.platform == "win32":  # Windows
 		return output
 
 	def get_windows_sid():
-		"""Retrieves the Security Identifier (SID) of the Windows computer."""
+		"""Return the computer account Security Identifier (SID) on Windows."""
 		# output = ""
 		computer_name = ctypes.create_unicode_buffer(256)
 		size = wintypes.DWORD(ctypes.sizeof(computer_name))
@@ -395,7 +427,7 @@ elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):  # macOS or
 	# libc.sysctlbyname.restype = ctypes.c_int
 
 	def sysctl_str(name):
-		"""Return a sysctl string value for the given ASCII name (macOS)."""
+		"""Return a sysctl string value for the specified name on macOS or FreeBSD."""
 		size = ctypes.c_size_t()
 		if libc.sysctlbyname(name, None, ctypes.byref(size), None, 0):
 			return None
@@ -406,7 +438,7 @@ elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):  # macOS or
 		return buf.value
 
 	def sysctl_value(name, ctype):
-		"""Return a sysctl value of the given ctypes type for name (macOS)."""
+		"""Return a typed sysctl value for the specified name on macOS or FreeBSD."""
 		size = ctypes.c_size_t(ctypes.sizeof(ctype))
 		value = ctype()
 		if libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0):
@@ -448,6 +480,8 @@ elif sys.platform.startswith("linux"):
 	libc = ctypes.CDLL(find_library("c"), use_errno=True)
 
 	class sysinfo(ctypes.Structure):
+		"""Linux sysinfo(2) memory, load, uptime, and process-count structure."""
+
 		_fields_ = (
 			("uptime", ctypes.c_long),
 			("loads", ctypes.c_ulong * 3),
@@ -527,6 +561,8 @@ if nvml_lib:
 	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
 
 	class nvmlMemory_v2_t(ctypes.Structure):
+		"""NVML v2 device-memory information structure."""
+
 		_fields_ = (
 			("version", ctypes.c_uint),
 			("total", ctypes.c_ulonglong),
@@ -536,6 +572,8 @@ if nvml_lib:
 		)
 
 	class nvmlMemory_t(ctypes.Structure):
+		"""Legacy NVML device-memory information structure."""
+
 		_fields_ = (("total", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong))
 
 	nvmlInit = nvml.nvmlInit_v2 if hasattr(nvml, "nvmlInit_v2") else nvml.nvmlInit
@@ -688,6 +726,7 @@ if libcrypto:
 	crypto.ERR_reason_error_string.restype = ctypes.c_char_p
 
 	def ssl_error(errstr):
+		"""Build an SSLError from the latest OpenSSL error and a context string."""
 		errcode = crypto.ERR_get_error()
 		lib_str = crypto.ERR_lib_error_string(errcode)
 		reason_str = crypto.ERR_reason_error_string(errcode)
@@ -707,6 +746,7 @@ if libcrypto:
 	KDF_ITERS = 100000
 
 	def aead_encrypt(plaintext, authdata, password):
+		"""Encrypt plaintext with AES-256-GCM using authenticated data and a password-derived key."""
 		salt = os.urandom(SALT_LEN)
 		nonce = os.urandom(IV_LEN)
 		key = pbkdf2_hmac("sha256", password.encode(), salt, KDF_ITERS)
@@ -745,6 +785,7 @@ if libcrypto:
 		return salt + nonce + outbuf[: outlen.value + tmplen.value] + tagbuf.raw
 
 	def aead_decrypt(blob, authdata, password):
+		"""Decrypt an AutoPrimeNet AES-256-GCM blob using authenticated data and a password-derived key."""
 		if len(blob) < SALT_LEN + IV_LEN + TAG_LEN:
 			msg = "ciphertext is too short"
 			raise ValueError(msg)
@@ -796,13 +837,13 @@ try:
 except ImportError:
 
 	def beep():
-		"""Emits a beep sound."""
+		"""Emit an audible terminal bell."""
 		print("\a")
 
 else:
 
 	def beep():
-		"""Plays a default system notification sound."""
+		"""Play the default Windows system notification sound."""
 		winsound.MessageBeep(type=-1)
 
 
@@ -827,6 +868,8 @@ proofs_queue = queue.Queue()
 if sys.platform == "win32":
 
 	class FILE_NOTIFY_INFORMATION(ctypes.Structure):
+		"""Windows ReadDirectoryChangesW file-notification record."""
+
 		_fields_ = (
 			("NextEntryOffset", wintypes.DWORD),
 			("Action", wintypes.DWORD),
@@ -861,7 +904,7 @@ if sys.platform == "win32":
 	# kernel32.CloseHandle.restype = wintypes.BOOL
 
 	def watch_files(args, adir, cpu_num):
-		"""Monitors a directory for file changes and processes specific file actions."""
+		"""Watch a worker directory for result updates and new proof files on Windows."""
 		handle = kernel32.CreateFileW(
 			adir,
 			1,  # FILE_LIST_DIRECTORY
@@ -920,6 +963,8 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 	CoreServices = ctypes.CDLL(find_library("CoreServices"))
 
 	class FSEventStreamContext(ctypes.Structure):
+		"""macOS FSEvents stream context structure."""
+
 		_fields_ = (
 			("version", ctypes.c_int),
 			("info", ctypes.c_void_p),
@@ -977,7 +1022,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 	# CoreServices.FSEventStreamRelease.restype = None
 
 	def watch_files(args, adir, cpu_num):
-		"""Watches the specified directory for file system events and processes them using a callback function."""
+		"""Watch a worker directory for result updates and new proof files with FSEvents."""
 		paths = (adir,)
 		strings = (ctypes.c_void_p * len(paths))(
 			*(CoreFoundation.CFStringCreateWithCString(None, os.fsencode(s), 0x8000100) for s in paths)
@@ -992,7 +1037,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 
 		@FSEventStreamCallback
 		def fs_event_callback(_stream_ref, _client_info, num_events, event_paths, event_flags, _event_ids):
-			"""Callback function for handling file system events."""
+			"""Queue relevant result and proof events received from an FSEvents stream."""
 			for i in range(num_events):
 				path = os.fsdecode(event_paths[i])
 				flag = event_flags[i]
@@ -1036,14 +1081,14 @@ elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):
 	import select
 
 	def add_watch(path, fflags):
-		"""Adds a watch on the specified path for the given file flags."""
+		"""Open a path and create a kqueue vnode watch for the specified flags."""
 		fd = os.open(path, 0x8000)  # os.O_EVTONLY
 
 		event = select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, fflags)
 		return fd, event
 
 	def watch_files(args, adir, cpu_num):
-		"""Monitors a directory and its files for changes, handling file events."""
+		"""Watch a worker directory for result updates and new proof files with kqueue."""
 		results = (
 			[os.path.join(adir, "results-{}.txt".format(i)) for i in range(args.num_workers)]
 			if args.prpll
@@ -1126,6 +1171,8 @@ elif sys.platform.startswith("linux"):
 	# IN_ISDIR = 0x40000000  # event occurred against dir
 
 	class inotify_event(ctypes.Structure):
+		"""Linux inotify event record header."""
+
 		_fields_ = (
 			("wd", ctypes.c_int),
 			("mask", ctypes.c_uint32),
@@ -1146,14 +1193,14 @@ elif sys.platform.startswith("linux"):
 	# libc.inotify_rm_watch.restype = ctypes.c_int
 
 	def add_watch(fd, path, mask):
-		"""Add a watch to the inotify instance for the specified path with the given mask."""
+		"""Add a path watch to an inotify instance and return its watch descriptor."""
 		wd = libc.inotify_add_watch(fd, os.fsencode(path), mask)
 		if wd < 0:
 			raise OSError(ctypes.get_errno(), "Error adding watch to {!r}".format(path))
 		return wd
 
 	def watch_files(args, adir, cpu_num):
-		"""Monitors specified directory and files for changes and handles events accordingly."""
+		"""Watch a worker directory for result updates and new proof files with inotify."""
 		results_files = ["results-{}.txt".format(i) for i in range(args.num_workers)] if args.prpll else [args.results_file]
 		results = [os.path.join(adir, file) for file in results_files]
 		wds = {}
@@ -1231,6 +1278,7 @@ elif sys.platform.startswith("linux"):
 
 # Adapted from: https://github.com/urllib3/urllib3/blob/main/src/urllib3/util/connection.py
 def has_ipv6(host="::1"):
+	"""Return whether an IPv6 socket can bind to the specified host."""
 	has_ipv6 = False
 
 	if socket.has_ipv6:
@@ -1271,10 +1319,12 @@ Then, run AutoPrimeNet again.""".format(type(e).__name__, e, executable, executa
 else:
 	# Adapted from: https://github.com/requests/toolbelt/blob/master/requests_toolbelt/adapters/host_header_ssl.py
 	class HostHeaderSSLAdapter(requests.adapters.HTTPAdapter):
+		"""HTTP adapter that uses the Host header as the TLS SNI server name."""
+
 		__slots__ = ()
 
 		def send(self, request, **kwargs):
-			"""Send request, setting TLS server_hostname from the Host header when present."""
+			"""Send a request after applying the Host header as the TLS SNI server name."""
 			host_header = request.headers.get("host")
 			connection_pool_kwargs = self.poolmanager.connection_pool_kw
 
@@ -1299,13 +1349,13 @@ try:
 except ImportError:
 
 	def idna_encode(hostname):
-		"""Converts a given hostname to its Punycode representation."""
+		"""Return the IDNA ASCII encoding of a hostname using the standard-library codec."""
 		return hostname.encode("idna").decode("ascii")
 
 else:
 
 	def idna_encode(hostname):
-		"""Converts a given hostname to its Punycode representation."""
+		"""Return the IDNA ASCII encoding of a hostname using the idna package."""
 		try:
 			return idna.encode(hostname, uts46=True).decode("ascii")
 		except idna.IDNAError:
@@ -1403,12 +1453,12 @@ context.options |= getattr(ssl, "OP_ENABLE_KTLS", 0x8)  # Python 3.12+
 
 # endregion
 class timedelta(dt.timedelta):
-	"""Custom timedelta class with a formatted string representation."""
+	"""timedelta subclass with a compact human-readable string representation."""
 
 	__slots__ = ()
 
 	def __str__(self):
-		"""Return a formatted string representation of the timedelta."""
+		"""Return a compact human-readable representation of this time interval."""
 		sign = self.days >= 0
 		delta = self if sign else -self
 		m, s = divmod(delta.seconds, 60)
@@ -1431,20 +1481,20 @@ class timedelta(dt.timedelta):
 
 # region console IO
 class Formatter(logging.Formatter):
-	"""Custom logging formatter to include worker information if available."""
+	"""Logging formatter that prefixes records with a worker number when available."""
 
 	__slots__ = ()
 
 	default_msec_format = "%s{}%03d".format(conventions["decimal_point"])
 
 	def format(self, record):
-		"""Format log record to include worker number if 'cpu_num' attribute is present."""
+		"""Format a log record, prefixing its message with the worker number when present."""
 		record.worker = ", Worker #{:n}".format(record.cpu_num + 1) if hasattr(record, "cpu_num") else ""
 		return super().format(record)
 
 
 class COLORS:
-	"""ANSI escape sequences for terminal text colors."""
+	"""ANSI escape sequences used for terminal log coloring."""
 
 	RED = "\033[31m"
 	GREEN = "\033[32m"
@@ -1463,7 +1513,7 @@ RESET_ALL = "\033[m"
 
 
 class ColorFormatter(Formatter):
-	"""Custom log formatter to add color based on log level."""
+	"""Logging formatter that colors records according to severity."""
 
 	__slots__ = ()
 
@@ -1476,7 +1526,7 @@ class ColorFormatter(Formatter):
 	}
 
 	def format(self, record):
-		"""Format log record with color based on log level."""
+		"""Format a log record with the configured severity color when coloring is enabled."""
 		fmt = super().format(record)
 		color = self.FORMATS.get(record.levelno)
 		if COLOR and color:
@@ -1488,12 +1538,14 @@ if sys.platform == "win32":
 	import msvcrt
 
 	def lock_file(file, blocking=False):
+		"""Acquire an exclusive platform file lock, optionally blocking until available."""
 		msvcrt.locking(file.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
 
 else:
 	import fcntl
 
 	def lock_file(file, blocking=False):
+		"""Acquire an exclusive platform file lock, optionally blocking until available."""
 		operation = fcntl.LOCK_EX
 		if not blocking:
 			operation |= fcntl.LOCK_NB
@@ -1501,17 +1553,17 @@ else:
 
 
 class LockFile:
-	"""Context manager for creating and managing a lock file."""
+	"""Context manager that serializes access with a sidecar .lck file."""
 
 	__slots__ = ("filename", "lockfile")
 
 	def __init__(self, filename):
-		"""Initialize with the name of the file to lock."""
+		"""Initialize the target filename and its sidecar lock-file path."""
 		self.filename = filename
 		self.lockfile = filename + ".lck"
 
 	def __enter__(self):
-		"""Acquire the lock by creating the lock file."""
+		"""Wait for and acquire the sidecar lock file."""
 		# logging.debug("Locking %r", self.filename)
 		for i in count():
 			try:
@@ -1531,7 +1583,7 @@ class LockFile:
 		return self
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
-		"""Release the lock by removing the lock file."""
+		"""Release the sidecar lock by removing its lock file."""
 		# logging.debug("Unlocking %r", self.filename)
 		try:
 			os.remove(self.lockfile)
@@ -1542,12 +1594,16 @@ class LockFile:
 
 # class SEC(str, Enum):
 class SEC:
+	"""Configuration-section names used by AutoPrimeNet."""
+
 	Internals = "Internals"
 	PrimeNet = "PrimeNet"
 	Email = "Email"
 
 
 class PRIMENET_ERROR(IntEnum):
+	"""PrimeNet v5 API error codes."""
+
 	# Error codes returned to client
 	OK = 0  # no error
 	SERVER_BUSY = 3  # server is too busy now
@@ -1579,6 +1635,8 @@ class PRIMENET_ERROR(IntEnum):
 
 # class PRIMENET_WP(IntEnum):
 class PRIMENET_WP:
+	"""PrimeNet work-preference codes."""
+
 	# Valid work_preference values
 	WHATEVER = 0  # Whatever makes most sense
 	FACTOR_LMH = 1  # Factor big numbers to low limits
@@ -1605,6 +1663,8 @@ class PRIMENET_WP:
 
 
 class PRIMENET_WORK_TYPE(IntEnum):
+	"""PrimeNet v5 assignment work-type codes."""
+
 	# Valid work_types returned by ga
 	FACTOR = 2
 	PMINUS1 = 3
@@ -1619,6 +1679,8 @@ class PRIMENET_WORK_TYPE(IntEnum):
 
 # class PRIMENET_AR(IntEnum):
 class PRIMENET_AR:
+	"""PrimeNet assignment-result type codes."""
+
 	# This structure is passed for the ar - Assignment Result call
 	NO_RESULT = 0  # No result, just sending done msg
 	TF_FACTOR = 1  # Trial factoring, factor found
@@ -1663,7 +1725,7 @@ PRIMENET_ERRORS = {
 
 
 class Assignment:
-	"""Assignment(work_type, uid, k, b, n, c, sieve_depth, factor_to, pminus1ed, B1, B2, B2_start, curves_to_do, curve, tests_saved, prp_base, prp_residue_type, prp_dblchk, known_factors, ra_failed, cert_squarings)."""
+	"""Mutable representation of a GIMPS work assignment and its metadata."""
 
 	__slots__ = (
 		"work_type",
@@ -1690,7 +1752,7 @@ class Assignment:
 	)
 
 	def __init__(self, work_type=None):
-		"""Create new instance of Assignment(work_type, uid, k, b, n, c, sieve_depth, factor_to, pminus1ed, B1, B2, B2_start, curves_to_do, curve, tests_saved, prp_base, prp_residue_type, prp_dblchk, known_factors, ra_failed, cert_squarings)."""
+		"""Initialize an assignment with default values and an optional work type."""
 		self.work_type = work_type
 		self.uid = None
 		# k*b^n+c
@@ -1716,6 +1778,8 @@ class Assignment:
 
 
 class SCALE(Enum):
+	"""Supported human-readable unit scaling systems."""
+
 	# none = 0
 	SI = 1
 	IEC = 2
@@ -1732,7 +1796,7 @@ NO_RE = re.compile(r"^[nN]")
 
 
 def exponent_to_str(assignment):
-	"""Converts an assignment's exponent to a formatted string representation."""
+	"""Return a formatted string for an assignment's integer or exponential form."""
 	if not assignment.n:
 		buf = "{:.0f}".format(assignment.k + assignment.c)
 	elif assignment.k != 1:
@@ -1755,7 +1819,7 @@ def exponent_to_str(assignment):
 
 
 def exponent_to_text(assignment):
-	"""Converts an assignment's work type and exponent to a descriptive text string."""
+	"""Return descriptive text combining an assignment's work type and exponent."""
 	if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL:
 		work_type_str = "LL"
 	elif assignment.work_type == PRIMENET_WORK_TYPE.DBLCHK:
@@ -1774,7 +1838,7 @@ def exponent_to_text(assignment):
 
 
 def assignment_to_str(assignment):
-	"""Converts an assignment object to its string representation, including known factors if present."""
+	"""Return an assignment string including known factors when present."""
 	buf = exponent_to_str(assignment)
 	if not assignment.known_factors:
 		return buf
@@ -1782,7 +1846,7 @@ def assignment_to_str(assignment):
 
 
 def output_unit(number, scale=SCALE.IEC_I):
-	"""Converts a number to a human-readable string with appropriate scaling and suffix."""
+	"""Return a human-readable scaled representation of a number."""
 	scale_base = 1000 if scale == SCALE.SI else 1024
 
 	power = 0
@@ -1816,7 +1880,7 @@ INPUT_UNIT_RE = re.compile(r"^([+-]?[0-9]+(?:\.[0-9]+)?)(?:\s*([" + "".join(suff
 
 
 def input_unit(astr, scale=SCALE.IEC):
-	"""Converts a string with a unit suffix to an integer value."""
+	"""Parse a human-readable unit string and return its integer value."""
 	scale_base = 1000 if scale == SCALE.SI else 1024
 
 	input_unit = INPUT_UNIT_RE.match(astr)
@@ -1833,7 +1897,7 @@ def input_unit(astr, scale=SCALE.IEC):
 
 
 def output_available(available, total):
-	"""Formats the available and total byte values into a human-readable string."""
+	"""Return human-readable available and total byte counts."""
 	return "{}B / {}B{}".format(
 		output_unit(available),
 		output_unit(total),
@@ -1842,7 +1906,7 @@ def output_available(available, total):
 
 
 def ask_yn(astr, val):
-	"""Prompt the user with a yes/no question and return the response as a boolean."""
+	"""Prompt for a yes/no answer and return the selected boolean value."""
 	while True:
 		temp = input("{} ({}): ".format(astr, "Y" if val else "N")).strip()
 		if not temp:
@@ -1854,7 +1918,7 @@ def ask_yn(astr, val):
 
 
 def ask_int(astr, val, amin=None, amax=None, base=0):
-	"""Prompt the user for an integer input with optional default value, range, and base."""
+	"""Prompt for an integer, enforcing optional default, range, and base settings."""
 	while True:
 		temp = input("{}{}: ".format(astr, " ({!r})".format(val) if val is not None else ""))
 		if not temp:
@@ -1875,7 +1939,7 @@ def ask_int(astr, val, amin=None, amax=None, base=0):
 
 
 def ask_float(astr, val, amin=None, amax=None):
-	"""Prompt the user for a float input with optional default value and range."""
+	"""Prompt for a floating-point value, enforcing an optional default and range."""
 	while True:
 		temp = input("{}{}: ".format(astr, " ({!r})".format(val) if val is not None else ""))
 		if not temp:
@@ -1896,7 +1960,7 @@ def ask_float(astr, val, amin=None, amax=None):
 
 
 def ask_str(astr, val, maxlen=0):
-	"""Prompt the user for a string input with optional default value and maximum length."""
+	"""Prompt for a string, enforcing an optional default and maximum length."""
 	while True:
 		temp = input("{}{}: ".format(astr, " ({!r})".format(val) if val else "")).strip()
 		if not temp:
@@ -1908,7 +1972,7 @@ def ask_str(astr, val, maxlen=0):
 
 
 def ask_pass(astr, val):
-	"""Prompt the user for a password, displaying asterisks for existing input if provided."""
+	"""Prompt for a password while masking any existing value."""
 	return (
 		getpass.getpass(
 			"{}{}: ".format(astr, " ({})".format("*" * len(val)) if val else ""),
@@ -1919,19 +1983,19 @@ def ask_pass(astr, val):
 
 
 def ask_ok():
-	"""Prompts the user to hit Enter to continue."""
+	"""Prompt the user to press Enter before continuing."""
 	input("\nHit Enter to continue: ")
 
 
 def ask_ok_cancel():
-	"""Prompt the user with a yes/no question to accept the answers above."""
+	"""Prompt the user to accept or reject the preceding answers."""
 	return ask_yn("\nAccept the answers above?", True)
 
 
 # endregion
 # region Devices
 def get_device_str(device, name):
-	"""Retrieve the specified information string from an OpenCL device."""
+	"""Return a string-valued OpenCL device property."""
 	size = ctypes.c_size_t()
 	cl.clGetDeviceInfo(device, name, 0, None, ctypes.byref(size))
 
@@ -1941,7 +2005,7 @@ def get_device_str(device, name):
 
 
 def get_device_value(device, name, ctype):
-	"""Retrieve the specified information value from an OpenCL device."""
+	"""Return a typed scalar OpenCL device property."""
 	size = ctypes.sizeof(ctype)
 	value = ctype()
 	cl.clGetDeviceInfo(device, name, size, ctypes.byref(value), None)
@@ -1949,7 +2013,7 @@ def get_device_value(device, name, ctype):
 
 
 def get_opencl_devices():
-	"""Retrieves a list of available OpenCL devices with their names, maximum clock frequencies, and global memory sizes."""
+	"""Return available OpenCL devices and their relevant hardware characteristics."""
 	num_platforms = ctypes.c_uint()
 	result = cl.clGetPlatformIDs(0, None, ctypes.byref(num_platforms))
 	if result and result != -1001:  # CL_PLATFORM_NOT_FOUND_KHR
@@ -1996,12 +2060,14 @@ def get_opencl_devices():
 
 
 def get_device_attr(attr, device):
+	"""Return a CUDA device attribute value, or None if the query fails."""
 	value = ctypes.c_int()
 	cuda.cuDeviceGetAttribute(ctypes.byref(value), attr, device)
 	return value.value
 
 
 def get_cuda_devices():
+	"""Return available CUDA devices and their relevant hardware characteristics."""
 	if cuda.cuInit(0):
 		logging.error("Failed to initialize CUDA")
 		return []
@@ -2039,7 +2105,7 @@ def get_cuda_devices():
 
 
 def get_nvml_devices():
-	"""Retrieve a list of Nvidia GPU devices with their names, maximum clock frequencies, and total memory."""
+	"""Return available NVML devices and their relevant hardware characteristics."""
 	if nvmlInit():
 		logging.error("Failed to initialize NVML")
 		return []
@@ -2083,7 +2149,7 @@ def get_nvml_devices():
 
 
 def get_gpus():
-	"""Retrieve a list of available GPU devices from OpenCL and Nvidia libraries."""
+	"""Return detected GPU devices, preferring the best available discovery backend."""
 	gpus = []
 
 	if cl_lib:
@@ -2107,7 +2173,7 @@ def get_gpus():
 # endregion
 # region Network, Mail
 def dns_lookup(args, domain, atype):
-	"""Perform a DNS lookup for the given domain and record type using Cloudflare's DNS over HTTPS (DoH) service."""
+	"""Perform a DNS-over-HTTPS lookup through Cloudflare for the specified record type."""
 	try:
 		r = session.get(
 			# "https://cloudflare-dns.com/dns-query", # Cloudflare
@@ -2133,7 +2199,7 @@ PLACEHOLDER_RE = re.compile(r"%(\w+)%")
 
 
 def parse_autoconfig(xml_data, email, local_part, email_domain):
-	"""Parses the autoconfig XML data to extract SMTP server details with placeholders replaced by provided email information."""
+	"""Parse Mozilla-style autoconfig XML and return matching SMTP server settings."""
 	try:
 		root = ET.fromstring(xml_data)
 	except ET.ParseError as e:
@@ -2147,7 +2213,7 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 	replacements = {"EMAILADDRESS": email, "EMAILLOCALPART": local_part, "EMAILDOMAIN": email_domain}
 
 	def replacer(match):
-		"""Return the replacement string for a matched placeholder name, or the full match if unknown."""
+		"""Replace a supported autoconfig placeholder with the corresponding email value."""
 		return replacements.get(match.group(1), match.group())
 
 	for provider in root.findall("./emailProvider"):
@@ -2176,7 +2242,7 @@ def parse_autoconfig(xml_data, email, local_part, email_domain):
 
 
 def get_email_config(domain, email, local_part, email_domain, https_only=False, use_optional_url=True):
-	"""Retrieve email configuration settings from the specified domain or Mozilla ISP database."""
+	"""Retrieve email autoconfiguration from the domain or Mozilla ISP database."""
 	adomain = idna_encode(domain).lower()
 	print("Looking up configuration at e-mail provider {!r}…".format(domain))
 	for scheme in ("https://",) + (() if https_only else ("http://",)):
@@ -2223,7 +2289,7 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 
 
 def get_dns_config(args, domain, aemail_domain):
-	"""Retrieve the hostname and port from DNS SRV records for a given domain."""
+	"""Return the SMTP hostname and port advertised by DNS SRV records for a domain."""
 	result = dns_lookup(args, domain, "SRV")
 	if result is not None and not result["Status"] and "Answer" in result:
 		records = []
@@ -2261,7 +2327,7 @@ EMAIL_RE = re.compile(
 
 
 def email_autoconfig(args, email):
-	"""Automatically configures email settings based on the provided email address."""
+	"""Populate email settings automatically from the supplied email address."""
 	aemail = EMAIL_RE.match(email)
 	if not aemail:
 		logging.error("Could not parse e-mail address %r", email)
@@ -2319,7 +2385,7 @@ def email_autoconfig(args, email):
 # endregion
 # region Remote (PrimeNet and TF1G)
 def setup(config, args):
-	"""Configures the GIMPS/PrimeNet client with user preferences and system settings."""
+	"""Run the interactive AutoPrimeNet setup and populate configuration and runtime options."""
 	wrapper = textwrap.TextWrapper(width=75)
 	print(
 		wrapper.fill(
@@ -2763,7 +2829,7 @@ def setup(config, args):
 
 
 def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
-	"""Yields lines from a file as strings."""
+	"""Yield lines from a file opened with read-only permissions."""
 	# Used when there is no intention to write the file back, so don't
 	# check or write lockfiles. Also returns a single string, no list.
 	try:
@@ -2777,7 +2843,7 @@ def readonly_list_file(filename, mode="r", encoding="utf-8", errors=None):
 
 
 def iter_lines_reversed(filename, encoding="utf-8", errors="strict", chunk_size=io.DEFAULT_BUFFER_SIZE):
-	"""Yield lines from last to first without reading the whole file into memory (tail-style)."""
+	"""Yield file lines from last to first without loading the entire file into memory."""
 	buffer = bytearray(chunk_size)
 	incomplete = None
 	try:
@@ -2808,7 +2874,7 @@ def iter_lines_reversed(filename, encoding="utf-8", errors="strict", chunk_size=
 
 
 def read_last_n_lines(filename, n, encoding="utf-8", errors="strict"):
-	"""Return the last n lines (oldest first)."""
+	"""Return the last n file lines in their original order."""
 	if n <= 0:
 		return []
 	out = []
@@ -2925,7 +2991,7 @@ OPTIONS_ENCRYPT = {SEC.PrimeNet: {"password": "password", "proxy_password": "Pro
 
 
 def config_read(args):
-	"""Reads and returns the configuration from the local file, ensuring required sections exist."""
+	"""Read the local configuration and ensure required sections are present."""
 	config = ConfigParser()
 	config.optionxform = lambda option: option
 	localfile = os.path.join(workdir, args.localfile)
@@ -2943,7 +3009,7 @@ def config_read(args):
 
 
 def config_write(config, args):
-	"""Writes the configuration to a prime.ini file."""
+	"""Write the current configuration to the local PrimeNet configuration file."""
 	# generate a new prime.ini file
 	localfile = os.path.join(workdir, args.localfile)
 	with open(localfile, "w", encoding="utf-8", opener=partial(os.open, mode=0o600)) as configfile:
@@ -2951,13 +3017,14 @@ def config_write(config, args):
 
 
 def get_guid(config):
-	"""Retrieve the ComputerGUID from the configuration if it exists."""
+	"""Return the configured PrimeNet ComputerGUID, or None when absent."""
 	if config.has_option(SEC.PrimeNet, "ComputerGUID"):
 		return config.get(SEC.PrimeNet, "ComputerGUID")
 	return None
 
 
 def calc_hardware_guid(config, args):
+	"""Return the persisted hardware GUID, creating it from CPU brand and node ID when absent."""
 	hardware_guid = md5((args.cpu_brand + str(uuid.getnode())).encode()).hexdigest()  # similar as MPrime
 	if config.has_option(SEC.PrimeNet, "HardwareGUID"):
 		guid = config.get(SEC.PrimeNet, "HardwareGUID")
@@ -2970,6 +3037,7 @@ def calc_hardware_guid(config, args):
 
 
 def calc_windows_guid(config, args):
+	"""Return the persisted Windows GUID, deriving it from Product ID and computer SID when absent."""
 	windows_guid = md5((get_windows_serial_number() + get_windows_sid()).encode()).hexdigest() if sys.platform == "win32" else None
 	if config.has_option(SEC.PrimeNet, "WindowsGUID"):
 		guid = config.get(SEC.PrimeNet, "WindowsGUID")
@@ -2982,14 +3050,14 @@ def calc_windows_guid(config, args):
 
 
 def generate_computer_guid(config):
-	"""Generate a new GUID (Globally Unique Identifier) as a hexadecimal string."""
+	"""Generate, store, and return a new random PrimeNet ComputerGUID."""
 	computer_guid = uuid.uuid4().hex
 	config.set(SEC.PrimeNet, "ComputerGUID", computer_guid)
 	return computer_guid
 
 
 def merge_config_and_options(config, args):
-	"""Synchronizes args with config, updating config if necessary."""
+	"""Merge configuration values into runtime options and persist command-line overrides."""
 	# getattr and setattr allow access to the args.xxxx values by name
 	# which allow to copy all of them programmatically instead of having
 	# one line per attribute. Only the attr_to_copy list need to be updated
@@ -3040,7 +3108,7 @@ def merge_config_and_options(config, args):
 
 
 def merge_options_and_config(config, args):
-	"""Synchronizes args with config, updating config if necessary."""
+	"""Merge runtime options back into the configuration and report whether it changed."""
 	updated = False
 	for section, value in ATTR_TO_COPY.items():
 		for attr, option in value.items():
@@ -3079,6 +3147,7 @@ def merge_options_and_config(config, args):
 
 
 def encrypt(config, args):
+	"""Encrypt configured sensitive options in place when OpenSSL support is available."""
 	if args.encrypt is not None and not args.encrypt:
 		return
 	guid = (
@@ -3127,6 +3196,7 @@ def encrypt(config, args):
 
 
 def decrypt(config, args):
+	"""Decrypt configured sensitive options into runtime arguments."""
 	guid = (
 		config.get(SEC.PrimeNet, "HardwareGUID")
 		if config.has_option(SEC.PrimeNet, "HardwareGUID")
@@ -3174,7 +3244,7 @@ def decrypt(config, args):
 
 
 def check_options(parser, args):
-	"""Validate and check the provided args for correctness and compatibility."""
+	"""Validate command-line options and reject incompatible or out-of-range combinations."""
 	if os.path.dirname(args.localfile):
 		parser.error("Configuration file filename should not include a directory/path")
 
@@ -3340,7 +3410,7 @@ def check_options(parser, args):
 
 # region Numbers
 def is_known_mersenne_prime(p):
-	"""Check if a given number is a known Mersenne prime exponent."""
+	"""Return whether p is an exponent of a known Mersenne prime."""
 	mersenne_primes = frozenset((
 		2,
 		3,
@@ -3421,7 +3491,7 @@ PRIME_BASES = (
 
 
 def primes(limit):
-	"""Generate a list of prime numbers up to a given limit."""
+	"""Return all primes up to the specified inclusive limit."""
 	if not limit & 1:
 		limit -= 1
 	size = (limit - 1) >> 1
@@ -3440,7 +3510,7 @@ BASES = PRIMES[: PRIME_BASES[-1][0]]
 
 
 def miller_rabin(n, nm1, a, d, s):
-	"""Performs the Miller-Rabin primality test for a given base 'a'."""
+	"""Return whether n is composite according to the Miller-Rabin test for base a."""
 	x = pow(a, d, n)
 
 	if x in {1, nm1}:
@@ -3458,7 +3528,7 @@ def miller_rabin(n, nm1, a, d, s):
 
 
 def is_prime(n):
-	"""Check if a number is prime using trial division and the Miller-Rabin primality test."""
+	"""Return whether n is prime using trial division and Miller-Rabin testing."""
 	if n < 2:
 		return False
 	for p in BASES:
@@ -3482,6 +3552,7 @@ def is_prime(n):
 
 
 def next_prime(p):
+	"""Return the smallest prime strictly greater than p."""
 	if p < PRIMES[-1]:
 		return PRIMES[bisect.bisect_right(PRIMES, p)]
 
@@ -3498,6 +3569,7 @@ def next_prime(p):
 
 
 def digits(assignment, width=20):
+	"""Log the leading and trailing decimal digits of an assignment and return its digit count."""
 	exponent = assignment_to_str(assignment)
 	divisor = prod(assignment.known_factors) if assignment.known_factors else None
 	modulus = 10**width
@@ -3585,7 +3657,7 @@ Cert_RE = re.compile(
 
 
 def parse_assignment(task):
-	"""Parses an assignment string and returns an Assignment object with the extracted details."""
+	"""Parse a Prime95-style worktodo line into an Assignment object."""
 	# Ex: Test=197ED240A7A41EC575CB408F32DDA661,57600769,74
 	found = WORK_PATTERN.match(task)
 	if not found:
@@ -3715,7 +3787,7 @@ def parse_assignment(task):
 
 
 def process_add_file(args, adapter, workfile):
-	"""Processes and appends tasks from an .add file to the work file, then removes the .add file."""
+	"""Append valid tasks from a companion .add file to a work file and remove the .add file."""
 	addfile = os.path.splitext(workfile)[0] + ".add"  # ".add.txt"
 	if not os.path.isfile(addfile):
 		return
@@ -3732,7 +3804,7 @@ def process_add_file(args, adapter, workfile):
 
 
 def read_workfile(adapter, workfile):
-	"""Reads and validates assignments from a work file, yielding the assignments."""
+	"""Yield valid assignments parsed from a work file."""
 	tasks = readonly_list_file(workfile)
 	for task in tasks:
 		illegal_line = False
@@ -3770,7 +3842,7 @@ def read_workfile(adapter, workfile):
 
 
 def output_assignment(assignment):
-	"""Generate a formatted string representing the details of a given assignment."""
+	"""Serialize an Assignment into its Prime95-style worktodo representation."""
 	temp = []
 	if assignment.uid:
 		temp.append(assignment.uid)
@@ -3841,7 +3913,7 @@ def output_assignment(assignment):
 
 
 def write_workfile(args, adir, workfile, assignments):
-	"""Writes assignments to a work file in the specified directory."""
+	"""Atomically write assignments to the worker work file."""
 	tasks = (output_assignment(task) if isinstance(task, Assignment) else task for task in assignments)
 	with tempfile.NamedTemporaryFile("w", dir=adir, encoding="utf-8", delete=False) as f:
 		f.writelines(task + "\n" for task in tasks)
@@ -3857,7 +3929,7 @@ def write_workfile(args, adir, workfile, assignments):
 # endregion
 # region Email
 def announce_prime_to_user(exponent, worktype):
-	"""Announces a prime or probable prime number to the user and prompts to send an email."""
+	"""Announce a newly found prime or probable prime."""
 	color = BOLD + COLORS.RED if COLOR else ""
 	reset = RESET_ALL if COLOR else ""
 	emails = ", ".join(starmap("{} <{}>".format, CCEMAILS))
@@ -3872,7 +3944,7 @@ def announce_prime_to_user(exponent, worktype):
 
 
 def tail(filename, lines=100):
-	"""Returns the last 'lines' lines from a file, or an appropriate message if the file is not found or empty."""
+	"""Return the final requested lines of a text file or a descriptive fallback message."""
 	if not os.path.isfile(filename):
 		return "> (File not found)"
 	last = read_last_n_lines(filename, lines, errors="replace")
@@ -3882,7 +3954,7 @@ def tail(filename, lines=100):
 
 
 def send(args, subject, message, attachments=None, to=None, cc=None, bcc=None, priority=None):
-	"""Send an email with optional attachments and specified recipients."""
+	"""Send an email with optional recipients, priority, and attachments."""
 	msg = EmailMessage()
 	msg.set_content(message, cte="quoted-printable")
 
@@ -3941,7 +4013,7 @@ def send(args, subject, message, attachments=None, to=None, cc=None, bcc=None, p
 
 
 def send_msg(config, args, subject, message="", attachments=None, to=None, cc=None, bcc=None, priority=None, azipfile=None):
-	"""Send an email with the specified subject, message, and attachments."""
+	"""Send an AutoPrimeNet notification email with optional attachments and archive data."""
 	if not args.fromemail or not args.smtp:
 		return False
 	if config.has_option(SEC.Email, "send") and not config.getboolean(SEC.Email, "send"):
@@ -4004,7 +4076,7 @@ def send_msg(config, args, subject, message="", attachments=None, to=None, cc=No
 
 
 def test_msg(config, args, guid):
-	"""Sends a test email to verify AutoPrimeNet email configuration."""
+	"""Send a test notification to verify the configured email settings."""
 	if not send_msg(
 		config,
 		args,
@@ -4041,7 +4113,7 @@ GUID: {}
 # endregion
 # region System Information
 def generate_application_str(config, args):
-	"""Generates a formatted application string based on the platform and selected program."""
+	"""Return the PrimeNet application string for the selected GIMPS program and platform."""
 	if sys.platform == "darwin":
 		aplatform = "Mac OS X" + (" 64-bit" if is_64bit else "")
 	elif sys.platform.startswith("freebsd"):
@@ -4088,7 +4160,7 @@ def generate_application_str(config, args):
 
 
 def get_os():
-	"""Retrieve detailed information about the operating system."""
+	"""Return a detailed operating-system description."""
 	result = {}
 	machine = None
 
@@ -4137,7 +4209,7 @@ def get_os():
 
 
 def get_cpu_model():
-	"""Returns the model name of the CPU."""
+	"""Return the detected CPU model name."""
 	output = ""
 	if sys.platform == "win32":
 		# wmic cpu get name
@@ -4169,7 +4241,7 @@ def get_cpu_model():
 
 
 def get_cpu_cores_threads():
-	"""Returns the number of physical CPU cores and logical threads available on the system."""
+	"""Return detected physical CPU core and logical thread counts."""
 	# Python 3.4+, but can be overridden in 3.13+
 	# threads = os.cpu_count()
 	# threads = multiprocessing.cpu_count()
@@ -4227,7 +4299,7 @@ def get_cpu_cores_threads():
 
 
 def get_cpu_frequency():
-	"""Retrieve the maximum CPU frequency in MHz for the system."""
+	"""Return the detected maximum CPU frequency in MHz."""
 	frequency = 0
 	if sys.platform == "win32":
 		# wmic cpu get MaxClockSpeed
@@ -4262,7 +4334,7 @@ def get_cpu_frequency():
 
 
 def get_physical_memory():
-	"""Returns the total physical memory in MiB of the system."""
+	"""Return total physical memory in MiB."""
 	memory = 0
 	if sys.platform == "win32":
 		# wmic memphysical get MaxCapacity
@@ -4289,7 +4361,7 @@ def get_physical_memory():
 
 
 def get_cpu_cache_sizes():
-	"""Retrieve the sizes of the CPU caches (L1, L2, L3) for the system."""
+	"""Return detected L1, L2, and L3 data/unified cache sizes in KiB."""
 	cache_sizes = {1: [], 2: [], 3: []}
 	if sys.platform == "win32":
 		# wmic cpu get L2CacheSize,L3CacheSize
@@ -4352,6 +4424,7 @@ def get_cpu_cache_sizes():
 # region v5 Comms
 def handle_retry_after(args, adapter, response):
 	# urllib3 1.19+
+	"""Honor a response's Retry-After delay, capped by the configured communication timeout."""
 	if hasattr(retries, "RETRY_AFTER_STATUS_CODES") and response.status_code in retries.RETRY_AFTER_STATUS_CODES:
 		try:
 			retry_after = retries.get_retry_after(response)
@@ -4372,7 +4445,7 @@ def handle_retry_after(args, adapter, response):
 
 
 def parse_v5_resp(r):
-	"""Parses a v5 response string into a dictionary of options and values."""
+	"""Parse a PrimeNet v5 response into a mapping of option names to values."""
 	ans = {}
 	for line in r.split("\n"):
 		if line == "==END==":
@@ -4388,7 +4461,7 @@ random.seed()
 
 
 def secure_v5_url(guid, params):
-	"""Generates a secure v5 URL with a hash based on the provided GUID and arguments."""
+	"""Build a PrimeNet v5 URL authenticated with the configured computer GUID."""
 	k = bytearray(md5(guid.encode()).digest())
 
 	for i in range(16):
@@ -4403,7 +4476,7 @@ def secure_v5_url(guid, params):
 
 
 def send_request(args, adapter, guid, params):
-	"""Send a request to the PrimeNet server and handle the response."""
+	"""Send a PrimeNet v5 request and return its parsed response."""
 	if guid is not None:
 		if not args.prime95:
 			params["ss"] = 19191919
@@ -4449,7 +4522,7 @@ def send_request(args, adapter, guid, params):
 
 
 def get_exponent(args, adapter, n):
-	"""Fetches and returns the JSON data for a given Mersenne exponent."""
+	"""Fetch and return mersenne.ca metadata for the specified exponent."""
 	try:
 		# r = session.get(PRIMENET_BASE_URL + "report_exponent_simple/", params={"exp_lo": n, "faclim": 1, "json": 1}, timeout=TIMEOUT)
 		r = session.get(MERSENNE_CA_BASE_URL + "exponent/{}/json".format(n), timeout=TIMEOUT)
@@ -4496,7 +4569,7 @@ FACTOR_LIMITS = (
 
 
 def factor_limit(p):
-	"""Determine the factor limit based on the given exponent."""
+	"""Return the trial-factoring bit limit appropriate for the specified exponent."""
 	test = 40
 	for bits, exponent in FACTOR_LIMITS:
 		if p > exponent:
@@ -4794,7 +4867,7 @@ rhotab = (
 
 
 def rho(x):
-	"""Dickman's "rho" function."""
+	"""Return Dickman's rho function approximation for the supplied argument."""
 	if x <= 1:
 		return 1
 	if x < 2:
@@ -4806,7 +4879,7 @@ def rho(x):
 
 
 def integral(a, b, f, STEPS=20):
-	"""Computes the integral of f(x) from a to b."""
+	"""Approximate the integral of f from a to b with a fixed-step numerical method."""
 	w = b - a
 	# assert w >= 0
 	if not w:
@@ -4816,28 +4889,28 @@ def integral(a, b, f, STEPS=20):
 
 
 def p_first_stage(alpha):
-	"""Probability of first stage success."""
+	"""Return the estimated probability of P-1 stage-1 success."""
 	return rho(alpha)
 
 
 def p_second_stage(alpha, beta):
-	"""Probability of second stage success."""
+	"""Return the estimated additional probability of P-1 stage-2 success."""
 	return integral(alpha - beta, alpha - 1, lambda t: rho(t) / (alpha - t))
 
 
 def primepi(n):
-	"""Approximation of the number of primes <= n."""
+	"""Return an approximation to the prime-counting function pi(n)."""
 	return n / (math.log(n) - 1.06)
 
 
 def n_primes_between(B1, B2):
-	"""Returns the number of primes between B1 and B2, inclusive."""
+	"""Return the estimated number of primes in the inclusive interval [B1, B2]."""
 	# assert B2 >= B1
 	return primepi(B2) - primepi(B1)
 
 
 def work_for_bounds(B1, B2, factorB1=1.2, factorB2=1.35):
-	"""Returns work for stage-1, stage-2 in the negative (no factor found) case."""
+	"""Return estimated P-1 stage-1 and stage-2 work when no factor is found."""
 	return B1 * 1.442 * factorB1, n_primes_between(B1, B2) * 0.85 * factorB2
 
 
@@ -4846,7 +4919,7 @@ nice_step = tuple(chain(range(10, 20), range(20, 40, 2), range(40, 80, 5), range
 
 
 def next_nice_number(value):
-	"""Use nice round values for bounds."""
+	"""Round a bound upward to a preferred human-friendly value."""
 	ret = 1
 	while value >= nice_step[-1]:
 		value //= 10
@@ -4858,7 +4931,7 @@ def next_nice_number(value):
 
 
 def pm1(exponent, factoredTo, B1, B2):
-	"""Returns the probability of PM1(B1,B2) success for a finding a smooth factor using B1, B2 and already TFed to factoredUpTo."""
+	"""Return the estimated probability that P-1 with the supplied bounds finds a factor."""
 	takeAwayBits = math.log2(exponent) + 1
 
 	SLICE_WIDTH = 0.25
@@ -4890,7 +4963,7 @@ def pm1(exponent, factoredTo, B1, B2):
 
 
 def gain(exponent, factoredTo, B1, B2):
-	"""Returns tuple (benefit, work) expressed as a ratio of one PRP test."""
+	"""Return the estimated P-1 benefit and work relative to one PRP test."""
 	(p1, p2) = pm1(exponent, factoredTo, B1, B2)
 	(w1, w2) = work_for_bounds(B1, B2)
 	p = p1 + p2
@@ -4899,7 +4972,7 @@ def gain(exponent, factoredTo, B1, B2):
 
 
 def walk(exponent, factoredTo):
-	"""Optimizes B1 and B2 bounds for a given exponent and factoredTo value."""
+	"""Search for P-1 B1 and B2 bounds that maximize expected gain."""
 	B1 = next_nice_number(exponent // 1000)
 	B2 = next_nice_number(exponent // 100)
 
@@ -4968,7 +5041,7 @@ def walk(exponent, factoredTo):
 
 
 def unpack(aformat, file, noraise=False):
-	"""Unpacks binary data from a file according to the specified format."""
+	"""Read and unpack binary data from a file using the specified struct format."""
 	size = struct.calcsize(aformat)
 	buffer = file.read(size)
 	if len(buffer) != size:
@@ -4979,7 +5052,7 @@ def unpack(aformat, file, noraise=False):
 
 
 def pm1_stage1_bits_estimate(exponent, b1, multiplier=1, block=1):
-	"""Estimate P-1 Stage 1 exponent bits without constructing the huge exponent."""
+	"""Estimate P-1 stage-1 exponent bits without constructing the full exponent."""
 	bits = int(b1 / math.log(2) + math.log2(multiplier * exponent)) + 1
 	if block > 1:
 		bits += (-bits) % block
@@ -4997,7 +5070,7 @@ MODULUS_TYPE_FERMAT = 3
 
 
 def read_residue_mlucas(file, nbytes):
-	"""Reads and unpacks residue data from a file at a given byte offset."""
+	"""Skip an Mlucas residue payload and return its stored checksum residues."""
 	file.seek(nbytes, 1)  # os.SEEK_CUR
 
 	res64, res35m1, res36m1 = unpack("<Q5s5s", file)
@@ -5007,7 +5080,7 @@ def read_residue_mlucas(file, nbytes):
 
 
 def parse_work_unit_mlucas_s1_prod(args, adapter, filename):
-	"""Parses a Mlucas work unit file, extracting important information."""
+	"""Parse an Mlucas P-1 stage-1 product file and return its exponent bit count."""
 	try:
 		with open(filename, "rb") as f:
 			t, m, _b1, nbits = unpack("<BBII", f)
@@ -5035,7 +5108,7 @@ def parse_work_unit_mlucas_s1_prod(args, adapter, filename):
 
 
 def parse_work_unit_mlucas(args, adapter, filename, exponent, astage):
-	"""Parses a Mlucas work unit file and extract information."""
+	"""Parse an Mlucas save file and return assignment progress and timing metadata."""
 	iteration = 0
 	fftlen = None
 
@@ -5098,7 +5171,7 @@ def parse_work_unit_mlucas(args, adapter, filename, exponent, astage):
 
 
 def parse_work_unit_cudalucas(args, adapter, filename, p):
-	"""Parses a CUDALucas work unit file and extract information."""
+	"""Parse a CUDALucas checkpoint and return assignment progress and timing metadata."""
 	end = (p + 31) // 32
 
 	try:
@@ -5170,7 +5243,7 @@ P2_v3_RE = re.compile(rb"^OWL P2 (3) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)$")
 
 
 def parse_work_unit_gpuowl(args, adapter, filename, p):
-	"""Parses a GpuOwl work unit file and extract information."""
+	"""Parse a GpuOwl checkpoint and return assignment progress and timing metadata."""
 	counter = 0
 	iterations = stage = None
 
@@ -5281,7 +5354,7 @@ PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res
 
 
 def parse_work_unit_prpll(args, adapter, filename, p):
-	"""Parses a PRPLL work unit file and extract information."""
+	"""Parse a PRPLL checkpoint and return assignment progress and timing metadata."""
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
@@ -5326,7 +5399,7 @@ def parse_work_unit_prpll(args, adapter, filename, p):
 
 
 def prmers_transform_size(exponent):
-	"""Return a PrMers NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
+	"""Return the PrMers NTT transform-size bound for the specified exponent."""
 	log2_n = 1
 	while True:
 		log2_n += 1
@@ -5345,7 +5418,7 @@ def prmers_transform_size(exponent):
 
 
 def parse_work_unit_prmers(args, adapter, filename, exponent):
-	"""Parses a PrMers work unit file and extract information."""
+	"""Parse a PrMers checkpoint and return assignment progress and timing metadata."""
 	iterations = stage = None
 
 	try:
@@ -5468,7 +5541,7 @@ def parse_work_unit_prmers(args, adapter, filename, exponent):
 
 
 def mfaktx_calculate_k(exp, bits):
-	"""Calculate the value of k based on the given exponent and bit length."""
+	"""Return the largest starting k used by mfaktc/mfakto for the specified bit level."""
 	tmp_low = 1 << (bits - 1)
 	tmp_low -= 1
 	k = tmp_low // exp
@@ -5479,7 +5552,7 @@ def mfaktx_calculate_k(exp, bits):
 
 
 def mfaktx_class_needed(exp, k_min, c, more_classes):
-	"""Determines if a class is needed based on given parameters and conditions."""
+	"""Return whether an mfaktc/mfakto residue class contains factor candidates worth testing."""
 	if (
 		(2 * (exp % 8) * ((k_min + c) % 8)) % 8 != 2
 		and ((2 * (exp % 8) * ((k_min + c) % 8)) % 8 != 4)
@@ -5493,7 +5566,7 @@ def mfaktx_class_needed(exp, k_min, c, more_classes):
 
 
 def mfaktx_pct_complete(exp, bits, num_classes, cur_class):
-	"""Calculate the percentage of completion for the exponent based on the current class."""
+	"""Return mfaktc/mfakto trial-factoring completion as a fraction of required classes."""
 	# Lines of code with comments below are taken from mfaktc.c
 
 	cur_class += 1  # the checkpoint contains the last complete processed class!
@@ -5518,7 +5591,7 @@ def mfaktx_pct_complete(exp, bits, num_classes, cur_class):
 
 
 def tf_ghd_credit(exp, bit_min, bit_max):
-	"""Calculate the GHz-days credit for a given exponent and bit range."""
+	"""Return trial-factoring work credit in GHz-days for the specified exponent and bit range."""
 	ghzdays = sum(
 		(0.011160 if i <= 62 else 0.017832 if i <= 64 else 0.016968) * 2 ** (i - 48) for i in range(bit_min + 1, bit_max + 1)
 	)
@@ -5533,7 +5606,7 @@ MFAKTC_TF_RE = re.compile(
 
 
 def parse_work_unit_mfaktc(args, adapter, filename, p):
-	"""Parses a mfaktc work unit file, extracting important information."""
+	"""Parse an mfaktc checkpoint and return assignment progress and timing metadata."""
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\r\n")
@@ -5572,7 +5645,7 @@ MFAKTO_TF_RE = re.compile(rb'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\
 
 
 def parse_work_unit_mfakto(args, adapter, filename, p):
-	"""Parses a mfakto work unit file, extracting important information."""
+	"""Parse an mfakto checkpoint and return assignment progress and timing metadata."""
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\r\n")
@@ -5617,7 +5690,7 @@ timestamp (\d+-\d{2}-\d{2} \d{2}:\d{2}:\d{2})""")
 
 
 def parse_work_unit_primepath(args, adapter, filename, p):
-	"""Parses a PrimePath work unit file, extracting important information."""
+	"""Parse a PrimePath checkpoint and return assignment progress and timing metadata."""
 	try:
 		with open(filename, "rb") as f:
 			header = f.read()
@@ -5653,7 +5726,7 @@ def parse_work_unit_primepath(args, adapter, filename, p):
 
 
 def mfaktx_get_stages(args, adapter, adir):
-	"""Retrieve the number of stages from the mfaktc.ini or mfakto.ini configuration file."""
+	"""Return the configured mfaktc/mfakto number of trial-factoring stages."""
 	stages = 1
 	ini_file = os.path.join(adir, "mfaktc.ini" if args.mfaktc else "mfakto.ini")
 	if not os.path.isfile(ini_file):
@@ -5682,7 +5755,7 @@ MLUCAS_STAT_S2Q0_RE = re.compile(r"Stage 2 q0 = ([0-9]+)")
 
 
 def parse_stat_file(args, adapter, adir, p):
-	"""Parse the Mlucas stat file for the progress of the assignment."""
+	"""Parse an Mlucas status file and return progress and timing metadata for an exponent."""
 	# Mlucas
 	savefiles = []
 	for entry in glob.iglob(os.path.join(adir, "p{}*".format(p))):
@@ -5755,7 +5828,7 @@ def parse_stat_file(args, adapter, adir, p):
 
 
 def get_cuda_progress(args, adapter, adir, p):
-	"""Parse the CUDALucas output file for the progress of the assignment."""
+	"""Parse CUDALucas output and return progress and timing metadata for an exponent."""
 	# CUDALucas
 	savefile = os.path.join(adir, "c{}".format(p))
 	iteration = 0
@@ -5789,7 +5862,7 @@ GPUOWL_LOG_P2_OK_RE = re.compile(r"[0-9]{6,} P2(?: ([0-9]+)/([0-9]+)|\([0-9]+(?:
 
 
 def parse_gpuowl_log_file(args, adapter, adir, p):
-	"""Parse the GpuOwl log file for the progress of the assignment."""
+	"""Parse a GpuOwl log and return progress and timing metadata for an exponent."""
 	savefiles = []
 	for entry in glob.iglob(os.path.join(adir, "*{}".format(p), "{}*.*".format(p))):
 		match = GPUOWL_RE.match(os.path.basename(entry))
@@ -5910,7 +5983,7 @@ PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(?:ll|prp)$")
 
 
 def get_prpll_progress(args, adapter, adir, p):
-	"""Parse the PRPLL log file for the progress of the assignment."""
+	"""Parse a PRPLL log and return progress and timing metadata for an exponent."""
 	savefiles = []
 	for entry in glob.iglob(os.path.join(adir, "*{}".format(p), "{}-[0-9]*.*".format(p))):
 		match = PRPLL_RE.match(os.path.basename(entry))
@@ -5934,7 +6007,7 @@ PRMERS_RE = re.compile(r"^(?:(?:llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_(?:te_)?m
 
 
 def get_prmers_progress(args, adapter, adir, p):
-	"""Parse the PRPLL log file for the progress of the assignment."""
+	"""Parse PrMers checkpoints and return progress and timing metadata for an exponent."""
 	savefiles = []
 	for entry in glob.iglob(os.path.join(adir, "*m_{}*.ckpt".format(p))):
 		name = os.path.basename(entry)
@@ -5965,7 +6038,7 @@ def get_prmers_progress(args, adapter, adir, p):
 
 
 def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
-	"""Get the mfaktc output filename based on the assignment and mfaktc version."""
+	"""Return the mfaktc output filename for the specified assignment and program version."""
 	filenames = glob.glob(os.path.join(adir, "M{}_{}-{}_[0-9]*.ckp".format(p, int(sieve_depth), int(factor_to))))
 	if filenames:
 		return os.path.basename(filenames[0])
@@ -5974,7 +6047,7 @@ def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):
 
 
 def get_mfaktc_progress(args, adapter, adir, p, sieve_depth, factor_to):
-	"""Parse the mfaktc output file for the progress of the assignment."""
+	"""Parse mfaktc output and return progress and timing metadata for an exponent."""
 	savefile = os.path.join(adir, get_mfaktc_output_filename(adir, p, sieve_depth, factor_to))
 	iteration = 0
 	iterations = None
@@ -5992,7 +6065,7 @@ def get_mfaktc_progress(args, adapter, adir, p, sieve_depth, factor_to):
 
 
 def get_mfakto_progress(args, adapter, adir, p):
-	"""Parse the mfakto output file for the progress of the assignment."""
+	"""Parse mfakto output and return progress and timing metadata for an exponent."""
 	savefile = os.path.join(adir, "M{}.ckp".format(p))
 	iteration = 0
 	iterations = None
@@ -6010,7 +6083,7 @@ def get_mfakto_progress(args, adapter, adir, p):
 
 
 def get_primepath_progress(args, adapter, adir, p):
-	"""Parse the PrimePath output file for the progress of the assignment."""
+	"""Parse PrimePath output and return progress and timing metadata for an exponent."""
 	savefile = os.path.join(adir, "mersenne_tf_checkpoint_M{}.txt".format(p))
 	iteration = 0
 	iterations = None
@@ -6030,7 +6103,7 @@ def get_primepath_progress(args, adapter, adir, p):
 # endregion
 # region Progress
 def get_progress_assignment(args, adapter, adir, assignment):
-	"""Retrieve the progress of an assignment."""
+	"""Return the best available progress and timing metadata for an assignment."""
 	if not assignment:
 		return None
 	if args.gpuowl:  # GpuOwl
@@ -6053,7 +6126,7 @@ def get_progress_assignment(args, adapter, adir, assignment):
 
 
 def compute_progress(config, args, assignment, msec_per_iter, p, progress):
-	"""Calculate the progress percentage and estimated time left for a given assignment."""
+	"""Compute completion percentage and estimated remaining time for an assignment."""
 	iteration, iterations, _, curve, stage, _ = progress
 	aiterations = (
 		iterations
@@ -6104,7 +6177,7 @@ def compute_progress(config, args, assignment, msec_per_iter, p, progress):
 
 
 def work_estimate(config, args, adapter, adir, cpu_num, assignment):
-	"""Estimate the remaining work time for a given assignment."""
+	"""Estimate the remaining wall-clock time for an assignment."""
 	section = "Worker #{}".format(cpu_num + 1) if args.num_workers > 1 else SEC.Internals
 	msec_per_iter = p = None
 	if config.has_option(section, "msec_per_iter") and config.has_option(section, "exponent"):
@@ -6116,7 +6189,7 @@ def work_estimate(config, args, adapter, adir, cpu_num, assignment):
 
 
 def string_to_hash(astr):
-	"""Converts a string to a hash value using a modified MD5 algorithm."""
+	"""Return the modified-MD5 hash value used for rolling work-unit averages."""
 	md5_hash = md5(astr.encode()).hexdigest()
 
 	ahash = 0
@@ -6132,7 +6205,7 @@ def string_to_hash(astr):
 
 
 def rolling_average_work_unit_complete(config, args, adapter, adir, cpu_num, tasks, assignment):
-	"""Updates rolling average work unit completion time and hash based on the next assignment."""
+	"""Update rolling completion-time statistics after advancing to the next assignment."""
 	ahash = config.getint(SEC.Internals, "RollingHash") if config.has_option(SEC.Internals, "RollingHash") else 0
 	time_to_complete = (
 		config.getint(SEC.Internals, "RollingCompleteTime") if config.has_option(SEC.Internals, "RollingCompleteTime") else 0
@@ -6154,7 +6227,7 @@ def rolling_average_work_unit_complete(config, args, adapter, adir, cpu_num, tas
 
 
 def adjust_rolling_average(config, args, dirs):
-	"""Adjusts the 30-day rolling average based on the current work assignments."""
+	"""Recalculate the rolling 30-day work-completion average from current assignments."""
 	current_time = time.time()
 	ahash = 0
 	time_to_complete = 0
@@ -6218,7 +6291,7 @@ def adjust_rolling_average(config, args, dirs):
 # endregion
 # region Status
 def output_status(config, args, dirs, cpu_num=None):
-	"""Outputs the status of queued work and expected completion dates for given directories."""
+	"""Log queued-work status and expected completion times for the configured workers."""
 	logging.info("Below is a report on the work you have queued and any expected completion dates.")
 	ll_and_prp_cnt = 0
 	prob = 0.0
@@ -6328,7 +6401,7 @@ def output_status(config, args, dirs, cpu_num=None):
 
 
 def get_disk_usage(path):
-	"""Calculate the total disk usage of all files in the given directory, excluding symbolic links."""
+	"""Return total regular-file disk usage below a directory, excluding symbolic links."""
 	total = 0
 	for dirpath, _dirnames, filenames in os.walk(path):
 		for filename in filenames:
@@ -6339,7 +6412,7 @@ def get_disk_usage(path):
 
 
 def check_disk_space(config, args, dirs):
-	"""Check and log the disk space usage and availability, sending alerts if critical thresholds are reached."""
+	"""Check worker disk usage and send warnings when configured thresholds are crossed."""
 	usage = shutil.disk_usage(workdir)
 
 	if args.worker_disk_space:
@@ -6459,7 +6532,7 @@ Disk space available for the proof file archive: {}
 # endregion
 # region Proof Upload
 def checksum_md5(filename):
-	"""Calculate and return the MD5 checksum of a given file."""
+	"""Return the MD5 checksum of a file as a hexadecimal string."""
 	amd5 = md5()
 	buffer = bytearray(amd5.block_size * 4096)
 	with memoryview(buffer) as view, open(filename, "rb") as f:
@@ -6472,7 +6545,7 @@ PROOF_NUMBER_RE = re.compile(rb"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\
 
 
 def upload_proof_file(config, args, adapter, filename):
-	"""Uploads a proof file to the server in chunks, resuming from the last uploaded position if interrupted."""
+	"""Upload a proof file in resumable chunks and return whether the upload completed."""
 	max_chunk_size = config.getfloat(SEC.PrimeNet, "UploadChunkSize") if config.has_option(SEC.PrimeNet, "UploadChunkSize") else 7
 	max_chunk_size = int(min(max(max_chunk_size, 1), 8) * 1024 * 1024)
 	starttime = time.perf_counter()
@@ -6615,7 +6688,7 @@ def upload_proof_file(config, args, adapter, filename):
 
 
 def upload_proof(config, args, adapter, cpu_num, file):
-	"""Uploads a proof file and handles post-upload actions such as archiving or deleting the file."""
+	"""Upload one proof file and perform configured post-upload archival or deletion."""
 	if config.has_option(SEC.PrimeNet, "ProofUploads") and not config.getboolean(SEC.PrimeNet, "ProofUploads"):
 		return True
 	if not os.path.isfile(file):
@@ -6659,7 +6732,7 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 
 
 def upload_proofs(config, args, adapter, adir, cpu_num, queue=False):
-	"""Uploads proof files from a specified directory, optionally queuing them for later processing."""
+	"""Discover and upload or queue proof files from a worker directory."""
 	proof = os.path.join(adir, "proof")
 	if not os.path.isdir(proof):
 		if args.proofs:
@@ -6684,7 +6757,7 @@ def upload_proofs(config, args, adapter, adir, cpu_num, queue=False):
 
 
 def proofs_worker(args):
-	"""Worker function to handle proof uploads from the queue."""
+	"""Process proof-upload jobs from the background queue."""
 	while True:
 		proof = proofs_queue.get()
 		time.sleep(60)  # Prevent race condition uploading the proof file before reporting the result
@@ -6711,7 +6784,7 @@ def proofs_worker(args):
 # endregion
 # TODO -- have people set their own program options for commented out portions
 def program_options(config, args, send=False, start=-1, retry_count=0):
-	"""Sets the program options on the PrimeNet server."""
+	"""Send current program options to PrimeNet and update local configuration state."""
 	adapter = logging.LoggerAdapter(logger, None)
 	guid = get_guid(config)
 	for tnum in range(start, args.num_workers):
@@ -6805,7 +6878,7 @@ def program_options(config, args, send=False, start=-1, retry_count=0):
 
 
 def register_instance(config, args, guid=None):
-	"""Register the computer with the PrimeNet server."""
+	"""Register or update this computer instance with PrimeNet."""
 	# register the instance to server, guid is the instance identifier
 	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "uc"  # update compute command
@@ -6896,7 +6969,7 @@ https://www.mersenne.org/editcpu/?g=%s""",
 
 # region Assignment communication
 def assignment_unreserve(config, args, adapter, assignment, retry_count=0):
-	"""Unreserves an assignment from the PrimeNet server."""
+	"""Unreserve an assignment from PrimeNet."""
 	guid = get_guid(config)
 	if guid is None:
 		adapter.error("Cannot unreserve, the registration is not done")
@@ -6931,7 +7004,7 @@ def assignment_unreserve(config, args, adapter, assignment, retry_count=0):
 
 
 def unreserve(config, args, dirs, p):
-	"""Unreserve a specific exponent from the workfile."""
+	"""Unreserve the specified exponent and remove its assignment from the work file."""
 	adapter = logging.LoggerAdapter(logger, None)
 	for i, adir in enumerate(dirs):
 		workfile = os.path.join(adir, "worktodo-{}.txt".format(i) if args.prpll else args.work_file)
@@ -6959,7 +7032,7 @@ def unreserve(config, args, dirs, p):
 
 
 def get_proof_data(config, args, adapter, assignment_aid, file):
-	"""Downloads proof data for a given assignment and writes it to a file."""
+	"""Download proof data for an assignment and write it to the supplied file."""
 	max_chunk_size = (
 		int(config.getfloat(SEC.PrimeNet, "DownloadChunkSize") * 1024 * 1024)
 		if config.has_option(SEC.PrimeNet, "DownloadChunkSize")
@@ -6999,7 +7072,7 @@ IS_HEX_RE = re.compile(rb"^[0-9a-fA-F]*$")  # string.hexdigits
 
 
 def download_cert(config, args, adapter, adir, filename, assignment):
-	"""Downloads and verifies the certification starting value for a given assignment."""
+	"""Download and verify the certification starting value for an assignment."""
 	adapter.info("Downloading CERT starting value for %s to %r", exponent_to_str(assignment), filename)
 	with tempfile.NamedTemporaryFile("wb", dir=adir, delete=False) as f:
 		amd5 = get_proof_data(config, args, adapter, assignment.uid, f)
@@ -7033,7 +7106,7 @@ def download_cert(config, args, adapter, adir, filename, assignment):
 
 
 def download_certs(config, args, adapter, adir, cpu_num, tasks):
-	"""Downloads certification files for given assignments if they do not already exist."""
+	"""Download missing certification starting-value files for queued assignments."""
 	certwork_file = os.path.join(adir, "certwork-{}.txt".format(cpu_num) if args.prpll else "certwork.txt")
 	if not os.path.isfile(certwork_file):
 		adapter.debug("CERT work file %r does not exist", certwork_file)
@@ -7104,7 +7177,7 @@ def get_assignment(
 	recover_all=False,
 	retry_count=0,
 ):
-	"""Get a new assignment from the PrimeNet server."""
+	"""Request and return a new PrimeNet assignment matching the supplied constraints."""
 	guid = get_guid(config)
 	params = PRIMENET_V5_BASE_PARAMS.copy()
 	params["t"] = "ga"  # transaction type
@@ -7269,7 +7342,7 @@ def get_assignment(
 
 
 def get_cert_work(config, args, adapter, adir, cpu_num, current_time, progress, tasks):
-	"""Manages the retrieval and assignment of certification work based on configuration and resource limits."""
+	"""Request certification work when configured limits and scheduling allow it."""
 	if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS"):
 		return
 	if not args.cert_work:
@@ -7372,7 +7445,7 @@ PM1_RE = re.compile(
 
 
 def cuda_result_to_json(adapter, resultsfile, sendline):
-	"""Converts CUDALucas and CUDAPm1 results to JSON format."""
+	"""Convert a CUDALucas or CUDAPm1 result line into PrimeNet-compatible JSON."""
 	# CUDALucas and CUDAPm1
 
 	# sendline example: 'M( 108928711 )C, 0x810d83b6917d846c, offset = 106008371, n = 6272K, CUDALucas v2.06, AID: 02E4F2B14BB23E2E4B95FC138FC715A8'
@@ -7419,7 +7492,7 @@ GHZDAYS_RE = re.compile(r"CPU credit is ([0-9]+(?:\.[0-9]+)?) GHz-days")
 
 
 def report_result(config, args, adapter, ar, message, assignment, result_type, tasks, retry_count=0):
-	"""Submit one result line using v5 API, will be attributed to the computer identified by guid."""
+	"""Submit one assignment result through the PrimeNet v5 API."""
 	"""Return False if the submission should be retried"""
 	guid = get_guid(config)
 	if guid is None:
@@ -7558,7 +7631,7 @@ def report_result(config, args, adapter, ar, message, assignment, result_type, t
 
 
 def submit_mersenne_ca_results(args, adapter, lines, retry_count=0):
-	"""Submit results for exponents over 1,000,000,000 using https://www.mersenne.ca/submit-results.php."""
+	"""Submit high-exponent result lines through the mersenne.ca results endpoint."""
 	length = len(lines)
 	adapter.info("Submitting %s results to mersenne.ca", format(length, "n"))
 	retry = rejected = False
@@ -7629,7 +7702,7 @@ SCRIPT = {
 
 
 def parse_result(config, args, adapter, adir, cpu_num, resultsfile, sendline):
-	"""Parses the result from a given sendline, processes it, and sends the appropriate response to the server."""
+	"""Parse a result line and submit it through the appropriate reporting path."""
 	if "CUDALucas v" in sendline or "CUDAPm1 v" in sendline:  # CUDALucas or CUDAPm1
 		ar = cuda_result_to_json(adapter, resultsfile, sendline)
 	else:  # Mlucas or GpuOwl
@@ -7964,7 +8037,7 @@ RESULT_PATTERN = re.compile(r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|c
 
 
 def submit_work(config, args, _dirs, adapter, adir, cpu_num, tasks):
-	"""Submits the results file to the PrimeNet server."""
+	"""Read and submit result lines from a worker results file."""
 	# A cumulative backup
 	sentfile = os.path.join(adir, "results_sent-{}.txt".format(cpu_num) if args.prpll else "results_sent.txt")
 	results_sent = frozenset(readonly_list_file(sentfile))
@@ -8147,7 +8220,7 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 
 
 def results_worker(args, dirs):
-	"""Processes and submits work results, retrying on failure and handling multiple workers."""
+	"""Process result-reporting jobs and periodic scans in the background worker."""
 	while True:
 		results = [results_queue.get()]
 		try:
@@ -8181,7 +8254,7 @@ def results_worker(args, dirs):
 
 
 def tf1g_unreserve_all(config, args, adapter, cpu_num, retry_count=0):
-	"""Unreserve all TF1G assignments for a given worker."""
+	"""Unreserve all TF1G assignments associated with a worker."""
 	guid = get_guid(config)
 	if not args.user_id:
 		adapter.error("Failed to unreserve TF1G exponents due to missing PrimeNet User ID.")
@@ -8218,7 +8291,7 @@ def tf1g_unreserve_all(config, args, adapter, cpu_num, retry_count=0):
 
 
 def unreserve_all(config, args, dirs):
-	"""Unreserves all assignments in the given directories."""
+	"""Unreserve every assignment in the configured worker directories."""
 	logging.info("Unreserving all assignments.")
 	for i, adir in enumerate(dirs):
 		adapter = logging.LoggerAdapter(logger, {"cpu_num": i} if args.num_workers > 1 else None)
@@ -8250,7 +8323,7 @@ def unreserve_all(config, args, dirs):
 
 
 def update_assignment(args, adapter, assignment, task):
-	"""Update the assignment based on various conditions and options, potentially converting work types and adjusting bounds."""
+	"""Normalize or convert an assignment to match current program and server requirements."""
 	bounds = ("MIN", "MID", "MAX")
 	changed = False
 
@@ -8371,7 +8444,7 @@ def update_assignment(args, adapter, assignment, task):
 
 
 def register_assignment(config, args, adapter, cpu_num, assignment, retry_count=0):
-	"""Register a new assignment with the PrimeNet server."""
+	"""Register a local assignment with PrimeNet and update its assignment ID."""
 	guid = get_guid(config)
 	if guid is None:
 		adapter.error("Cannot register assignment, the registration is not done")
@@ -8449,7 +8522,7 @@ def register_assignment(config, args, adapter, cpu_num, assignment, retry_count=
 
 
 def register_assignments(config, args, adapter, adir, cpu_num, tasks):
-	"""Registers any assignments with the PrimeNet server."""
+	"""Register any unregistered assignments in a worker work file."""
 	registered_assignment = False
 	changed = False
 	for i, assignment in enumerate(tasks):
@@ -8471,7 +8544,7 @@ def register_assignments(config, args, adapter, adir, cpu_num, tasks):
 
 
 def register_exponents(config, args, dirs):
-	"""Registers specific exponents by generating assignment lines and adding them to the work file."""
+	"""Create and register worktodo entries for explicitly requested exponents."""
 	wrapper = textwrap.TextWrapper(width=75)
 	print(
 		wrapper.fill(
@@ -8684,7 +8757,7 @@ https://www.mersenne.ca/M{}
 def tf1g_fetch(
 	config, args, adapter, adir, cpu_num, max_assignments=None, max_ghd=None, recover=False, recover_all=False, retry_count=0
 ):
-	"""Fetches TF1G assignments from mersenne.ca with optional recovery."""
+	"""Fetch TF1G assignments from mersenne.ca, optionally recovering prior reservations."""
 	guid = get_guid(config)
 	data = {"gimps_login": args.user_id}
 	if not recover_all:
@@ -8753,7 +8826,7 @@ def tf1g_fetch(
 
 
 def recover_assignments(config, args, dirs, recover_all=False):
-	"""Recovers assignments from the PrimeNet server."""
+	"""Recover outstanding assignments from PrimeNet into local work files."""
 	guid = get_guid(config)
 	if guid is None:
 		logging.error("Cannot recover assignments, the registration is not done")
@@ -8804,7 +8877,7 @@ def recover_assignments(config, args, dirs, recover_all=False):
 
 
 def send_progress(config, args, adapter, cpu_num, assignment, percent, stage, time_left, now, fftlen, retry_count=0):
-	"""Sends the expected completion date for a given assignment to the PrimeNet server."""
+	"""Send assignment progress and its estimated completion time to PrimeNet."""
 	guid = get_guid(config)
 	if guid is None:
 		adapter.error("Cannot send progress, the registration is not done")
@@ -8873,7 +8946,7 @@ def send_progress(config, args, adapter, cpu_num, assignment, percent, stage, ti
 
 
 def update_progress(config, args, adapter, cpu_num, assignment, progress, msec_per_iter, p, now, cur_time_left, checkin=True):
-	"""Update the progress of a given assignment."""
+	"""Update one assignment progress record and optionally report it to PrimeNet."""
 	if not assignment:
 		return None
 	iteration, _, _, curve, astage, fftlen = progress
@@ -8905,7 +8978,7 @@ def update_progress(config, args, adapter, cpu_num, assignment, progress, msec_p
 
 
 def get_assignments(config, args, adapter, adir, cpu_num, progress, tasks, checkin):
-	"""Get new assignments from the PrimeNet server."""
+	"""Request enough new assignments to satisfy the configured work queue."""
 	if config.has_option(SEC.PrimeNet, "QuitGIMPS") and config.getboolean(SEC.PrimeNet, "QuitGIMPS"):
 		return
 	now = datetime.now()
@@ -9099,7 +9172,7 @@ If you believe this is a bug with AutoPrimeNet, please create an issue: https://
 
 
 def update_progress_all(config, args, adapter, adir, cpu_num, last_time, tasks, checkin=True):
-	"""Update the progress of all the assignments in the workfile."""
+	"""Update progress for every assignment in a worker work file."""
 	if not tasks:
 		return None  # don't update if no worktodo
 	# Treat the first assignment. Only this one is used to save the msec_per_iter
@@ -9208,7 +9281,7 @@ It was stalled for {}.
 
 
 def ping_server(config, args, ping_type=1):
-	"""Sends a ping to the PrimeNet server to check connectivity."""
+	"""Ping PrimeNet and return the parsed server response."""
 	logging.info("Contacting PrimeNet Server.")
 	if args.v6:
 		for family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
@@ -9254,7 +9327,7 @@ Version = namedtuple("Version", ("major", "minor", "micro", "patch", "release", 
 
 
 def parse_version(version, build=None):
-	"""Parses a version string into a Version object with major, minor, micro, patch, release, and num components."""
+	"""Parse a program version string into a comparable Version object."""
 	version_res = VERSION_PATTERN.match(version)
 	if not version_res:
 		return None
@@ -9271,7 +9344,7 @@ def parse_version(version, build=None):
 
 
 def autoprimenet_version_check(config, args):
-	"""Check for the latest version of AutoPrimeNet and notify if an update is available."""
+	"""Check for a newer AutoPrimeNet release and notify the user when available."""
 	try:
 		r = session.get(
 			MERSENNE_CA_BASE_URL + "versioncheck/autoprimenet/source/{}".format(args.version_check_channel or "stable"),
@@ -9344,7 +9417,7 @@ Python version: {}
 
 
 def program_version_check(config, args):
-	"""Check for updates to the GIMPS program and notify if a new version is available."""
+	"""Check for a newer release of the selected GIMPS program and notify the user."""
 	if not config.has_option(SEC.Internals, "program"):
 		return
 	program = config.get(SEC.Internals, "program")
@@ -9495,7 +9568,7 @@ Latest version: {}
 
 
 def version_check(config, args, current_time):
-	"""Checks if a version update is needed based on the last check time and the current time."""
+	"""Run scheduled AutoPrimeNet and GIMPS program version checks when due."""
 	if args.version_check is not None and not args.version_check:
 		return
 	last_version_check = (
@@ -9513,7 +9586,7 @@ def version_check(config, args, current_time):
 
 
 def watch(args, dirs):
-	"""Starts a thread to watch each directory in the given list."""
+	"""Start one file-watcher thread for each worker directory and return the threads."""
 	threads = []
 	for i, adir in enumerate(dirs):
 		thread = threading.Thread(
@@ -9526,13 +9599,13 @@ def watch(args, dirs):
 
 
 def is_pyinstaller():
-	"""Check if the script is running as a PyInstaller bundle."""
+	"""Return whether AutoPrimeNet is running from a PyInstaller bundle."""
 	# Adapted from: https://pyinstaller.org/en/stable/runtime-information.html
 	return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
 
 def debug_info(config, args):
-	"""Print runtime, library, OS, hardware, work options, and PrimeNet identity details for bug reports."""
+	"""Log diagnostic runtime, platform, hardware, configuration, and PrimeNet details."""
 	print(
 		"""
 AutoPrimeNet executable:	{}
@@ -10342,6 +10415,7 @@ SUPPORTED = frozenset(
 
 
 def main():
+	"""Parse command-line options and run the requested AutoPrimeNet workflow."""
 	global config
 	check_options(parser, args)
 

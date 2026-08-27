@@ -51,11 +51,13 @@ else:
 if sys.version_info >= (3, 8):
 
 	def invmod(a, n):
+		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
 		return pow(a, -1, n)
 
 else:
 
 	def invmod(a, n):
+		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
 		b = 1
 		c = 0
 		while n:
@@ -75,6 +77,7 @@ try:
 except ImportError:
 
 	def isqrt(n):
+		"""Return the integer square root of a nonnegative integer."""
 		if n < 0:
 			msg = "isqrt() argument must be nonnegative"
 			raise ValueError(msg)
@@ -94,6 +97,7 @@ except ImportError:
 
 
 def integer_root(n, k):
+	"""Return the floor of the kth root of nonnegative integer n."""
 	if k == 1:
 		return n
 	if k == 2:
@@ -116,7 +120,7 @@ if sys.platform != "win32":
 	libc.wcswidth.restype = ctypes.c_int
 
 	def wcswidth(astr):
-		"""Returns the number of columns needed to display the given wide-character string."""
+		"""Return the terminal-column width of a string using the platform wcswidth function."""
 		return libc.wcswidth(astr, len(astr))
 
 else:
@@ -334,7 +338,7 @@ PRIMEPATH_RE = re.compile(r"^mersenne_tf_checkpoint_M([0-9]+)\.txt$")
 
 
 class SCALE(Enum):
-	"""Enumeration for different scaling systems."""
+	"""Supported human-readable unit scaling systems."""
 
 	# none = 0
 	SI = 1
@@ -399,7 +403,7 @@ PP1_STATES = ("", "Stage 1", "Midstage", "Stage 2", "GCD", "Done")
 
 
 class work_unit:
-	"""Represents a work unit for GIMPS computations."""
+	"""Mutable status record populated from a GIMPS save, checkpoint, or proof file."""
 
 	__slots__ = (
 		"work_type",
@@ -456,7 +460,7 @@ class work_unit:
 	)
 
 	def __init__(self, work_type=None):
-		"""Initializes a new work unit with optional work type."""
+		"""Initialize a work-unit status record with default values and an optional work type."""
 		self.work_type = work_type
 		# k*b^n+c
 		self.k = 1.0
@@ -513,7 +517,7 @@ REVERSE_BITS = bytes(int("{:08b}".format(i)[::-1], 2) for i in range(256))
 
 
 def checkpoint_checksum(buffer):
-	"""Calculate a CRC-32 like checksum for the given buffer."""
+	"""Return the CRC-32-like checkpoint checksum used by CUDALucas and mfaktc/mfakto."""
 	chksum = (binascii.crc32(buffer.translate(REVERSE_BITS), 0xFFFFFFFF) & 0xFFFFFFFF) ^ 0xFFFFFFFF
 
 	return (
@@ -526,7 +530,7 @@ def checkpoint_checksum(buffer):
 
 # Adapted from: https://github.com/tdulcet/Distributed-Computing-Scripts/blob/master/primenet.py
 def exponent_to_str(assignment):
-	"""Converts an assignment's exponent details into a formatted string representation."""
+	"""Return a formatted string for a work unit's integer or exponential form."""
 	if not assignment.n:
 		buf = "{:.0f}".format(assignment.k + assignment.c)
 	elif assignment.k != 1:
@@ -547,7 +551,7 @@ def exponent_to_str(assignment):
 
 
 def assignment_to_str(assignment):
-	"""Converts an assignment object to its string representation, including known factors if present."""
+	"""Return a work-unit string including known factors when present."""
 	buf = exponent_to_str(assignment)
 	if not assignment.known_factors:
 		return buf
@@ -555,7 +559,7 @@ def assignment_to_str(assignment):
 
 
 def strcol(astr):
-	"""Returns the display width of a string, raising an error if it contains nonprintable wide characters."""
+	"""Return a string display width, raising ValueError for nonprintable wide characters."""
 	width = wcswidth(astr)
 	if width == -1:
 		msg = "wcswidth failed. Nonprintable wide character."
@@ -564,7 +568,7 @@ def strcol(astr):
 
 
 def output_table(rows):
-	"""Formats and prints a table from a list of rows with aligned columns."""
+	"""Print rows as a table with display-width-aware aligned columns."""
 	amax = max(map(len, rows))
 	for row in rows:
 		row.extend("" for _ in range(amax - len(row)))
@@ -581,7 +585,7 @@ def output_table(rows):
 
 # Adapted from: https://github.com/tdulcet/Table-and-Graph-Libs/blob/master/python/graphs.py
 def output_unit(number, scale=SCALE.IEC_I):
-	"""Converts a number to a human-readable string with appropriate unit suffix based on the given scale."""
+	"""Return a human-readable scaled representation of a number."""
 	scale_base = 1000 if scale == SCALE.SI else 1024
 
 	power = 0
@@ -616,6 +620,8 @@ if gmp_lib:
 	gmp = ctypes.CDLL(gmp_lib)
 
 	class mpz_t(ctypes.Structure):
+		"""ctypes representation of GMP's internal mpz_t integer structure."""
+
 		_fields_ = (("mp_alloc", ctypes.c_int), ("mp_size", ctypes.c_int), ("mp_d", ctypes.POINTER(ctypes.c_ulong)))
 
 	gmp.__gmpz_init.argtypes = (ctypes.POINTER(mpz_t),)
@@ -659,18 +665,19 @@ if gmp_lib:
 	# gmp.__gmpz_clear.restype = None
 
 	def mpz_import(value, mpz):
-		"""Imports an integer value into a GMP mpz_t type."""
+		"""Import a Python integer into an initialized GMP mpz_t value."""
 		abytes = value.to_bytes((value.bit_length() + 7) >> 3, "little")
 		gmp.__gmpz_import(ctypes.byref(mpz), 1, -1, len(abytes), -1, 0, abytes)
 
 	def mpz_export(mpz):
+		"""Return a Python integer exported from a GMP mpz_t value."""
 		size = (gmp.__gmpz_sizeinbase(mpz, 2) + 7) >> 3
 		buffer = ctypes.create_string_buffer(size)
 		gmp.__gmpz_export(ctypes.byref(buffer), None, -1, size, -1, 0, ctypes.byref(mpz))
 		return int.from_bytes(buffer, "little")
 
 	def jacobi(a, n):
-		"""Calculate the Jacobi symbol (a/n) using GMP library functions."""
+		"""Return the Jacobi symbol (a/n) using GMP."""
 		a_mpz = mpz_t()
 		n_mpz = mpz_t()
 
@@ -688,6 +695,7 @@ if gmp_lib:
 			gmp.__gmpz_clear(ctypes.byref(n_mpz))
 
 	def pm1_stage1_exponent(b1):
+		"""Return lcm(1, ..., B1), the P-1 stage-1 exponent, using GMP."""
 		exponent = mpz_t()
 		tmp = mpz_t()
 
@@ -709,7 +717,7 @@ if gmp_lib:
 else:
 	# Adapted from: https://rosettacode.org/wiki/Jacobi_symbol#Python
 	def jacobi(a, n):
-		"""Compute the Jacobi symbol (a/n) for given integers a and n."""
+		"""Return the Jacobi symbol (a/n) using the pure-Python fallback."""
 		if n <= 0:
 			msg = "'n' must be a positive integer."
 			raise ValueError(msg)
@@ -730,6 +738,7 @@ else:
 		return result if n == 1 else 0
 
 	def pm1_stage1_exponent(b1):
+		"""Return lcm(1, ..., B1), the P-1 stage-1 exponent, using Python integers."""
 		size = (b1 - 1) >> 1
 		sieve = bytearray((1,)) * size
 		for i in range(isqrt(size) + 1):
@@ -777,7 +786,7 @@ PRIME_BASES = (
 
 
 def primes(limit):
-	"""Generate a list of prime numbers up to a given limit."""
+	"""Return all primes up to the specified inclusive limit."""
 	if not limit & 1:
 		limit -= 1
 	size = (limit - 1) >> 1
@@ -796,7 +805,7 @@ BASES = PRIMES[: PRIME_BASES[-1][0]]
 
 
 def miller_rabin(n, nm1, a, d, s):
-	"""Performs the Miller-Rabin primality test for a given base 'a'."""
+	"""Return whether n is composite according to the Miller-Rabin test for base a."""
 	x = pow(a, d, n)
 
 	if x in {1, nm1}:
@@ -814,7 +823,7 @@ def miller_rabin(n, nm1, a, d, s):
 
 
 def is_prime(n):
-	"""Check if a number is prime using trial division and the Miller-Rabin primality test."""
+	"""Return whether n is prime using trial division and Miller-Rabin testing."""
 	if n < 2:
 		return False
 	for p in BASES:
@@ -838,6 +847,7 @@ def is_prime(n):
 
 
 def next_prime(p):
+	"""Return the smallest prime strictly greater than p."""
 	if p < PRIMES[-1]:
 		return PRIMES[bisect.bisect_right(PRIMES, p)]
 
@@ -854,7 +864,7 @@ def next_prime(p):
 
 
 def jacobi_test_residue(wu, modulus, residue, expected, filename):
-	"""Performs the Jacobi error check on the given work unit."""
+	"""Compute, record, and log a Jacobi residue check for a work unit."""
 	logging.debug("%r: Performing Jacobi Error Check, this may take a while…", filename)
 	start = time.perf_counter()
 	wu.jacobi_expected = expected
@@ -871,10 +881,12 @@ def jacobi_test_residue(wu, modulus, residue, expected, filename):
 
 
 def jacobi_test_ll(wu, p, words, filename):
+	"""Perform and record the Lucas-Lehmer Jacobi check for a checkpoint residue."""
 	return jacobi_test_residue(wu, (1 << p) - 1, words - 2, 1 if not wu.counter else -1, filename)
 
 
 def jacobi_test_pp1(wu, modulus, V, filename):
+	"""Perform and record the P+1 Jacobi check for a checkpoint value."""
 	logging.debug("%r: Performing Jacobi Error Check, this may take a while…", filename)
 	start = time.perf_counter()
 	actual = jacobi(V - 2, modulus) * jacobi(V + 2, modulus)
@@ -893,7 +905,7 @@ def jacobi_test_pp1(wu, modulus, V, filename):
 
 
 def pm1_stage1_bits_estimate(exponent, b1, multiplier=1, block=1):
-	"""Estimate P-1 Stage 1 exponent bits without constructing the huge exponent."""
+	"""Estimate P-1 stage-1 exponent bits without constructing the full exponent."""
 	bits = int(b1 / math.log(2) + math.log2(multiplier * exponent)) + 1
 	if block > 1:
 		bits += (-bits) % block
@@ -901,6 +913,7 @@ def pm1_stage1_bits_estimate(exponent, b1, multiplier=1, block=1):
 
 
 def pm1_prefix_jacobi(p, b1, multiplier, bits_done, block=1, base_jacobi=-1):
+	"""Return the Jacobi contribution of the completed prefix of a P-1 stage-1 exponent."""
 	if bits_done <= 0:
 		return 1
 	if not base_jacobi:
@@ -915,12 +928,12 @@ def pm1_prefix_jacobi(p, b1, multiplier, bits_done, block=1, base_jacobi=-1):
 
 
 def rotr(value, count, p, n):
-	"""Performs a bitwise right rotation on a given value."""
+	"""Rotate a p-bit integer right by count bits."""
 	return (value >> count) | (value << (p - count) & n)
 
 
 def unpack(aformat, file, noraise=False):
-	"""Unpacks binary data from a file according to the specified format."""
+	"""Read and unpack binary data from a file using the specified struct format."""
 	size = struct.calcsize(aformat)
 	buffer = file.read(size)
 	if len(buffer) != size:
@@ -931,7 +944,7 @@ def unpack(aformat, file, noraise=False):
 
 
 def read_value_prime95(file, aformat, asum):
-	"""Read a value from a Prime95 work unit file and update the checksum."""
+	"""Read one Prime95 value and add its integer value to the running checksum."""
 	result = unpack(aformat, file)
 	if args.check:
 		for char, val in zip(aformat[1:], result):
@@ -945,7 +958,7 @@ def read_value_prime95(file, aformat, asum):
 
 
 def read_array_prime95(file, size, asum):
-	"""Read an array from a Prime95 work unit file and update the checksum."""
+	"""Read a Prime95 byte array and add its 32-bit words to the running checksum."""
 	buffer = file.read(size)
 	if len(buffer) != size:
 		raise EOFError
@@ -955,7 +968,7 @@ def read_array_prime95(file, size, asum):
 
 
 def read_residue_prime95(file, asum):
-	"""Read a residue from a Prime95 work unit file and update the checksum."""
+	"""Read a Prime95 residue array and add its 32-bit words to the running checksum."""
 	(alen,), asum = read_value_prime95(file, "<I", asum)
 
 	aformat = "<{}I".format(alen)
@@ -972,7 +985,7 @@ def read_residue_prime95(file, asum):
 
 
 def parse_work_unit_prime95(filename):
-	"""Parses a Prime95 work unit file, extracting important information."""
+	"""Parse a Prime95/MPrime save file into a work-unit status record."""
 	wu = work_unit()
 
 	try:
@@ -1521,7 +1534,7 @@ def parse_work_unit_prime95(filename):
 
 
 def read_residue_mlucas(file, nbytes, filename, check=False):
-	"""Reads and verifies the residue from an Mlucas work unit file."""
+	"""Read an Mlucas residue payload and optionally verify its stored checksum residues."""
 	residue = None
 	if args.check or check:
 		buffer = file.read(nbytes)
@@ -1550,7 +1563,7 @@ def read_residue_mlucas(file, nbytes, filename, check=False):
 
 
 def parse_work_unit_mlucas_s1_prod(filename, exponent):
-	"""Parses a Mlucas work unit file, extracting important information."""
+	"""Parse an Mlucas P-1 stage-1 product file into a work-unit status record."""
 	wu = work_unit()
 
 	try:
@@ -1609,7 +1622,7 @@ def parse_work_unit_mlucas_s1_prod(filename, exponent):
 
 
 def parse_work_unit_mlucas(filename, exponent, stage):
-	"""Parses a Mlucas work unit file, extracting important information."""
+	"""Parse an Mlucas save file into a work-unit status record."""
 	wu = work_unit()
 
 	try:
@@ -1757,7 +1770,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 
 
 def parse_work_unit_cudalucas(filename, p):
-	"""Parses a CUDALucas work unit file, extracting important information."""
+	"""Parse a CUDALucas checkpoint into a work-unit status record."""
 	wu = work_unit(WORK_TEST)
 	end = (p + 31) // 32
 
@@ -1814,7 +1827,7 @@ def parse_work_unit_cudalucas(filename, p):
 
 
 def parse_work_unit_cudapm1(filename, p):
-	"""Parses a CUDAPm1 work unit file, extracting important information."""
+	"""Parse a CUDAPm1 checkpoint into a work-unit status record."""
 	wu = work_unit(WORK_PMINUS1)
 	end = (p + 31) // 32
 
@@ -1900,7 +1913,7 @@ def parse_work_unit_cudapm1(filename, p):
 
 
 def parse_work_unit_gpuowl(filename):
-	"""Parses a GpuOwl work unit file, extracting important information."""
+	"""Parse a GpuOwl checkpoint into a work-unit status record."""
 	wu = work_unit()
 
 	try:
@@ -2134,7 +2147,7 @@ def parse_work_unit_gpuowl(filename):
 
 
 def parse_work_unit_prpll(filename):
-	"""Parses a PRPLL work unit file, extracting important information."""
+	"""Parse a PRPLL checkpoint into a work-unit status record."""
 	wu = work_unit()
 
 	try:
@@ -2239,7 +2252,7 @@ def parse_work_unit_prpll(filename):
 
 
 def prmers_transform_size(exponent):
-	"""Return a PrMers NTT transform size bound for exponent (min radix-2 and radix-5 limits under 64-bit)."""
+	"""Return the PrMers NTT transform-size bound for the specified exponent."""
 	log2_n = 1
 	while True:
 		log2_n += 1
@@ -2258,7 +2271,7 @@ def prmers_transform_size(exponent):
 
 
 def parse_work_unit_prmers(filename, exponent, curve):
-	"""Parses a PrMers work unit file, extracting important information."""
+	"""Parse a PrMers checkpoint into a work-unit status record."""
 	wu = work_unit()
 
 	try:
@@ -2461,11 +2474,7 @@ def parse_work_unit_prmers(filename, exponent, curve):
 
 
 def mfaktx_calculate_k(exp, bits):
-	"""calculates biggest possible k in "2 * exp * k + 1 < 2^bits"
-
-	Because Python is not limited to 64-bit integers like C,
-	we simply use the "bits <= 64" block from the C code
-	"""
+	"""Return the largest starting k used by mfaktc/mfakto for the specified bit level."""
 
 	tmp_low = 1 << (bits - 1)
 	tmp_low -= 1
@@ -2477,12 +2486,7 @@ def mfaktx_calculate_k(exp, bits):
 
 
 def mfaktx_class_needed(exp, k_min, c, more_classes, wagstaff):
-	"""checks whether the class c must be processed or can be ignored at all because
-	all factor candidates within the class c are a multiple of 3, 5, 7 or 11 (11
-	only if MORE_CLASSES is defined) or are 3 or 5 mod 8 (Mersenne) or are 5 or 7 mod 8 (Wagstaff)
-
-	k_min *MUST* be aligned in that way that k_min is in class 0!
-	"""
+	"""Return whether an mfaktc/mfakto residue class contains factor candidates worth testing."""
 
 	if (
 		(2 * (exp % 8) * ((k_min + c) % 8)) % 8 != (6 if wagstaff else 2)
@@ -2497,18 +2501,7 @@ def mfaktx_class_needed(exp, k_min, c, more_classes, wagstaff):
 
 
 def mfaktx_pct_complete(exp, bits, num_classes, cur_class, wagstaff=False):
-	"""Calculate percentage completeness of an mfaktc/mfakto checkpoint file
-	using the same logic used to display Pct in mfaktc/mfakto output
-
-	The code below is adapted from C code in mfaktc version 0.21 by user nclvrps@github
-
-	Keep the same function names, variable names, comments, and overall formatting
-	in order to ease modification if future versions of mfaktc.c are released.
-
-	Note that mfaktc 0.21 is:
-	Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014, 2015  Oliver Weihe (o.weihe@t-online.de)
-	and is licensed under GPL v3
-	"""
+	"""Return mfaktc/mfakto trial-factoring completion as a fraction of required classes."""
 	# Lines of code with comments below are taken from mfaktc.c
 
 	cur_class += 1  # the checkpoint contains the last complete processed class!
@@ -2533,7 +2526,7 @@ def mfaktx_pct_complete(exp, bits, num_classes, cur_class, wagstaff=False):
 
 
 def parse_work_unit_mfaktc(filename):
-	"""Parses a mfaktc work unit file, extracting important information."""
+	"""Parse an mfaktc checkpoint into a work-unit status record."""
 	wu = work_unit(WORK_FACTOR)
 
 	try:
@@ -2590,7 +2583,7 @@ def parse_work_unit_mfaktc(filename):
 
 
 def parse_work_unit_mfakto(filename):
-	"""Parses a mfakto work unit file, extracting important information."""
+	"""Parse an mfakto checkpoint into a work-unit status record."""
 	wu = work_unit(WORK_FACTOR)
 
 	try:
@@ -2639,7 +2632,7 @@ def parse_work_unit_mfakto(filename):
 
 
 def parse_work_unit_primepath(filename):
-	"""Parses a PrimePath work unit file, extracting important information."""
+	"""Parse a PrimePath checkpoint into a work-unit status record."""
 	wu = work_unit(WORK_FACTOR)
 
 	try:
@@ -2671,7 +2664,7 @@ def parse_work_unit_primepath(filename):
 
 
 def parse_proof(filename):
-	"""Parse a PRP proof file and return a work unit object with extracted data."""
+	"""Parse a PRP proof file into a work-unit status record."""
 	wu = work_unit(WORK_PRP)
 
 	try:
@@ -2770,7 +2763,7 @@ def parse_proof(filename):
 
 
 def one_line_status(file, num, index, wu):
-	"""Generates a one-line status summary for a given work unit."""
+	"""Return a one-line human-readable status summary for a work unit."""
 	stage = None
 	if wu.work_type == WORK_CERT:
 		work_type_str = "Certify"
@@ -2909,7 +2902,7 @@ def one_line_status(file, num, index, wu):
 
 
 def json_status(file, wu, program):
-	"""Generate a JSON-compatible status dictionary for a given work unit and program."""
+	"""Return a JSON-compatible status mapping for a work unit and source program."""
 	result = OrderedDict((
 		("program", program),
 		("k", wu.k),
@@ -3042,7 +3035,7 @@ def json_status(file, wu, program):
 
 
 def main(dirs):
-	"""The main function to execute the script, handling command-line arguments and processing."""
+	"""Parse command-line options, scan requested paths, and print work-unit status output."""
 	results = OrderedDict()
 
 	for adir in dirs:
