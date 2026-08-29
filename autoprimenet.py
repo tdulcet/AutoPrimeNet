@@ -7,7 +7,7 @@
 # ]
 # ///
 
-"""Automatic assignment handler for Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto, PrimePath, cofact and gvtf.
+"""Automatic assignment handler for Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto, PrimePath, cofact, gvtf and Mp_p-1_gpu.
 
 [*] Python can be downloaded from https://www.python.org/downloads/
     * An .exe version of this script (not requiring Python) can be downloaded from:
@@ -1368,7 +1368,7 @@ conventions = locale.localeconv()
 if hasattr(sys, "set_int_max_str_digits"):  # Python 3.7.14+, 3.8.14+, 3.9.14+, 3.10.7+, 3.11+
 	sys.set_int_max_str_digits(0)
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
@@ -1662,7 +1662,8 @@ class PRIMENET_WP:
 	PRP_COFACTOR_DBLCHK = 161  # PRP double check of Mersenne cofactors
 
 
-class PRIMENET_WORK_TYPE(IntEnum):
+# class PRIMENET_WORK_TYPE(IntEnum):
+class PRIMENET_WORK_TYPE:
 	"""PrimeNet v5 assignment work-type codes."""
 
 	# Valid work_types returned by ga
@@ -1740,15 +1741,16 @@ class Assignment:
 		"B1",
 		"B2",
 		"B2_start",
+		"nth_run",
 		"curves_to_do",
 		"curve",
 		"tests_saved",
 		"prp_base",
 		"prp_residue_type",
 		"prp_dblchk",
+		"cert_squarings",
 		"known_factors",
 		"ra_failed",
-		"cert_squarings",
 	)
 
 	def __init__(self, work_type=None):
@@ -1756,7 +1758,7 @@ class Assignment:
 		self.work_type = work_type
 		self.uid = None
 		# k*b^n+c
-		self.k = 1.0
+		self.k = 1
 		self.b = 2
 		self.n = 0
 		self.c = -1
@@ -1766,15 +1768,16 @@ class Assignment:
 		self.B1 = 0
 		self.B2 = 0
 		self.B2_start = 0
+		self.nth_run = 0
 		self.curves_to_do = 0
 		self.curve = 0
 		self.tests_saved = 0.0
 		self.prp_base = 0
 		self.prp_residue_type = 0
 		self.prp_dblchk = False
+		self.cert_squarings = 0
 		self.known_factors = None
 		self.ra_failed = False
-		self.cert_squarings = 0
 
 
 class SCALE(Enum):
@@ -1798,9 +1801,9 @@ NO_RE = re.compile(r"^[nN]")
 def exponent_to_str(assignment):
 	"""Return a formatted string for an assignment's integer or exponential form."""
 	if not assignment.n:
-		buf = "{:.0f}".format(assignment.k + assignment.c)
+		buf = "{}".format(assignment.k + assignment.c)
 	elif assignment.k != 1:
-		buf = "{0.k:.0f}*{0.b}^{0.n}{0.c:+}".format(assignment)
+		buf = "{0.k}*{0.b}^{0.n}{0.c:+}".format(assignment)
 	elif assignment.b == 2 and assignment.c == -1:
 		buf = "M{.n}".format(assignment)
 		if assignment.work_type == PRIMENET_WORK_TYPE.FACTOR:
@@ -1830,6 +1833,8 @@ def exponent_to_text(assignment):
 		work_type_str = "Trial factor"
 	elif assignment.work_type in {PRIMENET_WORK_TYPE.PFACTOR, PRIMENET_WORK_TYPE.PMINUS1}:
 		work_type_str = "P-1"
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PPLUS1:
+		work_type_str = "P+1"
 	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 		work_type_str = "ECM"
 	elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
@@ -2703,7 +2708,7 @@ def setup(config, args):
 			args.worker_disk_space,
 			0,
 		)
-		day_night_memory = ask_float("Configured day/night P-1/ECM stage 2 memory in GiB", args.day_night_memory / 1024, 0)
+		day_night_memory = ask_float("Configured day/night P-1/P+1/ECM stage 2 memory in GiB", args.day_night_memory / 1024, 0)
 		while True:
 			archive_dir = ask_str("Optional directory to archive PRP proof files after upload", args.archive_dir or "")
 			if not archive_dir:
@@ -3579,7 +3584,7 @@ def digits(assignment, width=20):
 		ctx.Emax = decimal.MAX_EMAX
 		ctx.Emin = decimal.MIN_EMIN
 
-		num = int(assignment.k) * Decimal(assignment.b) ** assignment.n + assignment.c
+		num = assignment.k * Decimal(assignment.b) ** assignment.n + assignment.c
 		if assignment.known_factors:
 			num /= divisor
 
@@ -3594,7 +3599,7 @@ def digits(assignment, width=20):
 			adigits += 1
 
 	if adigits <= 1000:
-		num = int(assignment.k) * assignment.b**assignment.n + assignment.c
+		num = assignment.k * assignment.b**assignment.n + assignment.c
 		if assignment.known_factors:
 			num //= divisor
 
@@ -3618,11 +3623,11 @@ def digits(assignment, width=20):
 				g *= 5
 
 			big_modulus = g * modulus
-			residue = (int(assignment.k) * pow(assignment.b, assignment.n, big_modulus) + assignment.c) % big_modulus
+			residue = (assignment.k * pow(assignment.b, assignment.n, big_modulus) + assignment.c) % big_modulus
 
 			last = ((residue // g) * invmod(divisor, modulus)) % modulus
 		else:
-			last = (int(assignment.k) * pow(assignment.b, assignment.n, modulus) + assignment.c) % modulus
+			last = (assignment.k * pow(assignment.b, assignment.n, modulus) + assignment.c) % modulus
 
 		logging.info("%s has %s decimal digits: %0*d…%0*d", exponent, format(adigits, "n"), width, first, width, last)
 
@@ -3632,28 +3637,29 @@ def digits(assignment, width=20):
 # endregion
 # region Worktodo Parsing
 WORK_PATTERN = re.compile(
-	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|ECM2?|Cert|CERT)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
+	r'^(?:(?:B1=([0-9]+)(?:,B2=([0-9]+))?|B2=([0-9]+));)?(Test|DoubleCheck|PRP(?:DC)?|Factor|P[Ff]actor|P[Mm]inus1|Pplus1|ECM2?|Cert|CERT)\s*=\s*(?:(([0-9A-F]{32})|[Nn]/[Aa]|0),)?(?:([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"[0-9]+(?:,[0-9]+)*")(?:,|$)){1,9}$'
 )
 
-Test_RE = re.compile(
-	r"^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(Test|DoubleCheck)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+)(?:,([0-9]+),([0-9]+))?$"
+TEST_RE = re.compile(
+	r"^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(Test|DoubleCheck)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+)(?:,([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+))?$"
 )
 PRP_RE = re.compile(
-	r'^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(PRP(?:DC)?)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+)(?:,([0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,([0-9]+),([0-9]+))?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
+	r'^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(PRP(?:DC)?)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+)(?:,([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,([0-9]+),([0-9]+))?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
-Factor_RE = re.compile(r'^(Factor)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+)(?:,"([0-9]+(?:,[0-9]+)*)")?$')
-PFactor_RE = re.compile(
-	r'^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(P[Ff]actor)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,"([0-9]+(?:,[0-9]+)*)")?$'
+FACTOR_RE = re.compile(r'^(Factor)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,"([0-9]+(?:,[0-9]+)*)")?$')
+PFACTOR_RE = re.compile(
+	r'^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(P[Ff]actor)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
-PMinus1_RE = re.compile(
-	r'^(P[Mm]inus1)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+),([0-9]+)(?:,([0-9]+)(?:,([0-9]+))?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
+PMINUS1_RE = re.compile(
+	r'^(P[Mm]inus1)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+),([0-9]+)(?:,([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,([0-9]+))?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
+)
+PPLUS1_RE = re.compile(
+	r'^(Pplus1)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+),([0-9]+)(?:,([0-9]+)(?:,([0-9]+(?:\.[0-9]*)?|\.[0-9]+))?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
 ECM_RE = re.compile(
-	r'^(ECM2?)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)(?:,([0-9]+)(?:,([0-9]+)(?:,([0-9]+))?)?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
+	r'^(ECM2?)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)(?:,([0-9]+)(?:,([0-9]+)(?:,([0-9]+))?)?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
-Cert_RE = re.compile(
-	r"^(Cert|CERT)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)$"
-)
+CERT_RE = re.compile(r"^(Cert|CERT)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)$")
 
 
 def parse_assignment(task):
@@ -3677,7 +3683,7 @@ def parse_assignment(task):
 	# Extract the subfield containing the exponent, whose position depends on
 	# the assignment type:
 	if work_type in {"Test", "DoubleCheck"}:
-		found = Test_RE.match(task)
+		found = TEST_RE.match(task)
 		if not found:
 			return None
 		_, _, n, sieve_depth, pminus1ed = found.groups()
@@ -3694,7 +3700,7 @@ def parse_assignment(task):
 		_, _, k, b, n, c, sieve_depth, tests_saved, prp_base, prp_residue_type, known_factors = found.groups()
 		assignment.prp_dblchk = work_type == "PRPDC"
 		assignment.work_type = PRIMENET_WORK_TYPE.PRP
-		assignment.k = float(k)
+		assignment.k = int(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
 		assignment.c = int(c)
@@ -3707,7 +3713,7 @@ def parse_assignment(task):
 		if known_factors:
 			assignment.known_factors = tuple(map(int, known_factors.split(",")))
 	elif work_type == "Factor":
-		found = Factor_RE.match(task)
+		found = FACTOR_RE.match(task)
 		if not found:
 			return None
 		_, _, n, sieve_depth, factor_to, known_factors = found.groups()
@@ -3718,12 +3724,12 @@ def parse_assignment(task):
 		if known_factors:
 			assignment.known_factors = tuple(map(int, known_factors.split(",")))
 	elif work_type in {"PFactor", "Pfactor"}:
-		found = PFactor_RE.match(task)
+		found = PFACTOR_RE.match(task)
 		if not found:
 			return None
 		_, _, k, b, n, c, sieve_depth, tests_saved, known_factors = found.groups()
 		assignment.work_type = PRIMENET_WORK_TYPE.PFACTOR
-		assignment.k = float(k)
+		assignment.k = int(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
 		assignment.c = int(c)
@@ -3732,12 +3738,12 @@ def parse_assignment(task):
 		if known_factors:
 			assignment.known_factors = tuple(map(int, known_factors.split(",")))
 	elif work_type in {"PMinus1", "Pminus1"}:
-		found = PMinus1_RE.match(task)
+		found = PMINUS1_RE.match(task)
 		if not found:
 			return None
 		_, _, k, b, n, c, B1, B2, sieve_depth, B2_start, known_factors = found.groups()
 		assignment.work_type = PRIMENET_WORK_TYPE.PMINUS1
-		assignment.k = float(k)
+		assignment.k = int(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
 		assignment.c = int(c)
@@ -3750,13 +3756,33 @@ def parse_assignment(task):
 				assignment.B2_start = int(B2_start)
 		if known_factors:
 			assignment.known_factors = tuple(map(int, known_factors.split(",")))
+	elif work_type == "Pplus1":
+		found = PPLUS1_RE.match(task)
+		if not found:
+			return None
+		_, _, k, b, n, c, B1, B2, nth_run, sieve_depth, known_factors = found.groups()
+		assignment.work_type = PRIMENET_WORK_TYPE.PPLUS1
+		assignment.k = int(k)
+		assignment.b = int(b)
+		assignment.n = int(n)
+		assignment.c = int(c)
+		assignment.B1 = int(B1)
+		assignment.B2 = int(B2)
+		assignment.nth_run = 1
+		assignment.sieve_depth = 0.0
+		if nth_run:
+			assignment.nth_run = int(nth_run)
+			if sieve_depth:
+				assignment.sieve_depth = float(sieve_depth)
+		if known_factors:
+			assignment.known_factors = tuple(map(int, known_factors.split(",")))
 	elif work_type in {"ECM", "ECM2"}:
 		found = ECM_RE.match(task)
 		if not found:
 			return None
 		_, _, k, b, n, c, B1, B2, curves_to_do, curve, known_factors = found.groups()
 		assignment.work_type = PRIMENET_WORK_TYPE.ECM
-		assignment.k = float(k)
+		assignment.k = int(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
 		assignment.c = int(c)
@@ -3771,12 +3797,12 @@ def parse_assignment(task):
 		if known_factors:
 			assignment.known_factors = tuple(map(int, known_factors.split(",")))
 	elif work_type in {"Cert", "CERT"}:
-		found = Cert_RE.match(task)
+		found = CERT_RE.match(task)
 		if not found:
 			return None
 		_, _, k, b, n, c, cert_squarings = found.groups()
 		assignment.work_type = PRIMENET_WORK_TYPE.CERT
-		assignment.k = float(k)
+		assignment.k = int(k)
 		assignment.b = int(b)
 		assignment.n = int(n)
 		assignment.c = int(c)
@@ -3810,8 +3836,8 @@ def read_workfile(adapter, workfile):
 		illegal_line = False
 		assignment = parse_assignment(task)
 		if assignment is not None:
-			if assignment.k < 1.0 or assignment.b < 2 or assignment.n < 1 or not assignment.c:
-				adapter.error("Illegal number in %r file, k < 1 or b < 2 or n < 1 or c = 0", workfile)
+			if assignment.k < 1 or assignment.b < 2 or assignment.n < 1 or not assignment.c:
+				adapter.error("Bad number in %r file, k < 1 or b < 2 or n < 1 or c = 0", workfile)
 				illegal_line = True
 
 			if (
@@ -3820,13 +3846,29 @@ def read_workfile(adapter, workfile):
 				and not is_prime(assignment.n)
 				and assignment.c == -1
 				and not assignment.known_factors
-				and assignment.work_type not in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM}
+				and assignment.work_type not in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PPLUS1, PRIMENET_WORK_TYPE.ECM}
 			):
 				adapter.error("%r file contained composite exponent: %s.", workfile, assignment.n)
 				illegal_line = True
 
-			if assignment.work_type in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM} and assignment.B1 < 50000:
-				adapter.error("%r file has P-1/ECM with B1 < 50000 (exponent: %s).", workfile, assignment.n)
+			if assignment.known_factors:
+				product = 1
+				for factor in assignment.known_factors:
+					aproduct = product * factor
+					if not is_prime(factor):
+						adapter.error("%r file contained composite factor: %s.", workfile, factor)
+						illegal_line = True
+					elif (assignment.k * pow(assignment.b, assignment.n, aproduct) + assignment.c) % aproduct:
+						adapter.error("%r file contained bad factor: %s.", workfile, factor)
+						illegal_line = True
+					else:
+						product = aproduct
+
+			if (
+				assignment.work_type in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PPLUS1, PRIMENET_WORK_TYPE.ECM}
+				and assignment.B1 < 50000
+			):
+				adapter.error("%r file has P-1/P+1/ECM with B1 < 50000 (exponent: %s).", workfile, assignment.n)
 				illegal_line = True
 
 			if assignment.work_type == PRIMENET_WORK_TYPE.FACTOR and assignment.sieve_depth >= assignment.factor_to:
@@ -3835,7 +3877,7 @@ def read_workfile(adapter, workfile):
 		else:
 			illegal_line = True
 		if illegal_line:
-			adapter.error("Illegal line in %r file: %r", workfile, task)
+			adapter.error("Bad line in %r file: %r", workfile, task)
 			yield task
 		else:
 			yield assignment
@@ -3856,8 +3898,8 @@ def output_assignment(assignment):
 			temp.extend(("{:.0f}".format(assignment.sieve_depth), assignment.pminus1ed))
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		test = "PRP" + ("DC" if assignment.prp_dblchk else "")
-		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c))
-		if assignment.sieve_depth != 99 or assignment.tests_saved > 0.0 or assignment.prp_base or assignment.prp_residue_type:
+		temp.extend((assignment.k, assignment.b, assignment.n, assignment.c))
+		if assignment.sieve_depth != 99 or assignment.tests_saved > 0 or assignment.prp_base or assignment.prp_residue_type:
 			temp.extend(("{:g}".format(assignment.sieve_depth), "{:g}".format(assignment.tests_saved)))
 			if assignment.prp_base or assignment.prp_residue_type:
 				temp.extend((assignment.prp_base, assignment.prp_residue_type))
@@ -3871,7 +3913,7 @@ def output_assignment(assignment):
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
 		test = "Pfactor"
 		temp.extend((
-			"{:.0f}".format(assignment.k),
+			assignment.k,
 			assignment.b,
 			assignment.n,
 			assignment.c,
@@ -3882,16 +3924,23 @@ def output_assignment(assignment):
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
 		test = "Pminus1"
-		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1, assignment.B2))
-		if assignment.sieve_depth > 0.0:
+		temp.extend((assignment.k, assignment.b, assignment.n, assignment.c, assignment.B1, assignment.B2))
+		if assignment.sieve_depth > 0:
 			temp.append("{:.0f}".format(assignment.sieve_depth))
 		if assignment.B2_start > assignment.B1:
 			temp.append(assignment.B2_start)
 		if assignment.known_factors:
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PPLUS1:
+		test = "Pplus1"
+		temp.extend((assignment.k, assignment.b, assignment.n, assignment.c, assignment.B1, assignment.B2, assignment.nth_run))
+		if assignment.sieve_depth > 0:
+			temp.append("{:.0f}".format(assignment.sieve_depth))
+		if assignment.known_factors:
+			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
 	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 		test = "ECM2"
-		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.B1))
+		temp.extend((assignment.k, assignment.b, assignment.n, assignment.c, assignment.B1))
 		if assignment.B2 or assignment.curves_to_do or assignment.curve:
 			temp.append(assignment.B2)
 		if assignment.curves_to_do or assignment.curve:
@@ -3902,9 +3951,9 @@ def output_assignment(assignment):
 			temp.append('"' + ",".join(map(str, assignment.known_factors)) + '"')
 	elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
 		test = "Cert"
-		temp.extend(("{:.0f}".format(assignment.k), assignment.b, assignment.n, assignment.c, assignment.cert_squarings))
+		temp.extend((assignment.k, assignment.b, assignment.n, assignment.c, assignment.cert_squarings))
 
-	if assignment.work_type not in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.ECM}:
+	if assignment.work_type not in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PPLUS1, PRIMENET_WORK_TYPE.ECM}:
 		if assignment.B1:
 			test = "B1={}{};".format(assignment.B1, ",B2={}".format(assignment.B2) if assignment.B2 else "") + test
 		elif assignment.B2:
@@ -6359,6 +6408,8 @@ def output_status(config, args, dirs, cpu_num=None):
 				work_type_str = "P-1"
 			elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
 				work_type_str = "P-1 B1={}".format(assignment.B1)
+			elif assignment.work_type == PRIMENET_WORK_TYPE.PPLUS1:
+				work_type_str = "P+1 B1={}".format(assignment.B1)
 			elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
 				work_type_str = "ECM {} curve{} B1={}".format(
 					assignment.curves_to_do, "s" if assignment.curves_to_do != 1 else "", assignment.B1
@@ -6792,7 +6843,8 @@ def program_options(config, args, send=False, start=-1, retry_count=0):
 		params["t"] = "po"
 		params["g"] = guid
 		# no value updates all cpu threads with given worktype
-		params["c"] = "" if tnum < 0 else tnum
+		if tnum >= 0:
+			params["c"] = tnum
 		if send:
 			options_changed = False
 			if len(set(args.work_preference)) == 1 if tnum < 0 else len(set(args.work_preference)) != 1:
@@ -7247,6 +7299,8 @@ def get_assignment(
 	if assignment.work_type not in {
 		PRIMENET_WORK_TYPE.FACTOR,
 		PRIMENET_WORK_TYPE.PFACTOR,
+		PRIMENET_WORK_TYPE.PMINUS1,
+		PRIMENET_WORK_TYPE.PPLUS1,
 		PRIMENET_WORK_TYPE.ECM,
 		PRIMENET_WORK_TYPE.FIRST_LL,
 		PRIMENET_WORK_TYPE.DBLCHK,
@@ -7262,7 +7316,7 @@ def get_assignment(
 		assignment.pminus1ed = int(r["p1"])
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
 		assignment.prp_dblchk = "dc" in r
-		assignment.k = float(r["A"])
+		assignment.k = int(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
 		if "sf" in r and "saved" in r:
@@ -7305,7 +7359,7 @@ def get_assignment(
 		if "kf" in r:
 			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
-		assignment.k = float(r["A"])
+		assignment.k = int(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
 		assignment.sieve_depth = float(r["sf"])
@@ -7313,15 +7367,24 @@ def get_assignment(
 		if "kf" in r:
 			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
-		assignment.k = float(r["A"])
+		assignment.k = int(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
 		assignment.B1 = int(r["B1"])
 		assignment.B2 = int(r["B2"])
 		if "kf" in r:
 			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PPLUS1:
+		assignment.k = int(r["A"])
+		assignment.b = int(r["b"])
+		assignment.c = int(r["c"])
+		assignment.nth_run = int(r["nr"])
+		assignment.B1 = int(r["B1"])
+		assignment.B2 = int(r["B2"])
+		if "kf" in r:
+			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
 	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
-		assignment.k = float(r["A"])
+		assignment.k = int(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
 		assignment.B1 = int(r["B1"])
@@ -7330,7 +7393,7 @@ def get_assignment(
 		if "kf" in r:
 			assignment.known_factors = tuple(map(int, r["kf"].split(",")))
 	elif assignment.work_type == PRIMENET_WORK_TYPE.CERT:
-		assignment.k = float(r["A"])
+		assignment.k = int(r["A"])
 		assignment.b = int(r["b"])
 		assignment.c = int(r["c"])
 		assignment.cert_squarings = int(r["ns"])
@@ -7387,7 +7450,8 @@ def get_cert_work(config, args, adapter, adir, cpu_num, current_time, progress, 
 	if args.cert_cpu_limit < 50 and (
 		(
 			assignment is not None
-			and assignment.work_type in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PFACTOR, PRIMENET_WORK_TYPE.ECM}
+			and assignment.work_type
+			in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PFACTOR, PRIMENET_WORK_TYPE.PPLUS1, PRIMENET_WORK_TYPE.ECM}
 		)
 		or (percent is not None and percent > 0.85)
 	):
@@ -7518,7 +7582,7 @@ def report_result(config, args, adapter, ar, message, assignment, result_type, t
 		params["ec"] = ar.get("error-code", "0" * 8)
 	elif result_type in {PRIMENET_AR.PRP_RESULT, PRIMENET_AR.PRP_PRIME}:
 		params["d"] = 1
-		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		params.update((("A", assignment.k), ("b", assignment.b), ("c", assignment.c)))
 		if result_type == PRIMENET_AR.PRP_RESULT:
 			params["rd"] = ar["res64"].strip().zfill(16)
 			params["rt"] = ar["residue-type"]
@@ -7561,15 +7625,28 @@ def report_result(config, args, adapter, ar, message, assignment, result_type, t
 			)
 			else 0
 		)
-		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		params.update((("A", assignment.k), ("b", assignment.b), ("c", assignment.c)))
 		params["B1"] = ar["B1"] if "B1" in ar else ar["b1"]
 		if "b2" in ar or "B2" in ar:
 			params["B2"] = ar["B2"] if "B2" in ar else ar["b2"]
+		elif result_type == PRIMENET_AR.P1_NOFACTOR:
+			params["B2"] = params["B1"]
 		if result_type == PRIMENET_AR.P1_FACTOR:
+			params["f"] = ",".join(ar["factors"])
+	elif result_type in {PRIMENET_AR.PP1_FACTOR, PRIMENET_AR.PP1_NOFACTOR}:
+		params["d"] = 1
+		params.update((("A", assignment.k), ("b", assignment.b), ("c", assignment.c)))
+		params["pp1n"], params["pp1d"] = map(int, ar["start"].split("/", 1))
+		params["B1"] = ar["b1"]
+		if "b2" in ar:
+			params["B2"] = ar["b2"]
+		elif result_type == PRIMENET_AR.PP1_NOFACTOR:
+			params["B2"] = params["B1"]
+		if result_type == PRIMENET_AR.PP1_FACTOR:
 			params["f"] = ",".join(ar["factors"])
 	elif result_type in {PRIMENET_AR.ECM_FACTOR, PRIMENET_AR.ECM_NOFACTOR}:
 		params["d"] = 1
-		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		params.update((("A", assignment.k), ("b", assignment.b), ("c", assignment.c)))
 		params["CR"] = ar["curves"]
 		params["B1"] = ar["b1"]
 		if "b2" in ar:
@@ -7580,7 +7657,7 @@ def report_result(config, args, adapter, ar, message, assignment, result_type, t
 			params["f"] = ",".join(ar["factors"])
 	elif result_type == PRIMENET_AR.CERT:
 		params["d"] = 1
-		params.update((("A", "{:.0f}".format(assignment.k)), ("b", assignment.b), ("c", assignment.c)))
+		params.update((("A", assignment.k), ("b", assignment.b), ("c", assignment.c)))
 		params["s3"] = ar["sha3-hash"]
 		params["ec"] = ar.get("error-code", "0" * 8)
 		if "shift-count" in ar:
@@ -7764,6 +7841,9 @@ def parse_result(config, args, adapter, adir, cpu_num, resultsfile, sendline):
 	elif worktype in {"P-1", "PM1"}:
 		result_type = PRIMENET_AR.P1_FACTOR if ar["status"] == "F" else PRIMENET_AR.P1_NOFACTOR
 		# ar["status"] == "NF"
+	elif worktype == "P+1":
+		result_type = PRIMENET_AR.PP1_FACTOR if ar["status"] == "F" else PRIMENET_AR.PP1_NOFACTOR
+		# ar["status"] == "NF"
 	elif worktype == "ECM":
 		result_type = PRIMENET_AR.ECM_FACTOR if ar["status"] == "F" else PRIMENET_AR.ECM_NOFACTOR
 		# ar["status"] == "NF"
@@ -7839,6 +7919,24 @@ def parse_result(config, args, adapter, adir, cpu_num, resultsfile, sendline):
 				", B2={}{}".format(b2, ", E={}".format(ar["brent-suyama"]) if "brent-suyama" in ar else "")
 				if b2 is not None
 				else "",
+				ar.get("security-code", "-"),
+			)
+	elif result_type in {PRIMENET_AR.PP1_FACTOR, PRIMENET_AR.PP1_NOFACTOR}:
+		if result_type == PRIMENET_AR.PP1_FACTOR:
+			factors = ar["factors"]
+			buf += "{} has {}factor{}: {} (P+1, B1={}{})".format(
+				exponent_to_str(assignment),
+				"a " if len(factors) == 1 else "",
+				"s" if len(factors) != 1 else "",
+				", ".join(factors),
+				ar["b1"],
+				", B2={}".format(ar["b2"]) if "b2" in ar else "",
+			)
+		else:
+			buf += "{} completed P+1, B1={}{}, {}".format(
+				exponent_to_str(assignment),
+				ar["b1"],
+				", B2={}".format(ar["b2"]) if "b2" in ar else "",
 				ar.get("security-code", "-"),
 			)
 	elif result_type in {PRIMENET_AR.ECM_FACTOR, PRIMENET_AR.ECM_NOFACTOR}:
@@ -8015,7 +8113,7 @@ Python version: {}
 		adapter.debug("Sending result: %r", sendline)
 		adapter.info("Sending result to server: %s", buf)
 
-	if result_type in {PRIMENET_AR.TF_FACTOR, PRIMENET_AR.P1_FACTOR, PRIMENET_AR.ECM_FACTOR}:
+	if result_type in {PRIMENET_AR.TF_FACTOR, PRIMENET_AR.P1_FACTOR, PRIMENET_AR.PP1_FACTOR, PRIMENET_AR.ECM_FACTOR}:
 		for factor in map(int, ar["factors"]):
 			adapter.info(
 				"The %s factor %s has %s decimal digits and %g bits",
@@ -8027,13 +8125,15 @@ Python version: {}
 			if result_type == PRIMENET_AR.TF_FACTOR:
 				if pow(2, assignment.n, factor) - 1:
 					adapter.warning("Bad factor for M%s found: %s", assignment.n, factor)
-			elif (int(assignment.k) * pow(assignment.b, assignment.n, factor) + assignment.c) % factor:
+			elif (assignment.k * pow(assignment.b, assignment.n, factor) + assignment.c) % factor:
 				adapter.warning("Bad factor for %s found: %s", exponent_to_str(assignment), factor)
 
 	return ar, message, assignment, result_type, no_report
 
 
-RESULT_PATTERN = re.compile(r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf|PrimePath)"|CUDA(?:Lucas|Pm1) v')
+RESULT_PATTERN = re.compile(
+	r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf|PrimePath|Mp_p-1_gpu)"|CUDA(?:Lucas|Pm1) v'
+)
 
 
 def submit_work(config, args, _dirs, adapter, adir, cpu_num, tasks):
@@ -8103,7 +8203,12 @@ def submit_work(config, args, _dirs, adapter, adir, cpu_num, tasks):
 						failed.append(sendline)
 
 				if is_sent:
-					if result_type in {PRIMENET_AR.TF_FACTOR, PRIMENET_AR.P1_FACTOR, PRIMENET_AR.ECM_FACTOR}:
+					if result_type in {
+						PRIMENET_AR.TF_FACTOR,
+						PRIMENET_AR.P1_FACTOR,
+						PRIMENET_AR.PP1_FACTOR,
+						PRIMENET_AR.ECM_FACTOR,
+					}:
 						config.set(SEC.Internals, "RollingStartTime", str(0))
 						# adjust_rolling_average(config, args, dirs)
 					else:
@@ -8462,7 +8567,7 @@ def register_assignment(config, args, adapter, cpu_num, assignment, retry_count=
 		params["sf"] = assignment.sieve_depth
 		params["p1"] = assignment.pminus1ed
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PRP:
-		params["A"] = "{:.0f}".format(assignment.k)
+		params["A"] = assignment.k
 		params["b"] = assignment.b
 		params["C"] = assignment.c
 		params["sf"] = assignment.sieve_depth
@@ -8472,20 +8577,27 @@ def register_assignment(config, args, adapter, cpu_num, assignment, retry_count=
 		if assignment.factor_to:
 			params["ef"] = assignment.factor_to
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
-		params["A"] = "{:.0f}".format(assignment.k)
+		params["A"] = assignment.k
 		params["b"] = assignment.b
 		params["C"] = assignment.c
 		params["sf"] = assignment.sieve_depth
 		params["saved"] = assignment.tests_saved
 	elif assignment.work_type == PRIMENET_WORK_TYPE.PMINUS1:
-		params["A"] = "{:.0f}".format(assignment.k)
+		params["A"] = assignment.k
+		params["b"] = assignment.b
+		params["C"] = assignment.c
+		params["B1"] = assignment.B1
+		if assignment.B2:
+			params["B2"] = assignment.B2
+	elif assignment.work_type == PRIMENET_WORK_TYPE.PPLUS1:
+		params["A"] = assignment.k
 		params["b"] = assignment.b
 		params["C"] = assignment.c
 		params["B1"] = assignment.B1
 		if assignment.B2:
 			params["B2"] = assignment.B2
 	elif assignment.work_type == PRIMENET_WORK_TYPE.ECM:
-		params["A"] = "{:.0f}".format(assignment.k)
+		params["A"] = assignment.k
 		params["b"] = assignment.b
 		params["C"] = assignment.c
 		params["B1"] = assignment.B1
@@ -8592,7 +8704,7 @@ Use the following values to select a worktype:
 					if p is not None:
 						if is_prime(p):
 							break
-						print("This number is not prime, there is no need to test it.")
+						print("This number is composite (not prime), there is no need to test it.")
 
 				result = get_exponent(args, adapter, p)
 				sieve_depth = factor_to = pminus1ed = tests_saved = curves_to_do = None
@@ -8685,7 +8797,7 @@ https://www.mersenne.ca/M{}
 							if factor is None:
 								break
 							if not is_prime(factor):
-								print("Factor is not prime")
+								print("Factor is composite (not prime)")
 							elif pow(2, p, product * factor) - 1:
 								print("Bad factor for M{}".format(p))
 							else:
@@ -8699,7 +8811,7 @@ https://www.mersenne.ca/M{}
 					break
 
 				assignment = Assignment()
-				assignment.k = 1.0
+				assignment.k = 1
 				assignment.b = 2
 				assignment.n = p
 				assignment.c = -1
@@ -10140,7 +10252,7 @@ group.add_argument(
 	dest="day_night_memory",
 	type=int,
 	default=round(memory * 0.9),
-	help="Configured day/night P-1/ECM stage 2 memory (MiB), Default: %(default)r MiB (90%% of physical memory). Required for P-1 assignments.",
+	help="Configured day/night P-1/P+1/ECM stage 2 memory (MiB), Default: %(default)r MiB (90%% of physical memory). Required for P-1 assignments.",
 )
 group.add_argument(
 	"--max-disk-space",

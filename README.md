@@ -5,13 +5,13 @@ The PrimeNet automated assignment handler program for GIMPS
 
 Copyright © 2024 Teal Dulcet
 
-Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. Additionally, it can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and greater, and Windows, macOS and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
+Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. Additionally, it can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and greater, and Windows, macOS, FreeBSD and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
 
 Originally adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
 
 AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Scripts](https://github.com/tdulcet/Distributed-Computing-Scripts#primenet) repository.
 
-❤️ Please visit [tealdulcet.com](https://www.tealdulcet.com/) to support this program and my other software development.
+❤️ Please visit [tealdulcet.com](https://tealdulcet.com/) to support this program and my other open source software development.
 
 ## Features
 
@@ -51,12 +51,14 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 		* Prime95/MPrime
 		* cofact
 		* gvtf
+		* Mp_p-1_gpu
 * Supported worktypes
 	* LL
 	* PRP
 	* PRP cofactor
 	* Trial Factoring (TF)
 	* P-1 factoring
+	* P+1 factoring
 	* ECM factoring
 	* PRP Certification (CERT)
 * Supports multiple workers (CPU Cores or GPUs)
@@ -133,7 +135,7 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 	* Outputs number of decimal digits and bits
 * Optional alert after finding a new Mersenne Prime!
 * Supports Python versions 3.4 and greater 
-* Supports Windows, macOS and Linux
+* Supports Windows, macOS, FreeBSD and Linux
 	* Should support any system from the last 12+ years
 * 100% Open Source
 * Can claim full EFF Awards
@@ -413,7 +415,7 @@ Registering Options:
                         Processor frequency/speed (MHz), Default: 1000 MHz
   --memory MEMORY       Total physical memory (RAM) (MiB), Default: 1024 MiB
   --max-memory DAY_NIGHT_MEMORY
-                        Configured day/night P-1/ECM stage 2 memory (MiB),
+                        Configured day/night P-1/P+1/ECM stage 2 memory (MiB),
                         Default: 921 MiB (90% of physical memory). Required
                         for P-1 assignments.
   --max-disk-space WORKER_DISK_SPACE
@@ -473,7 +475,7 @@ It respects the [`NO_COLOR`](https://no-color.org/) and [`FORCE_COLOR`](https://
 Pull requests welcome! Ideas for contributions:
 
 * Support more GIMPS programs.
-* Support FreeBSD and Android.
+* Support Android.
 	* ⭐ Help wanted
 * Support running the GIMPS program directly.
 * Support multiple instances of PRPLL.

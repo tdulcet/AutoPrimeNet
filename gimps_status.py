@@ -463,7 +463,7 @@ class work_unit:
 		"""Initialize a work-unit status record with default values and an optional work type."""
 		self.work_type = work_type
 		# k*b^n+c
-		self.k = 1.0
+		self.k = 1
 		self.b = 2
 		self.n = 0
 		self.c = -1
@@ -532,9 +532,9 @@ def checkpoint_checksum(buffer):
 def exponent_to_str(assignment):
 	"""Return a formatted string for a work unit's integer or exponential form."""
 	if not assignment.n:
-		buf = "{:.0f}".format(assignment.k + assignment.c)
+		buf = "{}".format(assignment.k + assignment.c)
 	elif assignment.k != 1:
-		buf = "{0.k:.0f}*{0.b}^{0.n}{0.c:+}".format(assignment)
+		buf = "{0.k}*{0.b}^{0.n}{0.c:+}".format(assignment)
 	elif assignment.b == 2 and assignment.c == -1:
 		buf = "M{.n}".format(assignment)
 	else:
@@ -990,7 +990,8 @@ def parse_work_unit_prime95(filename):
 
 	try:
 		with open(filename, "rb") as f:
-			magicnum, wu.version, wu.k, wu.b, wu.n, wu.c, stage, pct_complete, filesum = unpack("<IIdIIi10sxxdI", f)
+			magicnum, wu.version, k, wu.b, wu.n, wu.c, stage, pct_complete, filesum = unpack("<IIdIIi10sxxdI", f)
+			wu.k = int(k)
 
 			wu.stage = stage.rstrip(b"\0").decode()
 			wu.pct_complete = max(0, min(1, pct_complete))
@@ -1435,7 +1436,7 @@ def parse_work_unit_prime95(filename):
 								_gg, asum = read_residue_prime95(f, asum)
 
 				if args.jacobi:
-					modulus = int(wu.k) * wu.b**wu.n + wu.c
+					modulus = wu.k * wu.b**wu.n + wu.c
 					if modulus > 0 and modulus & 1:
 						residue = int.from_bytes(x, "little")
 						base_symbol = jacobi(3 if wu.b != 3 else 5, modulus)
@@ -1501,7 +1502,7 @@ def parse_work_unit_prime95(filename):
 					V, asum = read_residue_prime95(f, asum)
 
 				if args.jacobi:
-					modulus = int(wu.k) * wu.b**wu.n + wu.c
+					modulus = wu.k * wu.b**wu.n + wu.c
 					if modulus > 0 and modulus & 1:
 						residue = int.from_bytes(V, "little")
 						futures.append(executor.submit(jacobi_test_pp1, wu, modulus, residue, filename))
@@ -2722,7 +2723,7 @@ def parse_proof(filename):
 					wu.c = int(exponent) - 1
 			else:
 				if k:
-					wu.k = float(k)
+					wu.k = int(k)
 				wu.b = int(b)
 				wu.n = int(n)
 				wu.c = int(c)
@@ -2744,7 +2745,7 @@ def parse_proof(filename):
 					return None
 				residue = int.from_bytes(buffer, "little")
 				if wu.c != 1:
-					modulus = int(wu.k) * (1 << wu.n) + wu.c
+					modulus = wu.k * (1 << wu.n) + wu.c
 					# Python 3.8+
 					# pow(pow(wu.prp_base, 1 - wu.c, modulus), -1, modulus)
 					inverse = (
