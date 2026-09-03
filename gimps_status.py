@@ -115,7 +115,7 @@ def integer_root(n, k):
 
 
 if sys.platform != "win32":
-	libc = ctypes.CDLL(find_library("c"))
+	libc = ctypes.CDLL(None)
 	libc.wcswidth.argtypes = (ctypes.c_wchar_p, ctypes.c_int)
 	libc.wcswidth.restype = ctypes.c_int
 
