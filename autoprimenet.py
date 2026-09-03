@@ -415,7 +415,7 @@ if sys.platform == "win32":  # Windows
 		return output
 
 elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):  # macOS or FreeBSD
-	libc = ctypes.CDLL(find_library("c"), use_errno=True)
+	libc = ctypes.CDLL(None, use_errno=True)
 
 	libc.sysctlbyname.argtypes = (
 		ctypes.c_char_p,
@@ -439,8 +439,8 @@ elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):  # macOS or
 
 	def sysctl_value(name, ctype):
 		"""Return a typed sysctl value for the specified name on macOS or FreeBSD."""
-		size = ctypes.c_size_t(ctypes.sizeof(ctype))
 		value = ctype()
+		size = ctypes.c_size_t(ctypes.sizeof(value))
 		if libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0):
 			return None
 		return value.value
@@ -477,7 +477,7 @@ elif sys.platform.startswith("linux"):
 					break
 			return info
 
-	libc = ctypes.CDLL(find_library("c"), use_errno=True)
+	libc = ctypes.CDLL(None, use_errno=True)
 
 	class sysinfo(ctypes.Structure):
 		"""Linux sysinfo(2) memory, load, uptime, and process-count structure."""
@@ -502,6 +502,172 @@ elif sys.platform.startswith("linux"):
 	libc.sysinfo.argtypes = (ctypes.POINTER(sysinfo),)
 	# libc.sysinfo.restype = ctypes.c_int
 
+is_64bit = ctypes.sizeof(ctypes.c_void_p) == 8
+
+machine = platform.machine().lower()
+if machine in {"x86", "i386", "i686", "x86_64", "amd64"}:  # "i486", "i586"
+	if sys.platform == "win32":
+		kernel32.VirtualAlloc.argtypes = (wintypes.LPVOID, ctypes.c_size_t, wintypes.DWORD, wintypes.DWORD)
+		kernel32.VirtualAlloc.restype = wintypes.LPVOID
+
+		kernel32.VirtualFree.argtypes = (wintypes.LPVOID, ctypes.c_size_t, wintypes.DWORD)
+		# kernel32.VirtualFree.restype = wintypes.BOOL
+
+		class asm_func:
+			"""Callable wrapper around executable machine code allocated with VirtualAlloc."""
+
+			__slots__ = ("address", "function")
+
+			def __init__(self, code, restype, *argtypes):
+				"""Create a callable machine-code function with the specified ctypes signature."""
+				# MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE
+				self.address = kernel32.VirtualAlloc(None, len(code), 0x1000 | 0x2000, 0x40)
+				if not self.address:
+					raise OSError(ctypes.get_last_error(), "VirtualAlloc failed")
+				ctypes.memmove(self.address, code, len(code))
+
+				self.function = ctypes.CFUNCTYPE(restype, *argtypes)(self.address)
+
+			def __del__(self):
+				"""Release the executable memory backing this machine-code function."""
+				kernel32.VirtualFree(self.address, 0, 0x8000)  # MEM_RELEASE
+
+	else:
+		import mmap
+
+		class asm_func:
+			"""Callable wrapper around executable machine code stored in an mmap page."""
+
+			__slots__ = ("page", "function")
+
+			def __init__(self, code, restype, *argtypes):
+				"""Create a callable machine-code function with the specified ctypes signature."""
+				flags = mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS  # mmap.MAP_ANON
+				if sys.platform == "darwin":
+					flags |= getattr(mmap, "MAP_JIT", 0)
+				self.page = mmap.mmap(
+					-1, max(len(code), mmap.PAGESIZE), flags=flags, prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC
+				)
+				self.page.write(code)
+				address = ctypes.addressof(ctypes.c_char.from_buffer(self.page))
+
+				self.function = ctypes.CFUNCTYPE(restype, *argtypes)(address)
+
+			def __del__(self):
+				"""Release the executable memory backing this machine-code function."""
+				self.page.close()
+
+	class CPUID(asm_func):
+		"""Callable wrapper for the x86 CPUID instruction."""
+
+		__slots__ = ()
+
+		if is_64bit and sys.platform == "win32":
+			# Windows x64
+			CODE = (
+				b"\x53"  # push rbx
+				b"\x4d\x89\xc1"  # mov r9,r8
+				b"\x89\xc8"  # mov eax,ecx
+				b"\x89\xd1"  # mov ecx,edx
+				b"\x0f\xa2"  # cpuid
+				b"\x41\x89\x01"  # mov [r9],eax
+				b"\x41\x89\x59\x04"  # mov [r9+4],ebx
+				b"\x41\x89\x49\x08"  # mov [r9+8],ecx
+				b"\x41\x89\x51\x0c"  # mov [r9+12],edx
+				b"\x5b"  # pop rbx
+				b"\xc3"  # ret
+			)
+		elif is_64bit:
+			# System V x86-64
+			CODE = (
+				b"\x53"  # push rbx
+				b"\x49\x89\xd0"  # mov r8,rdx
+				b"\x89\xf8"  # mov eax,edi
+				b"\x89\xf1"  # mov ecx,esi
+				b"\x0f\xa2"  # cpuid
+				b"\x41\x89\x00"  # mov [r8],eax
+				b"\x41\x89\x58\x04"  # mov [r8+4],ebx
+				b"\x41\x89\x48\x08"  # mov [r8+8],ecx
+				b"\x41\x89\x50\x0c"  # mov [r8+12],edx
+				b"\x5b"  # pop rbx
+				b"\xc3"  # ret
+			)
+		else:
+			# 32-bit cdecl
+			CODE = (
+				b"\x53"  # push ebx
+				b"\x57"  # push edi
+				b"\x8b\x7c\x24\x14"  # mov edi,[esp+20]  ; output
+				b"\x8b\x44\x24\x0c"  # mov eax,[esp+12]  ; leaf
+				b"\x8b\x4c\x24\x10"  # mov ecx,[esp+16]  ; subleaf
+				b"\x0f\xa2"  # cpuid
+				b"\x89\x07"  # mov [edi],eax
+				b"\x89\x5f\x04"  # mov [edi+4],ebx
+				b"\x89\x4f\x08"  # mov [edi+8],ecx
+				b"\x89\x57\x0c"  # mov [edi+12],edx
+				b"\x5f"  # pop edi
+				b"\x5b"  # pop ebx
+				b"\xc3"  # ret
+			)
+
+		def __init__(self):
+			"""Initialize the CPUID machine-code wrapper."""
+			super().__init__(self.CODE, None, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))
+
+		def __call__(self, leaf, subleaf=0):
+			"""Return EAX, EBX, ECX, and EDX for the specified CPUID leaf and subleaf."""
+			registers = (ctypes.c_uint32 * 4)()
+			self.function(leaf, subleaf, registers)
+			return registers
+
+	class XGETBV(asm_func):
+		"""Callable wrapper for the x86 XGETBV instruction."""
+
+		__slots__ = ()
+
+		if is_64bit and sys.platform == "win32":
+			# Windows x64
+			CODE = (
+				b"\x0f\x01\xd0"  # xgetbv
+				b"\x48\xc1\xe2\x20"  # shl rdx,32
+				b"\x48\x09\xd0"  # or rax,rdx
+				b"\xc3"  # ret
+			)
+		elif is_64bit:
+			# System V x86-64
+			CODE = (
+				b"\x89\xf9"  # mov ecx,edi
+				b"\x0f\x01\xd0"  # xgetbv
+				b"\x48\xc1\xe2\x20"  # shl rdx,32
+				b"\x48\x09\xd0"  # or rax,rdx
+				b"\xc3"  # ret
+			)
+		else:
+			# 32-bit cdecl
+			CODE = (
+				b"\x8b\x4c\x24\x04"  # mov ecx,[esp+4]
+				b"\x0f\x01\xd0"  # xgetbv
+				b"\xc3"  # ret
+			)
+
+		def __init__(self):
+			"""Initialize the XGETBV machine-code wrapper."""
+			super().__init__(self.CODE, ctypes.c_uint64, ctypes.c_uint32)
+
+		def __call__(self, index):
+			"""Return the specified extended-control-register value using XGETBV."""
+			return self.function(index)
+
+elif machine.startswith("arm") or machine == "aarch64":
+	if sys.platform == "win32":
+		kernel32.IsProcessorFeaturePresent.argtypes = (wintypes.DWORD,)
+		# kernel32.IsProcessorFeaturePresent.restype = wintypes.BOOL
+	elif sys.platform.startswith("freebsd"):
+		libc.elf_aux_info.argtypes = (ctypes.c_int, ctypes.c_void_p, ctypes.c_int)
+		# libc.elf_aux_info.restype = ctypes.c_int
+	elif sys.platform.startswith("linux"):
+		libc.getauxval.argtypes = (ctypes.c_ulong,)
+		libc.getauxval.restype = ctypes.c_ulong
 
 cl_lib = find_library("OpenCL")
 if cl_lib:
@@ -556,6 +722,9 @@ if cuda_lib:
 	cuda.cuDeviceGetAttribute.argtypes = (ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int)
 	# cuda.cuDeviceGetAttribute.restype = ctypes.c_int
 
+	cuda.cuDeviceComputeCapability.argtypes = (ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_int)
+	# cuda.cuDeviceComputeCapability.restype = ctypes.c_int
+
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
 	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
@@ -579,12 +748,6 @@ if nvml_lib:
 	nvmlInit = nvml.nvmlInit_v2 if hasattr(nvml, "nvmlInit_v2") else nvml.nvmlInit
 	# nvmlInit.argtypes = ()
 	# nvmlInit.restype = ctypes.c_int
-
-	nvml.nvmlSystemGetDriverVersion.argtypes = (ctypes.c_char_p, ctypes.c_uint)
-	# nvml.nvmlSystemGetDriverVersion.restype = ctypes.c_int
-
-	nvml.nvmlSystemGetCudaDriverVersion.argtypes = (ctypes.POINTER(ctypes.c_int),)
-	# nvml.nvmlSystemGetCudaDriverVersion.restype = ctypes.c_int
 
 	nvmlDeviceGetCount = nvml.nvmlDeviceGetCount_v2 if hasattr(nvml, "nvmlDeviceGetCount_v2") else nvml.nvmlDeviceGetCount
 	nvmlDeviceGetCount.argtypes = (ctypes.POINTER(ctypes.c_uint),)
@@ -1411,7 +1574,7 @@ MAX_PRIMENET_EXP = 1000000000
 TIMEOUT = 30
 PRIMENET_TIMEOUT = MERSENNE_CA_TIMEOUT = 180
 
-is_64bit = platform.machine().endswith("64")
+# is_64bit = platform.machine().endswith("64")
 # PORT = None
 # if sys.platform == "win32":
 # 	PORT = 4 if is_64bit else 1
@@ -2002,10 +2165,12 @@ def ask_ok_cancel():
 def get_device_str(device, name):
 	"""Return a string-valued OpenCL device property."""
 	size = ctypes.c_size_t()
-	cl.clGetDeviceInfo(device, name, 0, None, ctypes.byref(size))
+	if cl.clGetDeviceInfo(device, name, 0, None, ctypes.byref(size)):
+		return None
 
 	buf = ctypes.create_string_buffer(size.value)
-	cl.clGetDeviceInfo(device, name, size, buf, None)
+	if cl.clGetDeviceInfo(device, name, size, buf, None):
+		return None
 	return buf.value
 
 
@@ -2013,7 +2178,8 @@ def get_device_value(device, name, ctype):
 	"""Return a typed scalar OpenCL device property."""
 	size = ctypes.sizeof(ctype)
 	value = ctype()
-	cl.clGetDeviceInfo(device, name, size, ctypes.byref(value), None)
+	if cl.clGetDeviceInfo(device, name, size, ctypes.byref(value), None):
+		return None
 	return value.value
 
 
@@ -2056,10 +2222,34 @@ def get_opencl_devices():
 
 			frequency = get_device_value(device, 0x100C, ctypes.c_uint)  # CL_DEVICE_MAX_CLOCK_FREQUENCY
 
-			mem = get_device_value(device, 0x101F, ctypes.c_uint64)  # CL_DEVICE_GLOBAL_MEM_SIZE
+			mem = get_device_value(device, 0x101F, ctypes.c_ulonglong)  # CL_DEVICE_GLOBAL_MEM_SIZE
 			memory = mem >> 20
 
-			adevices.append((name.decode(), cores, frequency, memory, "OpenCL"))
+			l1 = get_device_value(device, 0x1023, ctypes.c_ulonglong)  # CL_DEVICE_LOCAL_MEM_SIZE
+			l1_cache_size = l1 >> 10
+
+			l2 = get_device_value(device, 0x101E, ctypes.c_ulonglong)  # CL_DEVICE_GLOBAL_MEM_CACHE_SIZE
+			l2_cache_size = l2 >> 10
+
+			extensions = frozenset(get_device_str(device, 0x1030).split())  # CL_DEVICE_EXTENSIONS
+
+			features = []
+			if b"cl_nv_device_attribute_query" in extensions:
+				major = get_device_value(device, 0x4000, ctypes.c_uint)  # CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV
+				minor = get_device_value(device, 0x4001, ctypes.c_uint)  # CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV
+				if major is not None and minor is not None:
+					features.append("ARCH=SM{}{}".format(major, minor))
+			elif b"cl_amd_device_attribute_query" in extensions:
+				major = get_device_value(device, 0x404A, ctypes.c_uint)  # CL_DEVICE_GFXIP_MAJOR_AMD
+				minor = get_device_value(device, 0x404B, ctypes.c_uint)  # CL_DEVICE_GFXIP_MINOR_AMD
+				if major is not None and minor is not None:
+					features.append("ARCH=GFXIP{}.{}".format(major, minor))
+			elif b"cl_intel_device_attribute_query" in extensions:
+				version = get_device_value(device, 0x4250, ctypes.c_uint)  # CL_DEVICE_IP_VERSION_INTEL
+				if version is not None:
+					features.append("ARCH=INTELIP{}.{}.{}".format(version >> 22, (version >> 12) & 0x3FF, version & 0xFFF))
+
+			adevices.append((name.decode(), cores, frequency, l1_cache_size, l2_cache_size, memory, ",".join(features), "OpenCL"))
 
 	return adevices
 
@@ -2067,7 +2257,8 @@ def get_opencl_devices():
 def get_device_attr(attr, device):
 	"""Return a CUDA device attribute value, or None if the query fails."""
 	value = ctypes.c_int()
-	cuda.cuDeviceGetAttribute(ctypes.byref(value), attr, device)
+	if cuda.cuDeviceGetAttribute(ctypes.byref(value), attr, device):
+		return None
 	return value.value
 
 
@@ -2095,6 +2286,15 @@ def get_cuda_devices():
 		cuda.cuDeviceGetName(buf, len(buf), device)
 		name = buf.value
 
+		major = get_device_attr(75, device)  # CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR
+		minor = get_device_attr(76, device)  # CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR
+		if not major and not minor:
+			amajor = ctypes.c_int()
+			aminor = ctypes.c_int()
+			cuda.cuDeviceComputeCapability(ctypes.byref(amajor), ctypes.byref(aminor), device)
+			major = amajor.value
+			minor = aminor.value
+
 		cores = get_device_attr(16, device)  # CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT
 
 		clock = get_device_attr(13, device)  # CU_DEVICE_ATTRIBUTE_CLOCK_RATE
@@ -2104,7 +2304,18 @@ def get_cuda_devices():
 		cuDeviceTotalMem(ctypes.byref(mem), device)
 		memory = mem.value >> 20
 
-		devices.append((name.decode(), cores, frequency, memory, "CUDA"))
+		l1 = get_device_attr(81, device)  # CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR
+		l1_cache_size = l1 >> 10
+
+		l2 = get_device_attr(38, device)  # CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE
+		l2_cache_size = l2 >> 10
+
+		features = ["ARCH=SM{}{}".format(major, minor)]
+		ratio = get_device_attr(87, device)  # CU_DEVICE_ATTRIBUTE_SINGLE_TO_DOUBLE_PRECISION_PERF_RATIO
+		if ratio:
+			features.append("DP:SP=1:{}".format(ratio))
+
+		devices.append((name.decode(), cores, frequency, l1_cache_size, l2_cache_size, memory, ",".join(features), "CUDA"))
 
 	return devices
 
@@ -2134,6 +2345,10 @@ def get_nvml_devices():
 			nvml.nvmlDeviceGetName(device, buf, len(buf))
 			name = buf.value
 
+			major = ctypes.c_int()
+			minor = ctypes.c_int()
+			nvml.nvmlDeviceGetCudaComputeCapability(device, ctypes.byref(major), ctypes.byref(minor))
+
 			clock = ctypes.c_uint()
 			nvml.nvmlDeviceGetMaxClockInfo(device, 1, ctypes.byref(clock))  # NVML_CLOCK_SM
 			frequency = clock.value
@@ -2146,7 +2361,9 @@ def get_nvml_devices():
 			nvmlDeviceGetMemoryInfo(device, ctypes.byref(mem))
 			memory = mem.total >> 20
 
-			devices.append((name.decode(), None, frequency, memory, "NVML"))
+			features = ["ARCH=SM{}{}".format(major.value, minor.value)]
+
+			devices.append((name.decode(), None, frequency, None, None, memory, ",".join(features), "NVML"))
 	finally:
 		nvml.nvmlShutdown()
 
@@ -2497,13 +2714,27 @@ def setup(config, args):
 		gpus = get_gpus()
 		if gpus:
 			print("Detected GPUs (some may be repeated):")
-			for i, (name, cores, frequency, memory, source) in enumerate(gpus):
+			for i, (name, cores, frequency, l1_cache_size, l2_cache_size, memory, features, source) in enumerate(gpus):
 				print(
 					"""
 {:n}. {!r} ({})
-	Cores: {}
+	Features: {}
+	Cores (Compute units): {}
 	Frequency/Speed: {:n} MHz
-	Total memory: {:n} MiB ({}B)""".format(i + 1, name, source, cores or "Unknown", frequency, memory, output_unit(memory << 20))
+	L1 Cache size (Local memory): {}
+	L2 Cache size (Global memory cache): {}
+	Total memory: {:n} MiB ({}B)""".format(
+						i + 1,
+						name,
+						source,
+						features,
+						cores or "Unknown",
+						frequency,
+						"{} KiB".format(l1_cache_size) if l1_cache_size else "Unknown",
+						"{} KiB".format(l2_cache_size) if l2_cache_size else "Unknown",
+						memory,
+						output_unit(memory << 20),
+					)
 				)
 			print()
 			gpu = ask_int("Which GPU are you using this GIMPS program with (0 to not report the GPU)", 0, 0, len(gpus))
@@ -2534,9 +2765,11 @@ def setup(config, args):
 			config.remove_option(SEC.PrimeNet, option)
 
 	if gpu:
-		name, cores, frequency, memory, _ = gpus[gpu - 1]
+		name, cores, frequency, l1_cache_size, l2_cache_size, memory, features, _ = gpus[gpu - 1]
 		args.cpu_brand = name
 		config.set(SEC.PrimeNet, "CpuBrand", name)
+		args.cpu_features = features
+		config.set(SEC.PrimeNet, "cpu_features", features)
 		if cores:
 			args.num_cores = cores
 			config.set(SEC.PrimeNet, "NumCores", str(cores))
@@ -2547,6 +2780,13 @@ def setup(config, args):
 		args.memory = memory
 		config.set(SEC.PrimeNet, "memory", str(memory))
 		args.day_night_memory = round(memory * 0.9)
+		if l1_cache_size and l2_cache_size:
+			args.cpu_l1_cache_size = l1_cache_size
+			config.set(SEC.PrimeNet, "L1", str(l1_cache_size))
+			args.cpu_l2_cache_size = l2_cache_size
+			config.set(SEC.PrimeNet, "L2", str(l2_cache_size))
+			args.cpu_l3_cache_size = 0
+			config.set(SEC.PrimeNet, "L3", str(0))
 	if tf1g:
 		args.min_exp = MAX_PRIMENET_EXP
 		config.set(SEC.PrimeNet, "GetMinExponent", str(MAX_PRIMENET_EXP))
@@ -3280,8 +3520,8 @@ def check_options(parser, args):
 		logging.warning("CPU model has invalid character: %r", res.group())
 
 	if args.cpu_features is not None:
-		if len(args.cpu_features) > 64:
-			parser.error("CPU features must be less than or equal to 64 characters")
+		if len(args.cpu_features) > 128:
+			parser.error("CPU features must be less than or equal to 128 characters")
 		res = RE.search(args.cpu_features)
 		if res:
 			logging.warning("CPU features has invalid character: %r", res.group())
@@ -4163,6 +4403,7 @@ GUID: {}
 # region System Information
 def generate_application_str(config, args):
 	"""Return the PrimeNet application string for the selected GIMPS program and platform."""
+	is_64bit = platform.machine().endswith("64")
 	if sys.platform == "darwin":
 		aplatform = "Mac OS X" + (" 64-bit" if is_64bit else "")
 	elif sys.platform.startswith("freebsd"):
@@ -4467,6 +4708,230 @@ def get_cpu_cache_sizes():
 					continue
 				cache_sizes.setdefault(level, []).append(size)
 	return {cache: max(sizes) >> 10 if sizes else 0 for cache, sizes in cache_sizes.items()}
+
+
+if machine in {"x86", "i386", "i686", "x86_64", "amd64"}:  # "i486", "i586"
+
+	def get_cpu_features():
+		"""Return a comma-separated list of detected x86 CPU instruction-set features."""
+		cpuid = CPUID()
+		xgetbv = XGETBV()
+
+		max_cpuid_value, _ebx, _ecx, _edx = cpuid(0)
+		# max_extended_cpuid_value, _, _, _ = cpuid(0x80000000)
+
+		# vendor = struct.pack("<III", ebx, edx, ecx).rstrip(b"\0").decode("ascii")
+
+		# model_name = ""
+		# if max_extended_cpuid_value >= 0x80000004:
+		# 	data = bytearray()
+		# 	for leaf in range(0x80000002, 0x80000005):
+		# 		data.extend(struct.pack("<IIII", *cpuid(leaf)))
+		# 	model_name = data.split(b"\0", 1)[0].decode("ascii").strip()
+
+		ecx1 = edx1 = 0
+		if max_cpuid_value >= 1:
+			_, _, ecx1, edx1 = cpuid(1)
+
+		# rdtsc = edx1 & 0x10
+		# cmov = edx1 & 0x8000
+		# mmx = edx1 & 0x800000
+		sse = edx1 & 0x2000000
+		sse2 = edx1 & 0x4000000
+		sse3 = ecx1 & 0x1
+		ssse3 = ecx1 & 0x200
+		sse41 = ecx1 & 0x80000
+		# sse42 = ecx1 & 0x100000
+
+		ebx7 = eax71 = edx71 = 0
+		if max_cpuid_value >= 7:
+			eax7, ebx7, _, _ = cpuid(7)
+			if eax7 >= 1:
+				eax71, _, _, edx71 = cpuid(7, 1)
+
+		xcr0 = xgetbv(0) if ecx1 & 0x8000000 else 0  # ecx1 & 0x4000000
+
+		avx = ecx1 & 0x10000000 and xcr0 & 0x6 == 0x6
+		fma3 = avx and ecx1 & 0x1000
+		avx2 = avx and ebx7 & 0x20
+		bmi2 = ebx7 & 0x100
+		adx = ebx7 & 0x80000
+		avxifma = avx and eax71 & 0x800000
+
+		avx512f = ebx7 & 0x10000 and xcr0 & 0xE6 == 0xE6
+		avx512dq = avx512f and ebx7 & 0x20000
+		avx512ifma = avx512f and ebx7 & 0x200000
+		avx512cd = avx512f and ebx7 & 0x10000000
+		# avx512vbmi2 = avx512f and ecx7 & 0x40
+
+		avx10 = edx71 & 0x80000 and xcr0 & 0xE6 == 0xE6
+		avx10_version = 0
+		if avx10 and max_cpuid_value >= 0x24:
+			_, ebx24, _, _ = cpuid(0x24)
+			avx10_version = ebx24 & 0xFF
+
+		apx = is_64bit and edx71 & 0x200000 and xcr0 & 0x80000 == 0x80000
+
+		# ext_ecx = ext_edx = 0
+		# if max_extended_cpuid_value >= 0x80000001:
+		# 	_, _, ext_ecx, ext_edx = cpuid(0x80000001)
+
+		# is_amd = vendor == "AuthenticAMD"
+		# prefetch = sse or ext_edx & 0x400000
+		# fma4 = avx and ext_ecx & 0x10000
+		# a3dnow = ext_edx & 0x80000000
+
+		features = []
+
+		# if rdtsc:
+		# 	features.append("RDTSC")
+		# if cmov:
+		# 	features.append("CMOV")
+		# if prefetch:
+		# 	features.append("Prefetch")
+		# if a3dnow:
+		# 	features.append("3DNow!")
+		# if mmx:
+		# 	features.append("MMX")
+		if sse41:
+			features.append("SSE4")
+		elif ssse3:
+			features.append("SSSE3")
+		elif sse3:
+			features.append("SSE3")
+		elif sse2:
+			features.append("SSE2")
+		elif sse:
+			features.append("SSE")
+		if avx:
+			features.append("AVX")
+		if avx2:
+			features.append("AVX2")
+		if fma3:
+			features.append("FMA3")
+		# if fma4:
+		# 	features.append("FMA4")
+		if bmi2:
+			features.append("BMI2")
+		if adx:
+			features.append("ADX")
+		if avxifma:
+			features.append("AVXIFMA")
+		if avx512f:
+			feature = "AVX512F"
+			if avx512cd:
+				feature += "/CD"
+			if avx512dq:
+				feature += "/DQ"
+			if avx512ifma:
+				feature += "/IFMA"
+			# if avx512vbmi2:
+			# 	feature += "/VBMI2"
+			features.append(feature)
+		if avx10:
+			features.append("AVX10.{}".format(avx10_version) if avx10_version else "AVX10")
+		if apx:
+			features.append("APX")
+
+		return ",".join(features)
+
+elif machine.startswith("arm") or machine == "aarch64":
+
+	def get_cpu_features():
+		"""Return a comma-separated list of detected ARM CPU instruction-set features."""
+		features = []
+
+		if sys.platform == "win32":
+			features.append("ASIMD")
+
+			if is_64bit:
+				features.append("FMA")
+
+				# features.append("FCMA")
+				if kernel32.IsProcessorFeaturePresent(47):  # PF_ARM_SVE2_INSTRUCTIONS_AVAILABLE
+					features.append("SVE2")
+				elif kernel32.IsProcessorFeaturePresent(46):  # PF_ARM_SVE_INSTRUCTIONS_AVAILABLE
+					features.append("SVE")
+				if kernel32.IsProcessorFeaturePresent(34):  # PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE
+					features.append("LSE")
+				if kernel32.IsProcessorFeaturePresent(71):  # PF_ARM_SME2_INSTRUCTIONS_AVAILABLE
+					features.append("SME2")
+				elif kernel32.IsProcessorFeaturePresent(70):  # PF_ARM_SME_INSTRUCTIONS_AVAILABLE
+					features.append("SME")
+				if kernel32.IsProcessorFeaturePresent(85):  # PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE
+					features.append("SME-F64")
+			elif kernel32.IsProcessorFeaturePresent(27):  # PF_ARM_FMAC_INSTRUCTIONS_AVAILABLE
+				features.append("FMA")
+		elif sys.platform == "darwin":
+			asimd = sysctl_value(b"hw.optional.AdvSIMD", ctypes.c_int) or sysctl_value(b"hw.optional.neon", ctypes.c_int)
+			if asimd:
+				features.append("ASIMD")
+
+			if (is_64bit and asimd) or sysctl_value(b"hw.optional.vfpv4", ctypes.c_int):
+				features.append("FMA")
+
+			if sysctl_value(b"hw.optional.arm.FEAT_FCMA", ctypes.c_int) or sysctl_value(
+				b"hw.optional.armv8_3_compnum", ctypes.c_int
+			):
+				features.append("FCMA")
+			# features.append("SVE2")
+			# features.append("SVE")
+			if sysctl_value(b"hw.optional.arm.FEAT_LSE", ctypes.c_int) or sysctl_value(
+				b"hw.optional.armv8_1_atomics", ctypes.c_int
+			):
+				features.append("LSE")
+			if sysctl_value(b"hw.optional.arm.FEAT_SME2", ctypes.c_int):
+				features.append("SME2")
+			elif sysctl_value(b"hw.optional.arm.FEAT_SME", ctypes.c_int):
+				features.append("SME")
+			if sysctl_value(b"hw.optional.arm.FEAT_SME_F64F64", ctypes.c_int):
+				features.append("SME-F64")
+		elif sys.platform.startswith("freebsd"):
+			hwcap = hwcap2 = 0
+			value = ctypes.c_ulong()
+			if not libc.elf_aux_info(25, ctypes.byref(value), ctypes.sizeof(value)):  # AT_HWCAP
+				hwcap = value.value
+
+			if not libc.elf_aux_info(26, ctypes.byref(value), ctypes.sizeof(value)):  # AT_HWCAP2
+				hwcap2 = value.value
+		elif sys.platform.startswith("linux"):
+			hwcap = libc.getauxval(16)  # AT_HWCAP
+			hwcap2 = libc.getauxval(26)  # AT_HWCAP2
+
+		if sys.platform.startswith(("freebsd", "linux")):
+			if is_64bit:
+				asimd = hwcap & 0x2  # HWCAP_ASIMD
+				if asimd:
+					features.append("ASIMD")
+				if hwcap & 0x1 and asimd:  # HWCAP_FP
+					features.append("FMA")
+				if hwcap & 0x4000:  # HWCAP_FCMA
+					features.append("FCMA")
+				if hwcap2 & 0x2:  # HWCAP2_SVE2
+					features.append("SVE2")
+				elif hwcap & 0x400000:  # HWCAP_SVE
+					features.append("SVE")
+				if hwcap & 0x100:  # HWCAP_ATOMICS
+					features.append("LSE")
+				if hwcap2 & 0x2000000000:  # HWCAP2_SME2
+					features.append("SME2")
+				elif hwcap2 & 0x800000:  # HWCAP2_SME
+					features.append("SME")
+				if hwcap2 & 0x2000000:  # HWCAP2_SME_F64F64
+					features.append("SME-F64")
+			else:
+				if hwcap & 0x1000:  # HWCAP_NEON
+					features.append("ASIMD")
+				if hwcap & 0x10000:  # HWCAP_VFPv4
+					features.append("FMA")
+
+		return ",".join(features)
+
+else:
+
+	def get_cpu_features():
+		"""Return an empty CPU feature list for unsupported architectures."""
+		return ""
 
 
 # endregion
@@ -6994,12 +7459,12 @@ def register_instance(config, args, guid=None):
 User ID: %s
 Computer name: %s
 Processor (CPU/GPU) model: %s
-CPU features: %s
-CPU L1 Cache size: %s KiB
-CPU L2 Cache size: %s KiB
-CPU/GPU cores: %s
-CPU threads per core: %s
-CPU/GPU frequency/speed: %s MHz
+Processor features: %s
+Processor L1 Cache size: %s KiB
+Processor L2 Cache size: %s KiB
+Processor cores: %s
+Processor threads per core: %s
+Processor frequency/speed: %s MHz
 Total memory (RAM): %s MiB
 To change these values, please rerun the program with different options
 You can see the result in this page:
@@ -9562,7 +10027,7 @@ def program_version_check(config, args):
 	machine = platform.machine().lower()
 	if machine in {"x86_64", "amd64"}:
 		arch = "x86-64"
-	elif machine in {"x86", "i386", "i686"}:
+	elif machine in {"x86", "i386", "i686"}:  # "i486", "i586"
 		arch = "x86-32"
 	elif machine in {"arm64", "aarch64"}:
 		arch = "arm-64"
@@ -9855,11 +10320,13 @@ Computer name:			{!r}
 	frequency = get_cpu_frequency()
 	memory = get_physical_memory()
 	cache_sizes = get_cpu_cache_sizes()
+	features = get_cpu_features()
 	usage = shutil.disk_usage(workdir)
 
 	print(
 		"""\
 Processor (CPU):		{}
+CPU features:			{}
 CPU frequency/speed:		{:n} MHz
 CPU Cores/Threads:		{:n}/{:n}
 CPU Caches:			L1: {:n} KiB, L2: {:n} KiB, L3: {:n} KiB
@@ -9867,6 +10334,7 @@ Total memory (RAM):		{}B
 Disk space usage:		{:.1%}  {}B / {}B
 """.format(
 			model or "Unknown",
+			features,
 			frequency,
 			cores,
 			threads,
@@ -9883,13 +10351,26 @@ Disk space usage:		{:.1%}  {}B / {}B
 	gpus = get_gpus()
 	if gpus:
 		print("Detected Graphics Processors (GPUs):")
-		for i, (name, cores, frequency, memory, source) in enumerate(gpus):
+		for i, (name, cores, frequency, l1_cache_size, l2_cache_size, memory, features, source) in enumerate(gpus):
 			print(
 				"""\
 {:n}. {} ({})
-	Cores: {}
-	Frequency/Speed: {:n} MHz
-	Total memory: {}B""".format(i + 1, name, source, cores or "Unknown", frequency, output_unit(memory << 20))
+	Features: 		{}
+	Compute units:		{}
+	Frequency/Speed:	{:n} MHz
+	Local memory:		{}
+	Global memory cache:	{}
+	Total memory:		{}B""".format(
+					i + 1,
+					name,
+					source,
+					features,
+					cores or "Unknown",
+					frequency,
+					"{} KiB".format(l1_cache_size) if l1_cache_size else "Unknown",
+					"{} KiB".format(l2_cache_size) if l2_cache_size else "Unknown",
+					output_unit(memory << 20),
+				)
 			)
 		print()
 	else:
@@ -10238,7 +10719,9 @@ group.add_argument(
 	default=get_cpu_model() or "cpu.unknown",
 	help="Processor (CPU/GPU) model, Default: %(default)r",
 )
-group.add_argument("--processor-features", dest="cpu_features", default="", help="Processor features, Default: %(default)r")
+group.add_argument(
+	"--processor-features", dest="cpu_features", default=get_cpu_features(), help="Processor features, Default: %(default)r"
+)
 group.add_argument(
 	"--processor-frequency",
 	dest="cpu_speed",
