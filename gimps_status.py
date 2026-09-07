@@ -149,7 +149,7 @@ FACTOR_VERSION = 1
 LL_VERSION = 1
 PRP_VERSION = 7
 ECM_VERSION = 6
-PM1_VERSION = 8
+PM1_VERSION = 9
 PP1_VERSION = 2
 
 # Mlucas constants
@@ -1342,8 +1342,13 @@ def parse_work_unit_prime95(filename):
 
 					if args.check and state == 1:
 						_gg, asum = read_residue_prime95(f, asum)
-				else:  # 4 <= version <= 7  # 30.4 to 30.7
+				else:  # 4 <= version <= 9  # 30.4 and later
 					(wu.state,), asum = read_value_prime95(f, "<i", asum)
+
+					# Version 9 records an error count, in the same layout as the LL and PRP ones, so the
+					# Jacobi and Gerbicz nibbles are reported the same way.
+					if wu.version >= 9:
+						(wu.error_count,), asum = read_value_prime95(f, "<I", asum)
 
 					if wu.state == PM1_STATE_STAGE0:
 						(wu.interim_B, max_stage0_prime, wu.stage0_bitnum), asum = read_value_prime95(
@@ -1351,6 +1356,19 @@ def parse_work_unit_prime95(filename):
 						)
 					elif wu.state == PM1_STATE_STAGE1:
 						(wu.B_done, wu.interim_B, wu.stage1_prime), asum = read_value_prime95(f, "<QQQ", asum)
+
+						# From version 9 the tail of stage 1 is done one exponent bit at a time in chunks, rather
+						# than by a sliding window exponentiate, so that it can be Gerbicz checked. The chunk
+						# itself is not stored; re-sieving from its first prime with the same bound rebuilds it.
+						# The residue the chunk raises to a power is stored only part way through a chunk, since
+						# at a boundary it is just x.
+						if wu.version >= 9:
+							(_chunk_start_prime, wu.stage0_bitnum, max_stage0_prime), asum = read_value_prime95(
+								f, "<QQQ", asum
+							)
+							(have_chunk_mult,), asum = read_value_prime95(f, "<i", asum)
+							if have_chunk_mult:
+								_chunk_mult, asum = read_residue_prime95(f, asum)
 					elif wu.state == PM1_STATE_MIDSTAGE:
 						(wu.B_done, wu.C_done), asum = read_value_prime95(f, "<QQ", asum)
 					elif wu.state == PM1_STATE_STAGE2:
