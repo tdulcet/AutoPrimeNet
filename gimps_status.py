@@ -320,7 +320,7 @@ PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res
 PRIME95_RE = re.compile(
 	r"^[pfemnc](?:[0-9]{2}[B-T][0-9]{4}|[0-9][A-Z][0-9]{5}|[A-Y][0-9]{6}|[0-9]+)(?:_[0-9]+){0,2}(?:\.(?:[0-9]{3,}|(bu([0-9]*))|bad[0-9]+))?$"
 )
-MLUCAS_RE = re.compile(r"^([pfq])([0-9]+)(?:\.(?:s([12])(?:_prod)?|([0-9]+)M|G))?$")
+MLUCAS_RE = re.compile(r"^([pfq])([0-9]+)(?:\.(?:s([12])(?:_prod)?|([0-9]+)M|G|J1?))?$")
 CUDALUCAS_RE = re.compile(r"^([ct])([0-9]+)$")
 CUDAPM1_RE = re.compile(r"^([ct])([0-9]+)s([12])$")
 GPUOWL_RE = re.compile(
@@ -417,6 +417,7 @@ class work_unit:
 		"fftlen",
 		"nerr_roe",
 		"nerr_gcheck",
+		"nerr_jacobi",
 		"error_count",
 		"counter",
 		"shift_count",
@@ -471,6 +472,7 @@ class work_unit:
 		self.fftlen = None
 		self.nerr_roe = None
 		self.nerr_gcheck = None
+		self.nerr_jacobi = None
 		self.error_count = None
 		self.counter = None
 		self.shift_count = None
@@ -1657,6 +1659,21 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 			if result is not None:
 				nerr_roe, nerr_gcheck = result
 
+			# Mlucas 21.1+ (Jacobi residue check) appends the Jacobi failure count after the two v20 error counts;
+			# older files simply end here, so every read from this point on is optional.
+			nerr_jacobi = None
+			result = unpack("<I", f, True)
+			if result is not None:
+				(nerr_jacobi,) = result
+
+			# Mlucas 21.1+ P-1 stage 1 files (p/q/.G) may carry the Gerbicz check-product appended after the error
+			# counts: an 8-byte epoch-start field, then a residue with its own checksum triplet.
+			if t == TEST_TYPE_PM1 and stage == 1:
+				result = unpack("<Q", f, True)
+				if result is not None:
+					(_gcheck_epoch,) = result
+					_residue3, _g64, _g35m1, _g36m1 = read_residue_mlucas(f, nbytes, filename)
+
 			if t == TEST_TYPE_PRIMALITY:
 				if m == MODULUS_TYPE_MERSENNE:
 					wu.work_type = WORK_TEST
@@ -1758,6 +1775,7 @@ def parse_work_unit_mlucas(filename, exponent, stage):
 			wu.shift_count = res_shift
 			wu.nerr_roe = nerr_roe
 			wu.nerr_gcheck = nerr_gcheck
+			wu.nerr_jacobi = nerr_jacobi
 
 			if args.check and f.read():
 				return None
@@ -2884,6 +2902,8 @@ def one_line_status(file, num, index, wu):
 		temp.append("Roundoff errors: {:n}".format(wu.nerr_roe))
 	if wu.nerr_gcheck:
 		temp.append("Gerbicz errors: {:n}".format(wu.nerr_gcheck))
+	if wu.nerr_jacobi:
+		temp.append("Jacobi errors: {:n}".format(wu.nerr_jacobi))
 
 	result = [
 		assignment_to_str(wu) if not index else "",
@@ -3031,6 +3051,8 @@ def json_status(file, wu, program):
 		result["nerr_roe"] = wu.nerr_roe
 	if wu.nerr_gcheck is not None:
 		result["nerr_gcheck"] = wu.nerr_gcheck
+	if wu.nerr_jacobi is not None:
+		result["nerr_jacobi"] = wu.nerr_jacobi
 
 	return result
 
