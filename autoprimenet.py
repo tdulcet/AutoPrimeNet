@@ -3646,7 +3646,9 @@ TEST_RE = re.compile(
 PRP_RE = re.compile(
 	r'^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(PRP(?:DC)?)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+)(?:,([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,([0-9]+),([0-9]+))?)?(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
-FACTOR_RE = re.compile(r'^(Factor)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,"([0-9]+(?:,[0-9]+)*)")?$')
+FACTOR_RE = re.compile(
+	r'^(Factor)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,"([0-9]+(?:,[0-9]+)*)")?$'
+)
 PFACTOR_RE = re.compile(
 	r'^(?:(?:B1=[0-9]+(?:,B2=[0-9]+)?|B2=[0-9]+);)?(P[Ff]actor)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+),([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:,"([0-9]+(?:,[0-9]+)*)")?$'
 )
@@ -4332,8 +4334,19 @@ def get_cpu_cores_threads():
 		cores = sysctl_value(b"hw.physicalcpu_max", ctypes.c_int)
 		threads = sysctl_value(b"hw.logicalcpu_max", ctypes.c_int)
 	elif sys.platform.startswith("freebsd"):
-		# output = sysctl_str(b"kern.sched.topology_spec")
 		cores = sysctl_value(b"kern.smp.cores", ctypes.c_int)
+		if not cores:
+			output = sysctl_str(b"kern.sched.topology_spec")
+			if output:
+				root = ET.fromstring(output)
+				cores = sum(
+					1
+					if {flag.get("name") for flag in group.findall("./flags/flag")} & {"HTT", "SMT"}
+					else int(group.find("./cpu").get("count"))
+					if not group.findall("./children/group")
+					else 0
+					for group in root.findall(".//group")
+				)
 		threads = sysctl_value(b"hw.ncpu", ctypes.c_int)
 	elif sys.platform.startswith("linux"):
 		acores = set()
@@ -4359,11 +4372,11 @@ def get_cpu_frequency():
 		except OSError:
 			pass
 	elif sys.platform == "darwin":
-		output = sysctl_value(b"hw.cpufrequency_max", ctypes.c_uint64)
+		output = sysctl_value(b"hw.cpufrequency_max", ctypes.c_int64)
 		if output:
 			frequency = output // 1000 // 1000
 	elif sys.platform.startswith("freebsd"):
-		# output = sysctl_value(b"dev.cpu.0.freq", ctypes.c_uint64)
+		# output = sysctl_value(b"dev.cpu.0.freq", ctypes.c_int)
 		output = sysctl_str(b"dev.cpu.0.freq_levels")
 		if output:
 			frequency = int(output.rsplit(None, 1)[-1].split(b"/", 1)[0])
@@ -4394,11 +4407,11 @@ def get_physical_memory():
 		kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
 		memory = memory_status.ullTotalPhys >> 20
 	elif sys.platform == "darwin":
-		output = sysctl_value(b"hw.memsize", ctypes.c_uint64)
+		output = sysctl_value(b"hw.memsize", ctypes.c_int64)
 		if output:
 			memory = output >> 20
 	elif sys.platform.startswith("freebsd"):
-		output = sysctl_value(b"hw.physmem", ctypes.c_uint64)
+		output = sysctl_value(b"hw.physmem", ctypes.c_ulong)
 		if output:
 			memory = output >> 20
 	elif sys.platform.startswith("linux"):

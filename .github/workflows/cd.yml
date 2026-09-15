@@ -70,7 +70,7 @@ jobs:
         .\dist\autoprimenet --debug-info
     - uses: actions/upload-artifact@v7
       with:
-        name: AutoPrimeNet_Windows${{ matrix.python-version == '3.4' && '-XP' || matrix.python-version == '3.8' && '-Vista-7-8' || matrix.python-version == '3.13' && '-8.1' || '' }}_${{ matrix.architecture }}
+        name: AutoPrimeNet_Windows${{ case(matrix.python-version == '3.4', '-XP', matrix.python-version == '3.8', '-Vista-7-8', matrix.python-version == '3.13', '-8.1', '') }}_${{ matrix.architecture }}
         path: |
           README.md
           LICENSE
@@ -93,4 +93,4 @@ jobs:
         ls -alR AutoPrimeNet_Windows*
         for DIR in AutoPrimeNet_Windows*/; do (cd "$DIR"; zip -j "../${DIR%/}.zip" -- README.md LICENSE dist/*); done
         ls -alR AutoPrimeNet_Windows*
-        lftp -u "${{ secrets.FTP_USERNAME }},${{ secrets.FTP_PASSWORD }}" -e "set ssl:verify-certificate false; mput AutoPrimeNet_Windows*.zip; exit" download.mersenne.ca
+        lftp -u '${{ secrets.FTP_USERNAME }},${{ secrets.FTP_PASSWORD }}' -e 'set cmd:fail-exit true; set ssl:check-hostname false; mput AutoPrimeNet_Windows*.zip; exit' download.mersenne.ca
