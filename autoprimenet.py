@@ -5879,6 +5879,8 @@ LL_v13_RE = re.compile(rb"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+
 
 PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
 
+CERT_v1_RE = re.compile(rb"^OWL CERT (1) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) time=(\d+(?:\.\d+)?)$")
+
 
 def parse_work_unit_prpll(args, adapter, filename, p):
 	"""Parse a PRPLL checkpoint and return assignment progress and timing metadata."""
@@ -5910,6 +5912,17 @@ def parse_work_unit_prpll(args, adapter, filename, p):
 			_version, exponent, iteration, _block_size, _res64, _nErrors, elapsed = prp_v13.groups()
 		else:
 			adapter.debug("PRP savefile with unknown version: %r", header)
+			return None
+
+		counter = int(iteration)
+		avg_msec_per_iter = (float(elapsed) / counter) * 1000
+	elif header.startswith(b"OWL CERT "):
+		cert_v1 = CERT_v1_RE.match(header)
+
+		if cert_v1:
+			_version, exponent, iteration, _squarings, elapsed = cert_v1.groups()
+		else:
+			adapter.debug("CERT savefile with unknown version: %r", header)
 			return None
 
 		counter = int(iteration)
@@ -6506,7 +6519,7 @@ def parse_gpuowl_log_file(args, adapter, adir, p):
 	return iteration, iterations, msec_per_iter, None, stage, fftlen
 
 
-PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(?:ll|prp)$")
+PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(?:ll|prp|cert)$")
 
 
 def get_prpll_progress(args, adapter, adir, p):

@@ -311,10 +311,15 @@ PROOF_NUMBER_RE = re.compile(rb"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\
 # PRPLL headers
 
 # LL_v13 = "OWL LL 13 N=1*2^%u-1 k=%u time=%lf\n"
+# LL_v13 = "OWL LL 13 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " time=%lf\n"
 LL_v13_RE = re.compile(rb"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
 
 # PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u time=%lf\n"
+# PRP_v13 = "OWL PRP 13 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " block=%u res64=%016" SCNx64 " err=%u time=%lf\n"
 PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
+# CERT_v1 = "OWL CERT 1 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " squarings=%" PRIu64 " time=%lf\n"
+CERT_v1_RE = re.compile(rb"^OWL CERT (1) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) time=(\d+(?:\.\d+)?)$")
 
 
 PRIME95_RE = re.compile(
@@ -328,7 +333,9 @@ GPUOWL_RE = re.compile(
 	+ re.escape(os.sep)
 	+ r"(?:([0-9]+)(?:-([0-9]+)\.(?:ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|(-old)?\.(?:(?:ll|p[12])\.)?owl)|unverified\.prp(\.bak)?)|[0-9]+(-prev)?\.(?:tf\.)?owl)$"
 )
-PRPLL_RE = re.compile(r"(?:(?:ll-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp)|unverified\.prp))$")
+PRPLL_RE = re.compile(
+	r"(?:(?:(?:ll|cert)-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp|cert)|unverified\.prp))$"
+)
 PRMERS_RE = re.compile(
 	r"^(?:(?:wagstaff_|llsafe_)?m_([0-9]+)|pm1_(?:s[2-4]_)?m_([0-9]+)(?:_ext)?|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$"
 )
@@ -2230,6 +2237,36 @@ def parse_work_unit_prpll(filename):
 
 				wu.stage = "PRP"
 				wu.pct_complete = wu.counter / wu.n
+			elif header.startswith(b"OWL CERT "):
+				cert_v1 = CERT_v1_RE.match(header)
+
+				wu.work_type = WORK_CERT
+
+				if cert_v1:
+					version, exponent, iteration, squarings, elapsed = cert_v1.groups()
+
+					(crc,) = unpack("=I", f)
+				else:
+					logging.error("CERT savefile with unknown version: %s", header)
+					return None
+
+				wu.n = int(exponent)
+				wu.counter = int(iteration)
+				wu.shift_count = 0
+				wu.total_time = int(float(elapsed) * 1000 * 1000)
+
+				if args.check:
+					nWords = (wu.n - 1) // 32 + 1
+					size = nWords * 4
+					buffer = f.read(size)
+					if len(buffer) != size:
+						return None
+					residue = int.from_bytes(buffer, "little")
+					wu.res64 = "{:016X}".format(residue & 0xFFFFFFFFFFFFFFFF)
+					wu.res2048 = "{:0512X}".format(residue & (1 << 2048) - 1)
+
+				wu.stage = "CERT"
+				wu.pct_complete = wu.counter / int(squarings)
 			else:
 				logging.error("Unknown save/checkpoint file header: %s", header)
 				return None
@@ -3155,7 +3192,7 @@ def main(dirs):
 				map(
 					glob.iglob,
 					(
-						os.path.join(adir, "ll-[0-9]*", "[0-9]*-[0-9]*.ll"),
+						os.path.join(adir, "*-[0-9]*", "[0-9]*-[0-9]*.*"),
 						os.path.join(adir, "[0-9]*", "[0-9]*-[0-9]*.prp"),
 						os.path.join(adir, "[0-9]*", "unverified.prp"),
 					),
