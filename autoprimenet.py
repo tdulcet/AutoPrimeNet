@@ -8623,7 +8623,7 @@ Python version: {}
 
 
 RESULT_PATTERN = re.compile(
-	r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf|PrimePath|Mp_p-1_gpu)"|CUDA(?:Lucas|Pm1) v'
+	r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf|PrimePath|Mp_p-1_gpu|prptiny|prpmetal)"|CUDA(?:Lucas|Pm1) v'
 )
 
 
