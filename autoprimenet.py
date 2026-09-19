@@ -1142,7 +1142,7 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 		ctypes.c_void_p,
 		ctypes.c_size_t,
 		ctypes.POINTER(ctypes.c_char_p),
-		ctypes.POINTER(ctypes.c_ulong),
+		ctypes.POINTER(ctypes.c_uint32),
 		ctypes.POINTER(ctypes.c_uint64),
 	)
 
