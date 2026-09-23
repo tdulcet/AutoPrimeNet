@@ -5716,7 +5716,9 @@ def parse_work_unit_mfaktc(args, adapter, filename, p):
 
 
 # "%u %d %d %d %s: %d %d %s %llu %08X\n", exp, bit_min, bit_max, mystuff.num_classes, MFAKTO_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
-MFAKTO_TF_RE = re.compile(rb'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*) (\d+) ([\dA-F]{8})$')
+MFAKTO_TF_RE = re.compile(
+	rb'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) ([\dA-F]{8})$'
+)
 
 
 def parse_work_unit_mfakto(args, adapter, filename, p):

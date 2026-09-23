@@ -295,7 +295,9 @@ MFAKTC_TF_RE = re.compile(
 )
 
 # "%u %d %d %d %s: %d %d %s %llu %08X\n", exp, bit_min, bit_max, mystuff.num_classes, MFAKTO_VERSION, cur_class, num_factors, strlen(factors_string) ? factors_string : "0", bit_level_time, i
-MFAKTO_TF_RE = re.compile(rb'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*) (\d+) )?([\dA-F]{8})$')
+MFAKTO_TF_RE = re.compile(
+	rb'^(\d+) (\d+) (\d+) (\d+) (mfakto [^\s:]+): (\d+) (\d+) (?:(0|"\d+"(?:,"\d+")*|\d+(?:,\d+)*) (\d+) )?([\dA-F]{8})$'
+)
 
 PRIMEPATH_TF_RE = re.compile(rb"""^exponent (\d+)
 bit_lo (\d+)
@@ -2604,7 +2606,7 @@ def parse_work_unit_mfaktc(filename):
 	wu.num_factors = int(num_factors)
 
 	if args.check and factors_string and factors_string != b"0":
-		factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
+		factors = [int(factor.strip(b'"')) for factor in factors_string.split(b",")]
 		for factor in factors:
 			modulus = 3 * factor if wagstaff else factor
 			if pow(2, wu.n, modulus) != (modulus - 1 if wagstaff else 1):
@@ -2654,7 +2656,7 @@ def parse_work_unit_mfakto(filename):
 	wu.num_factors = int(num_factors)
 
 	if args.check and factors_string and factors_string != b"0":
-		factors = [int(factor[1:-1]) for factor in factors_string.split(b",")]
+		factors = [int(factor.strip(b'"')) for factor in factors_string.split(b",")]
 		for factor in factors:
 			if pow(2, wu.n, factor) != 1:
 				logging.error("%r file contained bad factor: %s.", filename, factor)
