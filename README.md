@@ -166,10 +166,10 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
                        [--no-more-work] [--resume-work] [--ping] [--v6]
                        [--debug-info] [--no-version-check] [--version-check]
                        [--version-check-channel {alpha,beta,stable}]
-                       [--no-watch] [--watch] [--no-encrypt] [--encrypt]
-                       [--no-color] [--color] [--setup]
-                       [--proxy-type {http,https,socks5,socks5h}] [-x PROXY]
-                       [--proxy-username PROXY_USERNAME]
+                       [--no-lock] [--lock] [--no-watch] [--watch]
+                       [--no-encrypt] [--encrypt] [--no-color] [--color]
+                       [--setup] [--proxy-type {http,https,socks5,socks5h}]
+                       [-x PROXY] [--proxy-username PROXY_USERNAME]
                        [--proxy-password PROXY_PASSWORD] [-H COMPUTER_ID]
                        [--processor-model CPU_BRAND]
                        [--processor-features CPU_FEATURES]
@@ -362,9 +362,16 @@ options:
                         when checking for new versions of AutoPrimeNet and the
                         GIMPS program. Not all programs provide alpha or beta
                         releases. Default: 'stable'
+  --no-lock             Do not require the '~lock' lockfile to be successfully
+                        locked, which otherwise helps to prevent starting
+                        multiple instances of AutoPrimeNet in the same
+                        --workdir directory. This may be needed if the
+                        filesystem does not support file locking.
+  --lock
   --no-watch            Report assignment results and upload proof files on
                         the --timeout interval instead of immediately. This
-                        may be needed if the filesystem is unsupported.
+                        may be needed if the filesystem does not support file
+                        watching.
   --watch
   --no-encrypt          Do not encrypt any passwords in the configuration
                         file.

@@ -1555,20 +1555,24 @@ else:
 class LockFile:
 	"""Context manager that serializes access with a sidecar .lck file."""
 
-	__slots__ = ("filename", "lockfile")
+	__slots__ = ("filename", "lockfile", "file")
 
 	def __init__(self, filename):
 		"""Initialize the target filename and its sidecar lock-file path."""
 		self.filename = filename
 		self.lockfile = filename + ".lck"
+		self.file = None
 
 	def __enter__(self):
 		"""Wait for and acquire the sidecar lock file."""
 		# logging.debug("Locking %r", self.filename)
 		for i in count():
 			try:
-				with open(self.lockfile, "x"):
-					pass
+				self.file = open(
+					self.lockfile,
+					"x",
+					opener=lambda path, flags: os.open(path, flags | (os.O_TEMPORARY if os.name == "nt" else 0), 0o666),
+				)
 			except FileExistsError:
 				if not i:
 					logging.warning("%r lockfile already exists, waiting…", self.lockfile)
@@ -1578,6 +1582,7 @@ class LockFile:
 				raise
 			else:
 				break
+		# self.lockfile.write("{}\n".format(os.getpid()))
 		if i:
 			logging.info("Locked %r", self.filename)
 		return self
@@ -1586,7 +1591,9 @@ class LockFile:
 		"""Release the sidecar lock by removing its lock file."""
 		# logging.debug("Unlocking %r", self.filename)
 		try:
-			os.remove(self.lockfile)
+			self.file.close()
+			if os.name != "nt":
+				os.remove(self.lockfile)
 		except OSError as e:
 			logging.exception("Failed to remove the %r lockfile: %s: %s", self.lockfile, type(e).__name__, e, exc_info=args.debug)
 			raise
@@ -2929,6 +2936,7 @@ ATTR_TO_COPY = {
 		"hours_between_checkins": "HoursBetweenCheckins",
 		"version_check": "version_check",
 		"version_check_channel": "version_check_channel",
+		"lock": "require_lock",
 		"watch": "watch",
 		"encrypt": "encrypt",
 		"color": "color",
@@ -2984,6 +2992,7 @@ OPTIONS_TYPE_HINTS = {
 		"ECMBoundsMultiplier": float,
 		"MaxECMCurves": int,
 		"version_check": bool,
+		"require_lock": bool,
 		"watch": bool,
 		"color": bool,
 	},
@@ -3870,8 +3879,8 @@ def read_workfile(adapter, workfile):
 				assignment.work_type in {PRIMENET_WORK_TYPE.PMINUS1, PRIMENET_WORK_TYPE.PPLUS1, PRIMENET_WORK_TYPE.ECM}
 				and assignment.B1 < 50000
 			):
-				adapter.error("%r file has P-1/P+1/ECM with B1 < 50000 (exponent: %s).", workfile, assignment.n)
-				illegal_line = True
+				adapter.warning("%r file has P-1/P+1/ECM with B1 < 50000 (exponent: %s).", workfile, assignment.n)
+				# illegal_line = True
 
 			if assignment.work_type == PRIMENET_WORK_TYPE.FACTOR and assignment.sieve_depth >= assignment.factor_to:
 				adapter.error("%r file has TF with min bit >= max bit.", workfile)
@@ -10211,11 +10220,19 @@ parser.add_argument(
 	help="Prefer the 'alpha', 'beta' or 'stable' channel/branch when checking for new versions of AutoPrimeNet and the GIMPS program. Not all programs provide alpha or beta releases. Default: 'stable'",
 )
 parser.add_argument(
+	"--no-lock",
+	action="store_false",
+	dest="lock",
+	default=None,
+	help="Do not require the '~lock' lockfile to be successfully locked, which otherwise helps to prevent starting multiple instances of AutoPrimeNet in the same --workdir directory. This may be needed if the filesystem does not support file locking.",
+)
+parser.add_argument("--lock", action="store_true")
+parser.add_argument(
 	"--no-watch",
 	action="store_false",
 	dest="watch",
 	default=None,
-	help="Report assignment results and upload proof files on the --timeout interval instead of immediately. This may be needed if the filesystem is unsupported.",
+	help="Report assignment results and upload proof files on the --timeout interval instead of immediately. This may be needed if the filesystem does not support file watching.",
 )
 parser.add_argument("--watch", action="store_true")
 parser.add_argument(
@@ -10408,8 +10425,13 @@ if os.name == "nt":  # Windows
 workdir = os.path.expanduser(os.path.normpath(args.workdir))
 # os.chdir(workdir)
 
+# load prime.ini and update args
+config = config_read(args)
+merge_config_and_options(config, args)
+decrypt(config, args)
+
 try:
-	lockfile = open(os.path.join(workdir, "~lock"), "w+b")  # noqa: SIM115
+	lockfile = open(os.path.join(workdir, "~lock"), "r+", opener=lambda path, flags: os.open(path, flags | os.O_CREAT, 0o666))  # noqa: SIM115
 except OSError as e:
 	logging.exception("Failed to open the lockfile: %s: %s", type(e).__name__, e, exc_info=args.debug)
 	sys.exit(1)
@@ -10419,18 +10441,32 @@ try:
 	lock_file(lockfile)
 # Python 3.3+: BlockingIOError, PermissionError
 except OSError as e:
-	if e.errno in {errno.EAGAIN, errno.EACCES}:
+	if e.errno in {errno.EAGAIN, errno.EACCES}:  # errno.EWOULDBLOCK
 		logging.critical("AutoPrimeNet is already running, as the %r lockfile is locked", lockfile.name)
-	else:
-		logging.exception(
-			"Unexpected error locking the %r lockfile: %s: %s", lockfile.name, type(e).__name__, e, exc_info=args.debug
-		)
-	sys.exit(1)
+		sys.exit(1)
 
-# load prime.ini and update args
-config = config_read(args)
-merge_config_and_options(config, args)
-decrypt(config, args)
+	if args.lock is None or args.lock:
+		logging.exception(
+			"Unable to determine if AutoPrimeNet is already running, as an error occurred locking the %r lockfile: %s: %s",
+			lockfile.name,
+			type(e).__name__,
+			e,
+			exc_info=args.debug,
+		)
+		sys.exit(1)
+
+	logging.warning(
+		"Unable to determine if AutoPrimeNet is already running, as an error occurred locking the %r lockfile: %s: %s",
+		lockfile.name,
+		type(e).__name__,
+		e,
+	)
+
+try:
+	lockfile.truncate(0)
+	# lockfile.write("{}\n".format(os.getpid()))
+except OSError as e:
+	logging.warning("Failed to modify the %r lockfile: %s: %s", lockfile.name, type(e).__name__, e)
 
 if COLOR:
 	if "NO_COLOR" in os.environ:
