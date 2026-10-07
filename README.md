@@ -196,8 +196,8 @@ default, so it is only necessary to provide most of the arguments once. The
 first time it is run, it will register the current GIMPS software instance
 with PrimeNet (see the Registering Options below). Then, it will report
 assignment results and upload any proof files to PrimeNet immediately. It will
-get assignments on the --timeout interval, or only once if --timeout is 0, and
-it will additionally report the progress on the --checkin interval.
+get assignments on the `--timeout` interval, or only once if `--timeout` is 0,
+and it will additionally report the progress on the `--checkin` interval.
 
 options:
   -h, --help            show this help message and exit

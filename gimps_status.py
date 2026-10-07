@@ -18,6 +18,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+__lazy_modules__ = type("_", (), {"__contains__": lambda *_: True})()
+
 import argparse
 import binascii
 import bisect
@@ -35,6 +37,7 @@ import re
 import struct
 import sys
 import time
+import unicodedata
 from array import array
 from ctypes.util import find_library
 from datetime import datetime, timedelta
@@ -49,32 +52,14 @@ else:
 
 
 if sys.version_info >= (3, 8):
+	# Python 3.8+
+	from math import isqrt
 
 	def invmod(a, n):
 		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
 		return pow(a, -1, n)
 
 else:
-
-	def invmod(a, n):
-		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
-		b = 1
-		c = 0
-		while n:
-			q, r = divmod(a, n)
-			a, b, c, n = n, c, b - q * c, r
-
-		if a == 1:
-			return b
-
-		msg = "Not invertible"
-		raise ValueError(msg)
-
-
-try:
-	# Python 3.8+
-	from math import isqrt
-except ImportError:
 
 	def isqrt(n):
 		"""Return the integer square root of a nonnegative integer."""
@@ -94,6 +79,20 @@ except ImportError:
 			a = (a << d - e - 1) + (n >> (c << 1) - e - d + 1) // a
 
 		return a - (a * a > n)
+
+	def invmod(a, n):
+		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
+		b = 1
+		c = 0
+		while n:
+			q, r = divmod(a, n)
+			a, b, c, n = n, c, b - q * c, r
+
+		if a == 1:
+			return b
+
+		msg = "Not invertible"
+		raise ValueError(msg)
 
 
 def integer_root(n, k):
@@ -122,6 +121,12 @@ if sys.platform != "win32":
 	def wcswidth(astr):
 		"""Return the terminal-column width of a string using the platform wcswidth function."""
 		return libc.wcswidth(astr, len(astr))
+
+elif hasattr(unicodedata, "iter_graphemes"):  # Python 3.15+
+
+	def wcswidth(astr):
+		"""Return the number of grapheme clusters as a Windows display-width fallback."""
+		return len(tuple(unicodedata.iter_graphemes(astr)))
 
 else:
 	# Only supports ASCII characters on Windows
