@@ -56,6 +56,8 @@
 ################################################################################
 # region Imports
 
+__lazy_modules__ = type("_", (), {"__contains__": lambda *_: True})()
+
 import argparse
 import atexit
 import base64
@@ -119,10 +121,16 @@ else:
 	from collections import OrderedDict
 
 
-try:
+if sys.version_info >= (3, 8):
 	# Python 3.8+
-	from math import isqrt
-except ImportError:
+	from math import isqrt, prod
+
+	def invmod(a, n):
+		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
+		return pow(a, -1, n)
+
+else:
+	from functools import reduce
 
 	def isqrt(n):
 		"""Return the integer square root of a nonnegative integer."""
@@ -144,25 +152,9 @@ except ImportError:
 
 		return a - (a * a > n)
 
-
-try:
-	# Python 3.8+
-	from math import prod
-except ImportError:
-	from functools import reduce
-
 	def prod(iterable, start=1):
 		"""Return the product of all elements in iterable, times start (Python 3.8+ math.prod fallback)."""
 		return reduce(operator.mul, iterable, start)
-
-
-if sys.version_info >= (3, 8):
-
-	def invmod(a, n):
-		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
-		return pow(a, -1, n)
-
-else:
 
 	def invmod(a, n):
 		"""Return the multiplicative inverse of a modulo n, raising ValueError if none exists."""
@@ -446,10 +438,10 @@ elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):  # macOS or
 		return value.value
 
 elif sys.platform.startswith("linux"):
-	try:
+	if sys.version_info >= (3, 10):
 		# Python 3.10+
 		from platform import freedesktop_os_release
-	except ImportError:
+	else:
 
 		def freedesktop_os_release():
 			"""Parse /etc/os-release or /usr/lib/os-release into a dict (Python < 3.10 fallback)."""
@@ -994,20 +986,20 @@ if libcrypto:
 		return outbuf[: outlen.value + tmplen.value]
 
 
-try:
+if sys.platform == "win32":
 	# Windows
 	import winsound
-except ImportError:
-
-	def beep():
-		"""Emit an audible terminal bell."""
-		print("\a")
-
-else:
 
 	def beep():
 		"""Play the default Windows system notification sound."""
 		winsound.MessageBeep(type=-1)
+
+else:
+
+	def beep():
+		"""Emit an audible terminal bell."""
+		# print("\a", end="")
+		sys.stdout.write("\a")
 
 
 try:
@@ -1019,10 +1011,10 @@ else:
 	readline.set_completer_delims("")
 	readline.parse_and_bind("tab: complete")
 
-try:
+if sys.version_info >= (3, 5):
 	# Python 3.5+
 	from json.decoder import JSONDecodeError
-except ImportError:
+else:
 	JSONDecodeError = ValueError
 
 results_queue = queue.Queue()
@@ -10248,7 +10240,7 @@ Computer GUID:			{}
 
 parser = argparse.ArgumentParser(
 	# usage="%(prog)s [options]\nUse -h/--help to see all options\nUse --setup to configure this instance of the program",
-	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. It can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to provide most of the arguments once. The first time it is run, it will register the current GIMPS software instance with PrimeNet (see the Registering Options below). Then, it will report assignment results and upload any proof files to PrimeNet immediately. It will get assignments on the --timeout interval, or only once if --timeout is 0, and it will additionally report the progress on the --checkin interval."
+	description="This program will automatically get and register assignments, report assignment progress and results, upload proof files to and download certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. It can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. It also saves its configuration to a 'prime.ini' file by default, so it is only necessary to provide most of the arguments once. The first time it is run, it will register the current GIMPS software instance with PrimeNet (see the Registering Options below). Then, it will report assignment results and upload any proof files to PrimeNet immediately. It will get assignments on the `--timeout` interval, or only once if `--timeout` is 0, and it will additionally report the progress on the `--checkin` interval."
 )
 parser.suggest_on_error = True  # Python 3.14+
 parser.add_argument("--version", action="version", version="%(prog)s " + VERSION)
