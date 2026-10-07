@@ -2932,11 +2932,12 @@ def one_line_status(file, num, index, wu):
 		date = datetime.fromtimestamp(os.path.getmtime(file))
 		size = os.path.getsize(file)
 		result.extend(("{}B".format(output_unit(size)), "{:%Y-%m-%d %H:%M:%S}".format(date)))  # "%F %T"
-	result += [
+	result.extend((
 		work_type_str,
 		"{}, {}".format(stage, wu.stage) if stage else "Stage: {}".format(wu.stage),
 		"?%" if wu.pct_complete is None else "{:.4%}".format(wu.pct_complete),
-	] + temp
+	))
+	result.extend(temp)
 
 	return result
 

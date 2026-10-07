@@ -93,7 +93,7 @@ import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 from array import array
-from collections import namedtuple
+from collections import deque, namedtuple
 from configparser import ConfigParser
 from configparser import Error as ConfigParserError
 from ctypes.util import find_library
@@ -3629,7 +3629,7 @@ ECM_RE = re.compile(
 CERT_RE = re.compile(r"^(Cert|CERT)\s*=\s*(?:([0-9A-F]{32}|[Nn]/[Aa]|0),)?([0-9]+),([0-9]+),([0-9]+),([-+]?[0-9]+),([0-9]+)$")
 
 
-def parse_assignment(task):
+def parse_assignment(adapter, task):
 	"""Parse a Prime95-style worktodo line into an Assignment object."""
 	# Ex: Test=197ED240A7A41EC575CB408F32DDA661,57600769,74
 	found = WORK_PATTERN.match(task)
@@ -3637,143 +3637,147 @@ def parse_assignment(task):
 		return None
 	# logging.debug(task)
 	assignment = Assignment()
-	B1, B21, B22, work_type, value, assignment.uid = found.group(1, 2, 3, 4, 5, 6)
-	if B1:
-		assignment.B1 = int(B1)
-		if B21:
-			assignment.B2 = int(B21)
-	if B22:
-		assignment.B2 = int(B22)
-	assignment.ra_failed = bool(value) and not assignment.uid
-	# e.g., "57600769", "197ED240A7A41EC575CB408F32DDA661"
-	# logging.debug("type = %s, assignment_id = %s", work_type, assignment.uid)
-	# Extract the subfield containing the exponent, whose position depends on
-	# the assignment type:
-	if work_type in {"Test", "DoubleCheck"}:
-		found = TEST_RE.match(task)
-		if not found:
-			return None
-		_, _, n, sieve_depth, pminus1ed = found.groups()
-		assignment.work_type = PRIMENET_WORK_TYPE.FIRST_LL if work_type == "Test" else PRIMENET_WORK_TYPE.DBLCHK
-		assignment.n = int(n)
-		if pminus1ed:
+	b1, b21, b22, work_type, value, assignment.uid = found.group(1, 2, 3, 4, 5, 6)
+	try:
+		if b1:
+			assignment.B1 = int(b1)
+			if b21:
+				assignment.B2 = int(b21)
+		if b22:
+			assignment.B2 = int(b22)
+		assignment.ra_failed = bool(value) and not assignment.uid
+		# e.g., "57600769", "197ED240A7A41EC575CB408F32DDA661"
+		# logging.debug("type = %s, assignment_id = %s", work_type, assignment.uid)
+		# Extract the subfield containing the exponent, whose position depends on
+		# the assignment type:
+		if work_type in {"Test", "DoubleCheck"}:
+			found = TEST_RE.match(task)
+			if not found:
+				return None
+			_, _, n, sieve_depth, pminus1ed = found.groups()
+			assignment.work_type = PRIMENET_WORK_TYPE.FIRST_LL if work_type == "Test" else PRIMENET_WORK_TYPE.DBLCHK
+			assignment.n = int(n)
+			if pminus1ed:
+				assignment.sieve_depth = float(sieve_depth)
+				assignment.pminus1ed = int(pminus1ed)
+			# assignment.tests_saved = 2.0 if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL else 1.0
+		elif work_type in {"PRP", "PRPDC"}:
+			found = PRP_RE.match(task)
+			if not found:
+				return None
+			_, _, k, b, n, c, sieve_depth, tests_saved, prp_base, prp_residue_type, known_factors = found.groups()
+			assignment.prp_dblchk = work_type == "PRPDC"
+			assignment.work_type = PRIMENET_WORK_TYPE.PRP
+			assignment.k = int(k)
+			assignment.b = int(b)
+			assignment.n = int(n)
+			assignment.c = int(c)
+			if tests_saved:
+				assignment.sieve_depth = float(sieve_depth)
+				assignment.tests_saved = float(tests_saved)
+				if prp_residue_type:
+					assignment.prp_base = int(prp_base)
+					assignment.prp_residue_type = int(prp_residue_type)
+			if known_factors:
+				assignment.known_factors = tuple(map(int, known_factors.split(",")))
+		elif work_type == "Factor":
+			found = FACTOR_RE.match(task)
+			if not found:
+				return None
+			_, _, n, sieve_depth, factor_to, known_factors = found.groups()
+			assignment.work_type = PRIMENET_WORK_TYPE.FACTOR
+			assignment.n = int(n)
 			assignment.sieve_depth = float(sieve_depth)
-			assignment.pminus1ed = int(pminus1ed)
-		# assignment.tests_saved = 2.0 if assignment.work_type == PRIMENET_WORK_TYPE.FIRST_LL else 1.0
-	elif work_type in {"PRP", "PRPDC"}:
-		found = PRP_RE.match(task)
-		if not found:
-			return None
-		_, _, k, b, n, c, sieve_depth, tests_saved, prp_base, prp_residue_type, known_factors = found.groups()
-		assignment.prp_dblchk = work_type == "PRPDC"
-		assignment.work_type = PRIMENET_WORK_TYPE.PRP
-		assignment.k = int(k)
-		assignment.b = int(b)
-		assignment.n = int(n)
-		assignment.c = int(c)
-		if tests_saved:
+			assignment.factor_to = float(factor_to)
+			if known_factors:
+				assignment.known_factors = tuple(map(int, known_factors.split(",")))
+		elif work_type in {"PFactor", "Pfactor"}:
+			found = PFACTOR_RE.match(task)
+			if not found:
+				return None
+			_, _, k, b, n, c, sieve_depth, tests_saved, known_factors = found.groups()
+			assignment.work_type = PRIMENET_WORK_TYPE.PFACTOR
+			assignment.k = int(k)
+			assignment.b = int(b)
+			assignment.n = int(n)
+			assignment.c = int(c)
 			assignment.sieve_depth = float(sieve_depth)
 			assignment.tests_saved = float(tests_saved)
-			if prp_residue_type:
-				assignment.prp_base = int(prp_base)
-				assignment.prp_residue_type = int(prp_residue_type)
-		if known_factors:
-			assignment.known_factors = tuple(map(int, known_factors.split(",")))
-	elif work_type == "Factor":
-		found = FACTOR_RE.match(task)
-		if not found:
-			return None
-		_, _, n, sieve_depth, factor_to, known_factors = found.groups()
-		assignment.work_type = PRIMENET_WORK_TYPE.FACTOR
-		assignment.n = int(n)
-		assignment.sieve_depth = float(sieve_depth)
-		assignment.factor_to = float(factor_to)
-		if known_factors:
-			assignment.known_factors = tuple(map(int, known_factors.split(",")))
-	elif work_type in {"PFactor", "Pfactor"}:
-		found = PFACTOR_RE.match(task)
-		if not found:
-			return None
-		_, _, k, b, n, c, sieve_depth, tests_saved, known_factors = found.groups()
-		assignment.work_type = PRIMENET_WORK_TYPE.PFACTOR
-		assignment.k = int(k)
-		assignment.b = int(b)
-		assignment.n = int(n)
-		assignment.c = int(c)
-		assignment.sieve_depth = float(sieve_depth)
-		assignment.tests_saved = float(tests_saved)
-		if known_factors:
-			assignment.known_factors = tuple(map(int, known_factors.split(",")))
-	elif work_type in {"PMinus1", "Pminus1"}:
-		found = PMINUS1_RE.match(task)
-		if not found:
-			return None
-		_, _, k, b, n, c, B1, B2, sieve_depth, B2_start, known_factors = found.groups()
-		assignment.work_type = PRIMENET_WORK_TYPE.PMINUS1
-		assignment.k = int(k)
-		assignment.b = int(b)
-		assignment.n = int(n)
-		assignment.c = int(c)
-		assignment.B1 = int(B1)
-		assignment.B2 = int(B2)
-		assignment.sieve_depth = 0.0
-		if sieve_depth:
-			assignment.sieve_depth = float(sieve_depth)
-			if B2_start:
-				assignment.B2_start = int(B2_start)
-		if known_factors:
-			assignment.known_factors = tuple(map(int, known_factors.split(",")))
-	elif work_type == "Pplus1":
-		found = PPLUS1_RE.match(task)
-		if not found:
-			return None
-		_, _, k, b, n, c, B1, B2, nth_run, sieve_depth, known_factors = found.groups()
-		assignment.work_type = PRIMENET_WORK_TYPE.PPLUS1
-		assignment.k = int(k)
-		assignment.b = int(b)
-		assignment.n = int(n)
-		assignment.c = int(c)
-		assignment.B1 = int(B1)
-		assignment.B2 = int(B2)
-		assignment.nth_run = 1
-		assignment.sieve_depth = 0.0
-		if nth_run:
-			assignment.nth_run = int(nth_run)
+			if known_factors:
+				assignment.known_factors = tuple(map(int, known_factors.split(",")))
+		elif work_type in {"PMinus1", "Pminus1"}:
+			found = PMINUS1_RE.match(task)
+			if not found:
+				return None
+			_, _, k, b, n, c, b1, b2, sieve_depth, B2_start, known_factors = found.groups()
+			assignment.work_type = PRIMENET_WORK_TYPE.PMINUS1
+			assignment.k = int(k)
+			assignment.b = int(b)
+			assignment.n = int(n)
+			assignment.c = int(c)
+			assignment.B1 = int(b1)
+			assignment.B2 = int(b2)
+			assignment.sieve_depth = 0.0
 			if sieve_depth:
 				assignment.sieve_depth = float(sieve_depth)
-		if known_factors:
-			assignment.known_factors = tuple(map(int, known_factors.split(",")))
-	elif work_type in {"ECM", "ECM2"}:
-		found = ECM_RE.match(task)
-		if not found:
-			return None
-		_, _, k, b, n, c, B1, B2, curves_to_do, curve, known_factors = found.groups()
-		assignment.work_type = PRIMENET_WORK_TYPE.ECM
-		assignment.k = int(k)
-		assignment.b = int(b)
-		assignment.n = int(n)
-		assignment.c = int(c)
-		assignment.B1 = int(B1)
-		# assignment.curves_to_do = 100
-		if B2:
-			assignment.B2 = int(B2)
-			if curves_to_do:
-				assignment.curves_to_do = int(curves_to_do)
-				if curve:
-					assignment.curve = int(curve)
-		if known_factors:
-			assignment.known_factors = tuple(map(int, known_factors.split(",")))
-	elif work_type in {"Cert", "CERT"}:
-		found = CERT_RE.match(task)
-		if not found:
-			return None
-		_, _, k, b, n, c, cert_squarings = found.groups()
-		assignment.work_type = PRIMENET_WORK_TYPE.CERT
-		assignment.k = int(k)
-		assignment.b = int(b)
-		assignment.n = int(n)
-		assignment.c = int(c)
-		assignment.cert_squarings = int(cert_squarings)
+				if B2_start:
+					assignment.B2_start = int(B2_start)
+			if known_factors:
+				assignment.known_factors = tuple(map(int, known_factors.split(",")))
+		elif work_type == "Pplus1":
+			found = PPLUS1_RE.match(task)
+			if not found:
+				return None
+			_, _, k, b, n, c, b1, b2, nth_run, sieve_depth, known_factors = found.groups()
+			assignment.work_type = PRIMENET_WORK_TYPE.PPLUS1
+			assignment.k = int(k)
+			assignment.b = int(b)
+			assignment.n = int(n)
+			assignment.c = int(c)
+			assignment.B1 = int(b1)
+			assignment.B2 = int(b2)
+			assignment.nth_run = 1
+			assignment.sieve_depth = 0.0
+			if nth_run:
+				assignment.nth_run = int(nth_run)
+				if sieve_depth:
+					assignment.sieve_depth = float(sieve_depth)
+			if known_factors:
+				assignment.known_factors = tuple(map(int, known_factors.split(",")))
+		elif work_type in {"ECM", "ECM2"}:
+			found = ECM_RE.match(task)
+			if not found:
+				return None
+			_, _, k, b, n, c, b1, b2, curves_to_do, curve, known_factors = found.groups()
+			assignment.work_type = PRIMENET_WORK_TYPE.ECM
+			assignment.k = int(k)
+			assignment.b = int(b)
+			assignment.n = int(n)
+			assignment.c = int(c)
+			assignment.B1 = int(b1)
+			# assignment.curves_to_do = 100
+			if b2:
+				assignment.B2 = int(b2)
+				if curves_to_do:
+					assignment.curves_to_do = int(curves_to_do)
+					if curve:
+						assignment.curve = int(curve)
+			if known_factors:
+				assignment.known_factors = tuple(map(int, known_factors.split(",")))
+		elif work_type in {"Cert", "CERT"}:
+			found = CERT_RE.match(task)
+			if not found:
+				return None
+			_, _, k, b, n, c, cert_squarings = found.groups()
+			assignment.work_type = PRIMENET_WORK_TYPE.CERT
+			assignment.k = int(k)
+			assignment.b = int(b)
+			assignment.n = int(n)
+			assignment.c = int(c)
+			assignment.cert_squarings = int(cert_squarings)
+	except ValueError as e:
+		adapter.exception("Unable to parse assignment: %s: %s", type(e).__name__, e)
+		return None
 	if assignment.n and assignment.n >= MAX_PRIMENET_EXP:
 		assignment.ra_failed = True
 	return assignment
@@ -3801,7 +3805,7 @@ def read_workfile(adapter, workfile):
 	tasks = readonly_list_file(workfile)
 	for task in tasks:
 		illegal_line = False
-		assignment = parse_assignment(task)
+		assignment = parse_assignment(adapter, task)
 		if assignment is not None:
 			if assignment.k < 1 or assignment.b < 2 or assignment.n < 1 or not assignment.c:
 				adapter.error("Bad number in %r file, k < 1 or b < 2 or n < 1 or c = 0", workfile)
@@ -6616,7 +6620,7 @@ def program_options(config, args, send=False, start=-1, retry_count=0):
 			params["c"] = tnum
 		if send:
 			options_changed = False
-			if len(set(args.work_preference)) == 1 if tnum < 0 else len(set(args.work_preference)) != 1:
+			if len(frozenset(args.work_preference)) == 1 if tnum < 0 else len(frozenset(args.work_preference)) != 1:
 				params["w"] = args.work_preference[max(0, tnum)]
 				options_changed = True
 			if tnum < 0:
@@ -6682,7 +6686,7 @@ def program_options(config, args, send=False, start=-1, retry_count=0):
 				args.days_of_work = float(result["DaysOfWork"])
 				config.set(SEC.PrimeNet, "DaysOfWork", result["DaysOfWork"])
 			if "DayMemory" in result and "NightMemory" in result:
-				memory = max(int(result[x]) for x in ("DayMemory", "NightMemory"))
+				memory = max(map(int, (result["DayMemory"], result["NightMemory"])))
 				args.day_night_memory = memory
 				config.set(SEC.PrimeNet, "Memory", str(memory))
 			if "RunOnBattery" in result:
@@ -7065,21 +7069,6 @@ def get_assignment(
 	}:
 		adapter.error("Server sent bad exponent: %s.", assignment.n)
 		return None
-	if assignment.work_type not in {
-		PRIMENET_WORK_TYPE.FACTOR,
-		PRIMENET_WORK_TYPE.PFACTOR,
-		PRIMENET_WORK_TYPE.PMINUS1,
-		PRIMENET_WORK_TYPE.PPLUS1,
-		PRIMENET_WORK_TYPE.ECM,
-		PRIMENET_WORK_TYPE.FIRST_LL,
-		PRIMENET_WORK_TYPE.DBLCHK,
-		PRIMENET_WORK_TYPE.PRP,
-		PRIMENET_WORK_TYPE.CERT,
-	}:
-		adapter.error("Returned assignment from server is not a supported worktype %s.", assignment.work_type)
-		# TODO: Unreserve assignment
-		# assignment_unreserve()
-		# return None
 	if assignment.work_type in {PRIMENET_WORK_TYPE.FIRST_LL, PRIMENET_WORK_TYPE.DBLCHK}:
 		assignment.sieve_depth = float(r["sf"])
 		assignment.pminus1ed = int(r["p1"])
@@ -7167,7 +7156,7 @@ def get_assignment(
 		assignment.c = int(r["c"])
 		assignment.cert_squarings = int(r["ns"])
 	else:
-		adapter.critical("Received unknown worktype: %s.", assignment.work_type)
+		adapter.critical("Received assignment from server with unknown worktype: %s.", assignment.work_type)
 		sys.exit(1)
 	adapter.info("Got assignment %s: %s", assignment.uid, exponent_to_text(assignment))
 	return assignment
@@ -7308,7 +7297,7 @@ def cuda_result_to_json(adapter, resultsfile, sendline):
 			if brent_suyama > 2:
 				ar["brent-suyama"] = brent_suyama
 	else:
-		adapter.error("Unable to parse entry in %r: %s", resultsfile, sendline)
+		adapter.error("Unable to parse entry in %r: %r", resultsfile, sendline)
 		return None
 
 	ar["exponent"] = int(exponent)
@@ -7551,13 +7540,75 @@ def parse_result(config, args, adapter, adir, cpu_num, resultsfile, sendline):
 	"""Parse a result line and submit it through the appropriate reporting path."""
 	if "CUDALucas v" in sendline or "CUDAPm1 v" in sendline:  # CUDALucas or CUDAPm1
 		ar = cuda_result_to_json(adapter, resultsfile, sendline)
-	else:  # Mlucas or GpuOwl
+		if ar is None:
+			return None
+	else:
 		try:
 			ar = json.loads(sendline)
 		except JSONDecodeError as e:
 			adapter.error("%r", sendline)
 			adapter.exception("Unable to decode entry in %r: %s: %s", resultsfile, type(e).__name__, e, exc_info=args.debug)
 			return None
+
+	worktype = ar.get("worktype")
+	status = ar.get("status")
+
+	required = {"program": {"name": None, "version": None}, "worktype": None}
+	if worktype == "LL":
+		required.update((("status", None), ("shift-count", None)))
+		if status == "C":
+			required["res64"] = None
+	elif worktype and worktype.startswith("PRP"):
+		required["status"] = None
+		if status == "C":
+			required.update((("res64", None), ("residue-type", None)))
+		if "proof" in ar:
+			required["proof"] = {"power": None}
+			if isinstance(ar["proof"], dict) and ar["proof"].get("power"):
+				required["proof"]["md5"] = None
+	elif worktype == "TF":
+		required.update((("status", None), ("bitlo", None), ("bithi", None), ("rangecomplete", None)))
+		if status == "F":
+			required["factors"] = None
+	elif worktype in {"P-1", "PM1"}:
+		required.update((("status", None), ("b1" if "b1" in ar or "B1" not in ar else "B1", None)))
+		if status == "F":
+			required["factors"] = None
+	elif worktype == "P+1":
+		required.update((("status", None), ("start", None), ("b1", None)))
+		if status == "F":
+			required["factors"] = None
+	elif worktype == "ECM":
+		required.update((("status", None), ("curves", None), ("b1", None)))
+		if status == "F":
+			required["factors"] = None
+	elif worktype in {"Cert", "CERT"}:
+		required["sha3-hash"] = None
+
+	stack = deque(((ar, required, ()),))
+	while stack:
+		value, schema, path = stack.popleft()
+
+		if not isinstance(value, dict):
+			adapter.error(
+				"Invalid result in %r: JSON%s must be an object", resultsfile, " key " + ".".join(map(repr, path)) if path else ""
+			)
+			return None
+
+		missing = schema.keys() - value.keys()
+		if missing:
+			adapter.error(
+				"Invalid result in %r: JSON%s is missing required key%s: %s",
+				resultsfile,
+				" object " + ".".join(map(repr, path)) if path else "",
+				"s" if len(missing) != 1 else "",
+				", ".join(map(repr, sorted(missing))),
+			)
+			return None
+
+		for key, subschema in schema.items():
+			if subschema is not None:
+				stack.append((value[key], subschema, path + (key,)))
 
 	program = ar["program"]
 	name = program["name"]
@@ -7594,32 +7645,64 @@ def parse_result(config, args, adapter, adir, cpu_num, resultsfile, sendline):
 		assignment.c = ar["c"]
 	elif "exponent" in ar:
 		assignment.n = int(ar["exponent"])
+	else:
+		adapter.error("Invalid result in %r: JSON must contain the 'exponent' or 'k', 'b', 'n' and 'c' keys", resultsfile)
+		return None
 	if "known-factors" in ar:
 		assignment.known_factors = tuple(map(int, ar["known-factors"]))
 
-	worktype = ar["worktype"]
 	if worktype == "LL":
-		result_type = PRIMENET_AR.LL_PRIME if ar["status"] == "P" else PRIMENET_AR.LL_RESULT
-		# ar["status"] == "C"
+		if status == "P":
+			result_type = PRIMENET_AR.LL_PRIME
+		elif status == "C":
+			result_type = PRIMENET_AR.LL_RESULT
+		else:
+			adapter.error("Unsupported status %r for worktype %r", status, worktype)
+			return None
 	elif worktype.startswith("PRP"):
-		result_type = PRIMENET_AR.PRP_PRIME if ar["status"] == "P" else PRIMENET_AR.PRP_RESULT
-		# ar["status"] == "C"
+		if status == "P":
+			result_type = PRIMENET_AR.PRP_PRIME
+		elif status == "C":
+			result_type = PRIMENET_AR.PRP_RESULT
+		else:
+			adapter.error("Unsupported status %r for worktype %r", status, worktype)
+			return None
 	elif worktype == "TF":
-		result_type = PRIMENET_AR.TF_FACTOR if ar["status"] == "F" else PRIMENET_AR.TF_NOFACTOR
-		# ar["status"] == "NF"
+		if status == "F":
+			result_type = PRIMENET_AR.TF_FACTOR
+		elif status == "NF":
+			result_type = PRIMENET_AR.TF_NOFACTOR
+		else:
+			adapter.error("Unsupported status %r for worktype %r", status, worktype)
+			return None
 	elif worktype in {"P-1", "PM1"}:
-		result_type = PRIMENET_AR.P1_FACTOR if ar["status"] == "F" else PRIMENET_AR.P1_NOFACTOR
-		# ar["status"] == "NF"
+		if status == "F":
+			result_type = PRIMENET_AR.P1_FACTOR
+		elif status == "NF":
+			result_type = PRIMENET_AR.P1_NOFACTOR
+		else:
+			adapter.error("Unsupported status %r for worktype %r", status, worktype)
+			return None
 	elif worktype == "P+1":
-		result_type = PRIMENET_AR.PP1_FACTOR if ar["status"] == "F" else PRIMENET_AR.PP1_NOFACTOR
-		# ar["status"] == "NF"
+		if status == "F":
+			result_type = PRIMENET_AR.PP1_FACTOR
+		elif status == "NF":
+			result_type = PRIMENET_AR.PP1_NOFACTOR
+		else:
+			adapter.error("Unsupported status %r for worktype %r", status, worktype)
+			return None
 	elif worktype == "ECM":
-		result_type = PRIMENET_AR.ECM_FACTOR if ar["status"] == "F" else PRIMENET_AR.ECM_NOFACTOR
-		# ar["status"] == "NF"
+		if status == "F":
+			result_type = PRIMENET_AR.ECM_FACTOR
+		elif status == "NF":
+			result_type = PRIMENET_AR.ECM_NOFACTOR
+		else:
+			adapter.error("Unsupported status %r for worktype %r", status, worktype)
+			return None
 	elif worktype in {"Cert", "CERT"}:
 		result_type = PRIMENET_AR.CERT
 	else:
-		adapter.error("Unsupported worktype %s", worktype)
+		adapter.error("Unsupported worktype %r", worktype)
 		return None
 
 	buf = "" if not user else "UID: {}, ".format(user) if not computer else "UID: {}/{}, ".format(user, computer)
@@ -7872,7 +7955,7 @@ Python version: {}
 					urllib3.__version__,
 					platform.python_version(),
 				),
-				([] if args.cudalucas else [file]) + [savefile, logfile],
+				(() if args.cudalucas else (file,)) + (savefile, logfile),
 				cc=None if no_report or "known-factors" in ar else CCEMAILS,
 				priority="1 (Highest)",
 				azipfile="attachments.zip",
@@ -7900,11 +7983,6 @@ Python version: {}
 	return ar, message, assignment, result_type, no_report
 
 
-RESULT_PATTERN = re.compile(
-	r'"(?:Prime95|Mlucas|gpuowl|prpll|prmers|mfakt[co]|cofact|gvtf|PrimePath|Mp_p-1_gpu|prptiny|prpmetal)"|CUDA(?:Lucas|Pm1) v'
-)
-
-
 def submit_work(config, args, _dirs, adapter, adir, cpu_num, tasks):
 	"""Read and submit result lines from a worker results file."""
 	# A cumulative backup
@@ -7919,7 +7997,11 @@ def submit_work(config, args, _dirs, adapter, adir, cpu_num, tasks):
 		# EWM: Note that readonly_list_file does not need the file(s) to exist - nonexistent files simply yield 0-length rs-array entries.
 		# remove nonsubmittable lines from list of possibles
 		# if a line was previously submitted, discard
-		results_send = [line for line in results if RESULT_PATTERN.search(line) and line not in results_sent]
+		results_send = [
+			line
+			for line in results
+			if (line.startswith("{") or "CUDALucas v" in line or "CUDAPm1 v" in line) and line not in results_sent
+		]
 
 	if not results_send:
 		if args.results or args.proofs or args.recover or args.recover_all or args.unreserve_all:
@@ -8676,7 +8758,7 @@ def tf1g_fetch(
 			tests = []
 			for task in r.iter_lines(decode_unicode=True):
 				if task:
-					test = parse_assignment(task)
+					test = parse_assignment(adapter, task)
 					if test is None:
 						adapter.error("Invalid assignment %r", task)
 						tests.append(task)
@@ -10303,21 +10385,21 @@ PROGRAM = PROGRAMS[
 ]
 
 SUPPORTED = frozenset(
-	[PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR]
+	(PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR)
 	if args.mfaktc or args.mfakto or args.primepath
 	else (
-		[PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M]
-		+ ([PRIMENET_WP.LL_DBLCHK] if args.mlucas or args.cudalucas else [])
+		(PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M)
+		+ ((PRIMENET_WP.LL_DBLCHK,) if args.mlucas or args.cudalucas else ())
 		+ (
-			[]
+			()
 			if args.cudalucas
-			else [PRIMENET_WP.PRP_FIRST, PRIMENET_WP.PRP_DBLCHK, PRIMENET_WP.PRP_WORLD_RECORD, PRIMENET_WP.PRP_100M]
+			else (PRIMENET_WP.PRP_FIRST, PRIMENET_WP.PRP_DBLCHK, PRIMENET_WP.PRP_WORLD_RECORD, PRIMENET_WP.PRP_100M)
 		)
-		+ ([106, PRIMENET_WP.PRP_DC_PROOF] if args.gpuowl or args.prpll or args.prmers else [])
-		+ ([PRIMENET_WP.PRP_NO_PMINUS1] if args.gpuowl or args.mlucas else [])
-		+ ([] if args.prpll else [PRIMENET_WP.PFACTOR])
-		+ ([PRIMENET_WP.ECM_SMALL, PRIMENET_WP.ECM_COFACTOR] if args.prmers else [])
-		+ ([PRIMENET_WP.PRP_COFACTOR, PRIMENET_WP.PRP_COFACTOR_DBLCHK] if args.mlucas or args.prmers else [])
+		+ ((106, PRIMENET_WP.PRP_DC_PROOF) if args.gpuowl or args.prpll or args.prmers else ())
+		+ ((PRIMENET_WP.PRP_NO_PMINUS1,) if args.gpuowl or args.mlucas else ())
+		+ (() if args.prpll else (PRIMENET_WP.PFACTOR,))
+		+ ((PRIMENET_WP.ECM_SMALL, PRIMENET_WP.ECM_COFACTOR) if args.prmers else ())
+		+ ((PRIMENET_WP.PRP_COFACTOR, PRIMENET_WP.PRP_COFACTOR_DBLCHK) if args.mlucas or args.prmers else ())
 	)
 )
 
