@@ -2713,61 +2713,65 @@ def parse_proof(filename):
 			if header != b"PRP PROOF":
 				return None
 
-			header, _, version = f.readline().rstrip(b"\n").partition(b"=")
-			if header != b"VERSION":
-				logging.error("Failed to get the version number from proof header")
-				return None
-			wu.version = int(version)
-			if wu.version not in {1, 2}:
-				logging.error("PRP proof file with unknown version = %s", version)
-				return None
+			try:
+				header, _, version = f.readline().rstrip(b"\n").partition(b"=")
+				if header != b"VERSION":
+					logging.error("Failed to get the version number from proof header")
+					return None
+				wu.version = int(version)
+				if wu.version not in {1, 2}:
+					logging.error("PRP proof file with unknown version = %s", version)
+					return None
 
-			header, _, _hashlen = f.readline().rstrip(b"\n").partition(b"=")
-			if header != b"HASHSIZE":
-				logging.error("Failed to get the hash size from proof header")
-				return None
+				header, _, _hashlen = f.readline().rstrip(b"\n").partition(b"=")
+				if header != b"HASHSIZE":
+					logging.error("Failed to get the hash size from proof header")
+					return None
 
-			header, _, power = f.readline().rstrip(b"\n").partition(b"=")
-			power, _, power_mult = power.partition(b"x")
-			if header != b"POWER":
-				logging.error("Failed to get the power from proof header")
-				return None
-			wu.proof_power = int(power)
-			wu.proof_power_mult = int(power_mult) if power_mult else 1
+				header, _, power = f.readline().rstrip(b"\n").partition(b"=")
+				power, _, power_mult = power.partition(b"x")
+				if header != b"POWER":
+					logging.error("Failed to get the power from proof header")
+					return None
+				wu.proof_power = int(power)
+				wu.proof_power_mult = int(power_mult) if power_mult else 1
 
-			header = f.readline().rstrip(b"\n")
-			if header.startswith(b"BASE="):
-				_header, _, base = header.partition(b"=")
-				wu.prp_base = int(base)
 				header = f.readline().rstrip(b"\n")
-			else:
-				wu.prp_base = 3
-
-			header, _, number = header.partition(b"=")
-			if header != b"NUMBER":
-				logging.error("Failed to get the number from proof header")
-				return None
-			proof_number = PROOF_NUMBER_RE.match(number)
-			if not proof_number:
-				logging.error("Failed to parse the number: %r", number)
-				return None
-			_, number, exponent, k, b, n, c, factors = proof_number.groups()
-			if exponent:
-				if number.startswith(b"M"):
-					wu.n = int(exponent)
-				elif number.startswith(b"F"):
-					wu.n = 1 << int(exponent)
-					wu.c = 1
+				if header.startswith(b"BASE="):
+					_header, _, base = header.partition(b"=")
+					wu.prp_base = int(base)
+					header = f.readline().rstrip(b"\n")
 				else:
-					wu.c = int(exponent) - 1
-			else:
-				if k:
-					wu.k = int(k)
-				wu.b = int(b)
-				wu.n = int(n)
-				wu.c = int(c)
-			if factors:
-				wu.known_factors = tuple(map(int, factors.split(b"/")))
+					wu.prp_base = 3
+
+				header, _, number = header.partition(b"=")
+				if header != b"NUMBER":
+					logging.error("Failed to get the number from proof header")
+					return None
+				proof_number = PROOF_NUMBER_RE.match(number)
+				if not proof_number:
+					logging.error("Failed to parse the number from proof header: %r", number)
+					return None
+				_, number, exponent, k, b, n, c, factors = proof_number.groups()
+				if exponent:
+					if number.startswith(b"M"):
+						wu.n = int(exponent)
+					elif number.startswith(b"F"):
+						wu.n = 1 << int(exponent)
+						wu.c = 1
+					else:
+						wu.c = int(exponent) - 1
+				else:
+					if k:
+						wu.k = int(k)
+					wu.b = int(b)
+					wu.n = int(n)
+					wu.c = int(c)
+				if factors:
+					wu.known_factors = tuple(map(int, factors.split(b"/")))
+			except ValueError as e:
+				logging.exception("Unable to parse proof header: %s: %s", type(e).__name__, e)
+				return False
 
 			proof_header_size = f.tell()
 			f.seek(0, 2)  # os.SEEK_END
@@ -2932,11 +2936,12 @@ def one_line_status(file, num, index, wu):
 		date = datetime.fromtimestamp(os.path.getmtime(file))
 		size = os.path.getsize(file)
 		result.extend(("{}B".format(output_unit(size)), "{:%Y-%m-%d %H:%M:%S}".format(date)))  # "%F %T"
-	result += [
+	result.extend((
 		work_type_str,
 		"{}, {}".format(stage, wu.stage) if stage else "Stage: {}".format(wu.stage),
 		"?%" if wu.pct_complete is None else "{:.4%}".format(wu.pct_complete),
-	] + temp
+	))
+	result.extend(temp)
 
 	return result
 
