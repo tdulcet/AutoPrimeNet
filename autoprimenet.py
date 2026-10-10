@@ -110,7 +110,7 @@ from http.client import HTTP_PORT
 from http.cookiejar import DefaultCookiePolicy
 from itertools import chain, count, starmap
 from statistics import median_low
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import quote, urlencode, urlparse, urlunparse
 
 if sys.version_info >= (3, 7):
 	# Python 3.7+
@@ -1288,7 +1288,7 @@ elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):
 						elif event.ident == proof_fd:
 							proof_fd = None
 						changelist.remove(aevent)
-						# os.close(event.ident)
+						os.close(event.ident)
 					if event.fflags & select.KQ_NOTE_WRITE:
 						if event.ident in result_fds:
 							logging.debug("The results file %r was modified.", file)
@@ -1523,18 +1523,18 @@ conventions = locale.localeconv()
 if hasattr(sys, "set_int_max_str_digits"):  # Python 3.7.14+, 3.8.14+, 3.9.14+, 3.10.7+, 3.11+
 	sys.set_int_max_str_digits(0)
 
-VERSION = "2.0.1"
+VERSION = "2.0.2"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
 	{"name": "Mlucas", "version": "21.0.2"},
 	{"name": "GpuOwl", "version": "7.5"},
-	{"name": "PRPLL", "version": "0.15"},
-	{"name": "PrMers", "version": "4.19"},
+	{"name": "PRPLL", "version": "8.0"},
+	{"name": "PrMers", "version": "4.20"},
 	{"name": "CUDALucas", "version": "2.06"},
 	{"name": "mfaktc", "version": "0.24"},
 	{"name": "mfakto", "version": "0.16"},
-	{"name": "PrimePath", "version": "1.3"},
+	{"name": "PrimePath", "version": "1.4"},
 )
 # People to e-mail when a new prime is found
 # E-mail addresses munged to prevent spam
@@ -2484,10 +2484,13 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 				if smtp_config is not None:
 					# print("Configuration found at e-mail provider")
 					_, hostname, _, _, _ = smtp_config
-					if scheme == "http://" and not idna_encode(hostname).lower().endswith(adomain):
-						logging.warning(
-							"The connection used to lookup the configuration did not use HTTPS and thus was not secure."
-						)
+					for x in chain(r.history, (r,)):
+						if urlparse(x.url).scheme == "http":
+							if not idna_encode(hostname).lower().endswith(adomain):
+								logging.warning(
+									"The connection used to lookup the configuration did not use HTTPS and thus was not secure."
+								)
+							break
 					return smtp_config
 
 	# https://github.com/thunderbird/autoconfig
@@ -3223,9 +3226,13 @@ OPTIONS_TYPE_HINTS = {
 		"pm1_multiplier": float,
 		"ECMBoundsMultiplier": float,
 		"MaxECMCurves": int,
+		"no_report_100m": bool,
+		"convert_ll_to_prp": bool,
+		"convert_prp_to_ll": bool,
 		"version_check": bool,
 		"require_lock": bool,
 		"watch": bool,
+		"encrypt": bool,
 		"color": bool,
 	},
 	SEC.Email: {"to_emails": list, "tls": bool, "starttls": bool},
@@ -3258,8 +3265,15 @@ def config_write(config, args):
 	"""Write the current configuration to the local PrimeNet configuration file."""
 	# generate a new prime.ini file
 	localfile = os.path.join(workdir, args.localfile)
-	with open(localfile, "w", encoding="utf-8", opener=partial(os.open, mode=0o600)) as configfile:
+	with tempfile.NamedTemporaryFile("w", dir=workdir, encoding="utf-8", delete=False) as configfile:
 		config.write(configfile)
+	try:
+		os.replace(configfile.name, localfile)
+	except OSError as e:
+		logging.exception(
+			"Failed to replace the file %r with %r: %s: %s", configfile.name, localfile, type(e).__name__, e, exc_info=args.debug
+		)
+		raise
 
 
 def get_guid(config):
@@ -3453,6 +3467,13 @@ def decrypt(config, args):
 			attr_val = getattr(args, attr)
 			new_option = "encrypted_{}".format(option)
 			if attr_val is None and config.has_option(section, new_option):
+				if args.encrypt is not None and not args.encrypt:
+					logging.critical(
+						"Unable to decrypt existing passwords in %r when using the --no-encrypt option, so please set passwords again",
+						args.localfile,
+					)
+					sys.exit(1)
+
 				if libcrypto:
 					option_val = config.get(section, new_option)
 					logging.debug("Decrypting option %s in section %r in %r", new_option, section, args.localfile)
@@ -3474,19 +3495,13 @@ def decrypt(config, args):
 						sys.exit(1)
 
 					setattr(args, attr, new_val)
-					if args.encrypt is not None and not args.encrypt:
-						config.remove_option(section, new_option)
-					else:
-						ATTR_TO_COPY[section].pop(attr, None)
+					ATTR_TO_COPY[section].pop(attr, None)
 				else:
-					logging.critical(
-						"Unable to decrypt option %s in section %r in %r, as OpenSSL library not found",
-						new_option,
-						section,
-						args.localfile,
-					)
+					logging.critical("Unable to decrypt passwords in %r, as OpenSSL library not found", args.localfile)
 					logging.critical("Encrypted passwords cannot be moved between systems")
 					sys.exit(1)
+			else:
+				config.remove_option(section, new_option)
 
 
 def check_options(parser, args):
@@ -4227,7 +4242,7 @@ def send(args, subject, message, attachments=None, to=None, cc=None, bcc=None, p
 	if cc:
 		msg["Cc"] = COMMASPACE.join(cc)
 	if bcc:
-		message["Bcc"] = COMMASPACE.join(bcc)
+		msg["Bcc"] = COMMASPACE.join(bcc)
 	msg["Subject"] = subject
 	msg["Date"] = localtime()
 	if priority:
@@ -9712,6 +9727,7 @@ def ping_server(config, args, ping_type=1):
 					"http://{}/pingServer.php".format(sockaddr[0] if family == socket.AF_INET else "[{}]".format(sockaddr[0])),
 					json={"pingType": "simple echo"},
 					headers={"Host": "v6.mersenne.org"},
+					timeout=PRIMENET_TIMEOUT,
 				)
 				r.raise_for_status()
 				result = r.json()
@@ -10325,7 +10341,7 @@ parser.add_argument(
 	default=None,
 	help="Get PRP proof certification work, Default: %(default)r. Currently only supported by PRPLL.",
 )
-parser.add_argument("--no-cert-work", action="store_false", dest="cert_work")
+parser.add_argument("--no-cert-work", action="store_false", dest="cert_work", default=None)
 parser.add_argument(
 	"--cert-work-limit",
 	dest="cert_cpu_limit",
@@ -10429,7 +10445,7 @@ parser.add_argument(
 	default=None,
 	help="Do not report any prime results for exponents greater than or equal to 100 million digits. You must setup another method to notify yourself, such as setting the notification options below.",
 )
-parser.add_argument("--report-100m", action="store_false", dest="no_report_100m")
+parser.add_argument("--report-100m", action="store_false", dest="no_report_100m", default=None)
 
 parser.add_argument(
 	"--checkin",
@@ -10500,7 +10516,7 @@ parser.add_argument(
 	default=None,
 	help="Disable the automatic AutoPrimeNet and GIMPS program version check",
 )
-parser.add_argument("--version-check", action="store_true")
+parser.add_argument("--version-check", action="store_true", default=None)
 parser.add_argument(
 	"--version-check-channel",
 	choices=("alpha", "beta", "stable"),
@@ -10513,7 +10529,7 @@ parser.add_argument(
 	default=None,
 	help="Do not require the '~lock' lockfile to be successfully locked, which otherwise helps to prevent starting multiple instances of AutoPrimeNet in the same --workdir directory. This may be needed if the filesystem does not support file locking.",
 )
-parser.add_argument("--lock", action="store_true")
+parser.add_argument("--lock", action="store_true", default=None)
 parser.add_argument(
 	"--no-watch",
 	action="store_false",
@@ -10521,7 +10537,7 @@ parser.add_argument(
 	default=None,
 	help="Report assignment results and upload proof files on the --timeout interval instead of immediately. This may be needed if the filesystem does not support file watching.",
 )
-parser.add_argument("--watch", action="store_true")
+parser.add_argument("--watch", action="store_true", default=None)
 parser.add_argument(
 	"--no-encrypt",
 	action="store_false",
@@ -10532,10 +10548,11 @@ parser.add_argument(
 parser.add_argument(
 	"--encrypt",
 	action="store_true",
+	default=None,
 	help="Encrypt any passwords from the --proxy-password and --email-password options in the configuration file. Uses AES-256-GCM encryption with PBKDF2-HMAC-SHA256 key derivation. Requires the OpenSSL library. Does opportunistic encryption by default. Provide this option to enable strict encryption.",
 )
 parser.add_argument("--no-color", action="store_false", dest="color", default=None, help="Do not use color in output.")
-parser.add_argument("--color", action="store_true")
+parser.add_argument("--color", action="store_true", default=None)
 parser.add_argument(
 	"--setup", action="store_true", help="Prompt for all the options that are needed to setup this program and exit."
 )
@@ -10664,9 +10681,9 @@ group.add_argument("-P", "--email-password", help="SMTP server password")
 group.add_argument("--test-email", action="store_true", help="Send a test e-mail message and exit")
 
 args = parser.parse_args()
-args_no_defaults = argparse.Namespace(**{
-	key: value for key, value in args.__dict__.items() if value is not None and parser.get_default(key) is not value
-})
+namespace = argparse.Namespace(**dict.fromkeys(vars(args)))
+parser.parse_args(namespace=namespace)
+args_no_defaults = argparse.Namespace(**{key: value for key, value in vars(namespace).items() if value is not None})
 
 logger = logging.getLogger()
 logger.setLevel(max(logging.INFO - args.debug * 10, 0))
@@ -10770,7 +10787,11 @@ if args.proxy:
 	url = urlparse(args.proxy, args.proxy_type or "http")
 	proxy = urlunparse((
 		url.scheme,
-		(args.proxy_username + (":" + args.proxy_password if args.proxy_password else "") + "@" if args.proxy_username else "")
+		(
+			quote(args.proxy_username, safe="") + (":" + quote(args.proxy_password, safe="") if args.proxy_password else "") + "@"
+			if args.proxy_username
+			else ""
+		)
 		+ (url.netloc or args.proxy),
 		"",
 		"",
@@ -10787,7 +10808,7 @@ args.work_file = os.path.normpath(args.work_file)
 if args.results_file is not None:
 	args.results_file = os.path.normpath(args.results_file)
 
-if not args_no_defaults.__dict__ and not os.path.exists(os.path.join(workdir, args.localfile)):
+if not vars(args_no_defaults) and not os.path.exists(os.path.join(workdir, args.localfile)):
 	file = sys.executable if is_pyinstaller() else os.path.abspath(__file__)
 	adir = os.getcwd()
 	if adir != os.path.dirname(file):
