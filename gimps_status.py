@@ -115,8 +115,8 @@ def integer_root(n, k):
 
 if sys.platform != "win32":
 	libc = ctypes.CDLL(None)
-	libc.wcswidth.argtypes = (ctypes.c_wchar_p, ctypes.c_int)
-	libc.wcswidth.restype = ctypes.c_int
+	libc.wcswidth.argtypes = (ctypes.c_wchar_p, ctypes.c_size_t)
+	# libc.wcswidth.restype = ctypes.c_int
 
 	def wcswidth(astr):
 		"""Return the terminal-column width of a string using the platform wcswidth function."""

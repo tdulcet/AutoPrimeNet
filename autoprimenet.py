@@ -104,13 +104,12 @@ from decimal import Decimal
 from email.message import EmailMessage
 from email.utils import localtime, parseaddr
 from enum import Enum, IntEnum
-from functools import partial
 from hashlib import md5, pbkdf2_hmac
 from http.client import HTTP_PORT
 from http.cookiejar import DefaultCookiePolicy
 from itertools import chain, count, starmap
 from statistics import median_low
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import quote, urlencode, urlsplit
 
 if sys.version_info >= (3, 7):
 	# Python 3.7+
@@ -369,7 +368,7 @@ if sys.platform == "win32":  # Windows
 		"""Return the computer account Security Identifier (SID) on Windows."""
 		# output = ""
 		computer_name = ctypes.create_unicode_buffer(256)
-		size = wintypes.DWORD(ctypes.sizeof(computer_name))
+		size = wintypes.DWORD(len(computer_name))
 		if not kernel32.GetComputerNameW(computer_name, ctypes.byref(size)):
 			raise ctypes.WinError(ctypes.get_last_error())
 			# return output
@@ -488,7 +487,7 @@ elif sys.platform.startswith("linux"):
 			("totalhigh", ctypes.c_ulong),
 			("freehigh", ctypes.c_ulong),
 			("mem_unit", ctypes.c_uint),
-			("_f", ctypes.c_char * (20 - 2 * ctypes.sizeof(ctypes.c_int) - ctypes.sizeof(ctypes.c_long))),
+			("_f", ctypes.c_char * (20 - 2 * ctypes.sizeof(ctypes.c_long) - ctypes.sizeof(ctypes.c_int))),
 		)
 
 	libc.sysinfo.argtypes = (ctypes.POINTER(sysinfo),)
@@ -535,8 +534,8 @@ if machine in {"x86", "i386", "i686", "x86_64", "amd64"}:  # "i486", "i586"
 			def __init__(self, code, restype, *argtypes):
 				"""Create a callable machine-code function with the specified ctypes signature."""
 				flags = mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS  # mmap.MAP_ANON
-				if sys.platform == "darwin":
-					flags |= getattr(mmap, "MAP_JIT", 0)
+				# if sys.platform == "darwin":
+				# 	flags |= getattr(mmap, "MAP_JIT", 0)
 				self.page = mmap.mmap(
 					-1, max(len(code), mmap.PAGESIZE), flags=flags, prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC
 				)
@@ -670,7 +669,7 @@ if cl_lib:
 
 	cl.clGetDeviceIDs.argtypes = (
 		ctypes.c_void_p,
-		ctypes.c_ulong,
+		ctypes.c_ulonglong,
 		ctypes.c_uint,
 		ctypes.POINTER(ctypes.c_void_p),
 		ctypes.POINTER(ctypes.c_uint),
@@ -688,7 +687,7 @@ if cl_lib:
 
 cuda_lib = find_library("nvcuda" if sys.platform == "win32" else "cuda")
 if cuda_lib:
-	cuda = ctypes.CDLL("nvcuda" if sys.platform == "win32" else cuda_lib)
+	cuda = ctypes.WinDLL("nvcuda") if sys.platform == "win32" else ctypes.CDLL(cuda_lib)
 
 	cuda.cuInit.argtypes = (ctypes.c_uint,)
 	# cuda.cuInit.restype = ctypes.c_int
@@ -719,7 +718,7 @@ if cuda_lib:
 
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
-	nvml = ctypes.CDLL("nvml" if sys.platform == "win32" else nvml_lib)
+	nvml = ctypes.WinDLL("nvml") if sys.platform == "win32" else ctypes.CDLL(nvml_lib)
 
 	class nvmlMemory_v2_t(ctypes.Structure):
 		"""NVML v2 device-memory information structure."""
@@ -748,7 +747,7 @@ if nvml_lib:
 	nvmlDeviceGetHandleByIndex = (
 		nvml.nvmlDeviceGetHandleByIndex_v2 if hasattr(nvml, "nvmlDeviceGetHandleByIndex_v2") else nvml.nvmlDeviceGetHandleByIndex
 	)
-	nvmlDeviceGetHandleByIndex.argtypes = (ctypes.c_uint, ctypes.c_void_p)
+	nvmlDeviceGetHandleByIndex.argtypes = (ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p))
 	# nvmlDeviceGetHandleByIndex.restype = ctypes.c_int
 
 	nvml.nvmlDeviceGetName.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint)
@@ -1021,6 +1020,7 @@ results_queue = queue.Queue()
 proofs_queue = queue.Queue()
 
 if sys.platform == "win32":
+	INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
 	class FILE_NOTIFY_INFORMATION(ctypes.Structure):
 		"""Windows ReadDirectoryChangesW file-notification record."""
@@ -1070,7 +1070,7 @@ if sys.platform == "win32":
 			0x02000000,  # FILE_FLAG_BACKUP_SEMANTICS
 			None,
 		)
-		if handle == -1:
+		if handle == INVALID_HANDLE_VALUE:
 			raise ctypes.WinError(ctypes.get_last_error())
 		results_files = ["results-{}.txt".format(i) for i in range(args.num_workers)] if args.prpll else [args.results_file]
 		logging.info("Watching the directory: %r.", os.path.abspath(adir))
@@ -1092,6 +1092,16 @@ if sys.platform == "win32":
 					None,
 				):
 					raise ctypes.WinError(ctypes.get_last_error())
+
+				if not bytes_returned:
+					logging.warning("Missed filesystem events, manually checking for results and proof files")
+					if args.prpll:
+						for i in range(args.num_workers):
+							results_queue.put((adir, i))
+					else:
+						results_queue.put((adir, cpu_num))
+					proofs_queue.put((adir, cpu_num, None))
+					continue
 
 				offset = 0
 				while offset < bytes_returned.value:  # len(data)
@@ -1117,11 +1127,22 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 	CoreFoundation = ctypes.CDLL(find_library("CoreFoundation"))
 	CoreServices = ctypes.CDLL(find_library("CoreServices"))
 
+	class CFArrayCallBacks(ctypes.Structure):
+		"""Core Foundation callbacks used by CFArray."""
+
+		_fields_ = (
+			("version", ctypes.c_long),
+			("retain", ctypes.c_void_p),
+			("release", ctypes.c_void_p),
+			("copyDescription", ctypes.c_void_p),
+			("equal", ctypes.c_void_p),
+		)
+
 	class FSEventStreamContext(ctypes.Structure):
 		"""macOS FSEvents stream context structure."""
 
 		_fields_ = (
-			("version", ctypes.c_int),
+			("version", ctypes.c_long),
 			("info", ctypes.c_void_p),
 			("retain", ctypes.c_void_p),
 			("release", ctypes.c_void_p),
@@ -1141,8 +1162,16 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 	CoreFoundation.CFStringCreateWithCString.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32)
 	CoreFoundation.CFStringCreateWithCString.restype = ctypes.c_void_p
 
-	CoreFoundation.CFArrayCreate.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_void_p)
+	CoreFoundation.CFArrayCreate.argtypes = (
+		ctypes.c_void_p,
+		ctypes.POINTER(ctypes.c_void_p),
+		ctypes.c_long,
+		ctypes.POINTER(CFArrayCallBacks),
+	)
 	CoreFoundation.CFArrayCreate.restype = ctypes.c_void_p
+
+	CoreFoundation.CFRelease.argtypes = (ctypes.c_void_p,)
+	# CoreFoundation.CFRelease.restype = None
 
 	# CoreFoundation.CFRunLoopGetCurrent.argtypes = ()
 	CoreFoundation.CFRunLoopGetCurrent.restype = ctypes.c_void_p
@@ -1179,9 +1208,6 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 	def watch_files(args, adir, cpu_num):
 		"""Watch a worker directory for result updates and new proof files with FSEvents."""
 		paths = (adir,)
-		strings = (ctypes.c_void_p * len(paths))(
-			*(CoreFoundation.CFStringCreateWithCString(None, os.fsencode(s), 0x8000100) for s in paths)
-		)
 		results = (
 			[os.path.join(adir, "results-{}.txt".format(i)) for i in range(args.num_workers)]
 			if args.prpll
@@ -1197,6 +1223,15 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 				path = os.fsdecode(event_paths[i])
 				flag = event_flags[i]
 				# aid = event_ids[i]
+				if flag & 0x00000001:  # kFSEventStreamEventFlagMustScanSubDirs
+					logging.warning("Missed filesystem events, manually checking for results and proof files")
+					if args.prpll:
+						for j in range(args.num_workers):
+							results_queue.put((adir, j))
+					else:
+						results_queue.put((adir, cpu_num))
+					proofs_queue.put((adir, cpu_num, None))
+					continue
 				if flag & 0x00000800:  # kFSEventStreamEventFlagItemRenamed
 					aadir, afile = os.path.split(path)
 					if flag & 0x00010000 and aadir == proof and afile.endswith(".proof"):  # kFSEventStreamEventFlagItemIsFile
@@ -1207,37 +1242,65 @@ elif sys.platform == "darwin" and tuple(map(int, platform.mac_ver()[0].split("."
 					logging.debug("The results file %r was modified.", path)
 					results_queue.put((adir, results.index(path) if args.prpll else cpu_num))
 
-		context = FSEventStreamContext()
+		strings = []
+		try:
+			for path in paths:
+				string = CoreFoundation.CFStringCreateWithCString(None, os.fsencode(path), 0x08000100)
+				if not string:
+					msg = "CFStringCreateWithCString failed"
+					raise OSError(msg)
+				strings.append(string)
 
-		stream = CoreServices.FSEventStreamCreate(
-			None,
-			fs_event_callback,
-			ctypes.byref(context),
-			CoreFoundation.CFArrayCreate(
-				None, strings, len(strings), ctypes.c_void_p.in_dll(CoreFoundation, "kCFTypeArrayCallBacks")
-			),
-			0xFFFFFFFFFFFFFFFF,  # kFSEventStreamEventIdSinceNow
-			0.0,
-			0x00000010,  # kFSEventStreamCreateFlagFileEvents
-		)
+			array = CoreFoundation.CFArrayCreate(
+				None,
+				(ctypes.c_void_p * len(strings))(*strings),
+				len(strings),
+				ctypes.byref(CFArrayCallBacks.in_dll(CoreFoundation, "kCFTypeArrayCallBacks")),
+			)
+			if not array:
+				msg = "CFArrayCreate failed"
+				raise OSError(msg)
+		finally:
+			for string in strings:
+				CoreFoundation.CFRelease(string)
 
 		try:
-			CoreServices.FSEventStreamScheduleWithRunLoop(
-				stream, CoreFoundation.CFRunLoopGetCurrent(), ctypes.c_void_p.in_dll(CoreFoundation, "kCFRunLoopDefaultMode")
+			context = FSEventStreamContext()
+
+			stream = CoreServices.FSEventStreamCreate(
+				None,
+				fs_event_callback,
+				ctypes.byref(context),
+				array,
+				0xFFFFFFFFFFFFFFFF,  # kFSEventStreamEventIdSinceNow
+				0.0,
+				0x00000010,  # kFSEventStreamCreateFlagFileEvents
 			)
-			CoreServices.FSEventStreamStart(stream)
-			CoreFoundation.CFRunLoopRun()
+			if not stream:
+				msg = "FSEventStreamCreate failed"
+				raise OSError(msg)
+
+			try:
+				CoreServices.FSEventStreamScheduleWithRunLoop(
+					stream, CoreFoundation.CFRunLoopGetCurrent(), ctypes.c_void_p.in_dll(CoreFoundation, "kCFRunLoopDefaultMode")
+				)
+				if not CoreServices.FSEventStreamStart(stream):
+					msg = "FSEventStreamStart failed"
+					raise OSError(msg)
+				CoreFoundation.CFRunLoopRun()
+			finally:
+				CoreServices.FSEventStreamStop(stream)
+				CoreServices.FSEventStreamInvalidate(stream)
+				CoreServices.FSEventStreamRelease(stream)
 		finally:
-			CoreServices.FSEventStreamStop(stream)
-			CoreServices.FSEventStreamInvalidate(stream)
-			CoreServices.FSEventStreamRelease(stream)
+			CoreFoundation.CFRelease(array)
 
 elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):
 	import select
 
 	def add_watch(path, fflags):
 		"""Open a path and create a kqueue vnode watch for the specified flags."""
-		fd = os.open(path, 0x8000)  # os.O_EVTONLY
+		fd = os.open(path, 0x8000 if sys.platform == "darwin" else os.O_RDONLY | os.O_NONBLOCK)  # os.O_EVTONLY
 
 		event = select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, fflags)
 		return fd, event
@@ -1288,7 +1351,7 @@ elif sys.platform == "darwin" or sys.platform.startswith("freebsd"):
 						elif event.ident == proof_fd:
 							proof_fd = None
 						changelist.remove(aevent)
-						# os.close(event.ident)
+						os.close(event.ident)
 					if event.fflags & select.KQ_NOTE_WRITE:
 						if event.ident in result_fds:
 							logging.debug("The results file %r was modified.", file)
@@ -1321,6 +1384,7 @@ elif sys.platform.startswith("linux"):
 	IN_MOVED_TO = 0x00000080  # File was moved to Y
 	IN_CREATE = 0x00000100  # Subfile was created
 
+	IN_Q_OVERFLOW = 0x00004000  # Event queued overflowed.
 	IN_IGNORED = 0x00008000  # File was ignored.
 
 	# IN_ISDIR = 0x40000000  # event occurred against dir
@@ -1392,6 +1456,18 @@ elif sys.platform.startswith("linux"):
 				while offset < len(buffer):
 					event = inotify_event.from_buffer_copy(buffer, offset)
 					name = os.fsdecode(buffer[offset + size : offset + size + event.len].rstrip(b"\0"))
+					offset += size + event.len
+
+					if event.mask & IN_Q_OVERFLOW:
+						logging.warning("Missed filesystem events, manually checking for results and proof files")
+						if args.prpll:
+							for i in range(args.num_workers):
+								results_queue.put((adir, i))
+						else:
+							results_queue.put((adir, cpu_num))
+						proofs_queue.put((adir, cpu_num, None))
+						continue
+
 					file = wds[event.wd] + (os.sep + name if name else "")
 					if event.mask & IN_CLOSE_WRITE and event.wd in result_wds:
 						logging.debug("The results file %r was modified.", file)
@@ -1423,8 +1499,6 @@ elif sys.platform.startswith("linux"):
 							del result_wds[event.wd]
 						elif event.wd == proof_wd:
 							proof_wd = None
-
-					offset += size + event.len
 		finally:
 			for wd in wds:
 				libc.inotify_rm_watch(inotify_fd, wd)
@@ -1523,18 +1597,18 @@ conventions = locale.localeconv()
 if hasattr(sys, "set_int_max_str_digits"):  # Python 3.7.14+, 3.8.14+, 3.9.14+, 3.10.7+, 3.11+
 	sys.set_int_max_str_digits(0)
 
-VERSION = "2.0.1"
+VERSION = "2.0.2"
 # GIMPS programs to use in the application version string when registering with PrimeNet
 PROGRAMS = (
 	{"name": "Prime95", "version": "30.19", "build": 20},
 	{"name": "Mlucas", "version": "21.0.2"},
 	{"name": "GpuOwl", "version": "7.5"},
-	{"name": "PRPLL", "version": "0.15"},
-	{"name": "PrMers", "version": "4.19"},
+	{"name": "PRPLL", "version": "8.0"},
+	{"name": "PrMers", "version": "4.20"},
 	{"name": "CUDALucas", "version": "2.06"},
 	{"name": "mfaktc", "version": "0.24"},
 	{"name": "mfakto", "version": "0.16"},
-	{"name": "PrimePath", "version": "1.3"},
+	{"name": "PrimePath", "version": "1.4"},
 )
 # People to e-mail when a new prime is found
 # E-mail addresses munged to prevent spam
@@ -2222,15 +2296,16 @@ def get_opencl_devices():
 			frequency = get_device_value(device, 0x100C, ctypes.c_uint)  # CL_DEVICE_MAX_CLOCK_FREQUENCY
 
 			mem = get_device_value(device, 0x101F, ctypes.c_ulonglong)  # CL_DEVICE_GLOBAL_MEM_SIZE
-			memory = mem >> 20
+			memory = mem >> 20 if mem else 0
 
 			l1 = get_device_value(device, 0x1023, ctypes.c_ulonglong)  # CL_DEVICE_LOCAL_MEM_SIZE
-			l1_cache_size = l1 >> 10
+			l1_cache_size = l1 >> 10 if l1 else 0
 
 			l2 = get_device_value(device, 0x101E, ctypes.c_ulonglong)  # CL_DEVICE_GLOBAL_MEM_CACHE_SIZE
-			l2_cache_size = l2 >> 10
+			l2_cache_size = l2 >> 10 if l2 else 0
 
-			extensions = frozenset(get_device_str(device, 0x1030).split())  # CL_DEVICE_EXTENSIONS
+			exts = get_device_str(device, 0x1030)  # CL_DEVICE_EXTENSIONS
+			extensions = frozenset(exts.split() if exts else ())
 
 			features = []
 			if b"cl_nv_device_attribute_query" in extensions:
@@ -2248,7 +2323,16 @@ def get_opencl_devices():
 				if version is not None:
 					features.append("ARCH=INTELIP{}.{}.{}".format(version >> 22, (version >> 12) & 0x3FF, version & 0xFFF))
 
-			adevices.append((name.decode(), cores, frequency, l1_cache_size, l2_cache_size, memory, ",".join(features), "OpenCL"))
+			adevices.append((
+				name.decode() if name is not None else None,
+				cores,
+				frequency,
+				l1_cache_size,
+				l2_cache_size,
+				memory,
+				",".join(features),
+				"OpenCL",
+			))
 
 	return adevices
 
@@ -2282,39 +2366,53 @@ def get_cuda_devices():
 			continue
 
 		buf = ctypes.create_string_buffer(96)
-		cuda.cuDeviceGetName(buf, len(buf), device)
-		name = buf.value
+		name = None
+		if not cuda.cuDeviceGetName(buf, len(buf), device):
+			name = buf.value
 
 		major = get_device_attr(75, device)  # CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR
 		minor = get_device_attr(76, device)  # CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR
-		if not major and not minor:
+		if major is None or minor is None:
 			amajor = ctypes.c_int()
 			aminor = ctypes.c_int()
-			cuda.cuDeviceComputeCapability(ctypes.byref(amajor), ctypes.byref(aminor), device)
-			major = amajor.value
-			minor = aminor.value
+			if not cuda.cuDeviceComputeCapability(ctypes.byref(amajor), ctypes.byref(aminor), device):
+				major = amajor.value
+				minor = aminor.value
 
 		cores = get_device_attr(16, device)  # CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT
 
 		clock = get_device_attr(13, device)  # CU_DEVICE_ATTRIBUTE_CLOCK_RATE
-		frequency = clock // 1000
+		frequency = clock // 1000 if clock else 0
 
 		mem = ctypes.c_size_t() if hasattr(cuda, "cuDeviceTotalMem_v2") else ctypes.c_uint()
-		cuDeviceTotalMem(ctypes.byref(mem), device)
-		memory = mem.value >> 20
+		memory = 0
+		if not cuDeviceTotalMem(ctypes.byref(mem), device):
+			memory = mem.value >> 20
 
 		l1 = get_device_attr(81, device)  # CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR
-		l1_cache_size = l1 >> 10
+		l1_cache_size = l1 >> 10 if l1 else 0
 
 		l2 = get_device_attr(38, device)  # CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE
-		l2_cache_size = l2 >> 10
+		l2_cache_size = l2 >> 10 if l2 else 0
 
-		features = ["ARCH=SM{}{}".format(major, minor)]
+		features = []
+		if major is not None and minor is not None:
+			features.append("ARCH=SM{}{}".format(major, minor))
+
 		ratio = get_device_attr(87, device)  # CU_DEVICE_ATTRIBUTE_SINGLE_TO_DOUBLE_PRECISION_PERF_RATIO
 		if ratio:
 			features.append("DP:SP=1:{}".format(ratio))
 
-		devices.append((name.decode(), cores, frequency, l1_cache_size, l2_cache_size, memory, ",".join(features), "CUDA"))
+		devices.append((
+			name.decode() if name is not None else None,
+			cores,
+			frequency,
+			l1_cache_size,
+			l2_cache_size,
+			memory,
+			",".join(features),
+			"CUDA",
+		))
 
 	return devices
 
@@ -2341,28 +2439,45 @@ def get_nvml_devices():
 				continue
 
 			buf = ctypes.create_string_buffer(96)  # NVML_DEVICE_NAME_V2_BUFFER_SIZE
-			nvml.nvmlDeviceGetName(device, buf, len(buf))
-			name = buf.value
+			name = None
+			if not nvml.nvmlDeviceGetName(device, buf, len(buf)):
+				name = buf.value
 
-			major = ctypes.c_int()
-			minor = ctypes.c_int()
-			nvml.nvmlDeviceGetCudaComputeCapability(device, ctypes.byref(major), ctypes.byref(minor))
+			amajor = ctypes.c_int()
+			aminor = ctypes.c_int()
+			major = minor = None
+			if not nvml.nvmlDeviceGetCudaComputeCapability(device, ctypes.byref(amajor), ctypes.byref(aminor)):
+				major = amajor.value
+				minor = aminor.value
 
 			clock = ctypes.c_uint()
-			nvml.nvmlDeviceGetMaxClockInfo(device, 1, ctypes.byref(clock))  # NVML_CLOCK_SM
-			frequency = clock.value
+			frequency = 0
+			if not nvml.nvmlDeviceGetMaxClockInfo(device, 1, ctypes.byref(clock)):  # NVML_CLOCK_SM
+				frequency = clock.value
 
 			mem = (
 				nvmlMemory_v2_t(ctypes.sizeof(nvmlMemory_v2_t) | (2 << 24))
 				if hasattr(nvml, "nvmlDeviceGetMemoryInfo_v2")
 				else nvmlMemory_t()
 			)
-			nvmlDeviceGetMemoryInfo(device, ctypes.byref(mem))
-			memory = mem.total >> 20
+			memory = 0
+			if not nvmlDeviceGetMemoryInfo(device, ctypes.byref(mem)):
+				memory = mem.total >> 20
 
-			features = ["ARCH=SM{}{}".format(major.value, minor.value)]
+			features = []
+			if major is not None and minor is not None:
+				features.append("ARCH=SM{}{}".format(major, minor))
 
-			devices.append((name.decode(), None, frequency, None, None, memory, ",".join(features), "NVML"))
+			devices.append((
+				name.decode() if name is not None else None,
+				None,
+				frequency,
+				None,
+				None,
+				memory,
+				",".join(features),
+				"NVML",
+			))
 	finally:
 		nvml.nvmlShutdown()
 
@@ -2484,10 +2599,14 @@ def get_email_config(domain, email, local_part, email_domain, https_only=False, 
 				if smtp_config is not None:
 					# print("Configuration found at e-mail provider")
 					_, hostname, _, _, _ = smtp_config
-					if scheme == "http://" and not idna_encode(hostname).lower().endswith(adomain):
-						logging.warning(
-							"The connection used to lookup the configuration did not use HTTPS and thus was not secure."
-						)
+					for x in chain(r.history, (r,)):
+						if urlsplit(x.url).scheme == "http":
+							hostname = idna_encode(hostname).lower()
+							if hostname != adomain and not hostname.endswith("." + adomain):
+								logging.warning(
+									"The connection used to lookup the configuration did not use HTTPS and thus was not secure."
+								)
+							break
 					return smtp_config
 
 	# https://github.com/thunderbird/autoconfig
@@ -2528,7 +2647,7 @@ def get_dns_config(args, domain, aemail_domain):
 			if target != ".":
 				# print("Configuration found from DNS SRV Records")
 				hostname = target.rstrip(".")
-				if not result["AD"] and not hostname.endswith(aemail_domain):
+				if not result["AD"] and hostname != aemail_domain and not hostname.endswith("." + aemail_domain):
 					logging.warning(
 						"The DNS SRV record used to lookup the configuration was not signed with DNS Security Extensions (DNSSEC)."
 					)
@@ -2576,19 +2695,21 @@ def email_autoconfig(args, email):
 					logging.error("Failed to parse the DNS MX Record for the %r domain: %r", email_domain, answer["data"])
 
 		for _, exchange in sorted(records, key=operator.itemgetter(0)):
-			mx_hostname = exchange.rstrip(".").lower()
-			print("Found mail domain {!r}".format(mx_hostname))
-			# mx_base_domain # Needs the Public Suffix List (PSL)
-			mx_full_domain = ".".join(mx_hostname.split(".")[1:])
-			if aemail_domain not in {mx_hostname, mx_full_domain}:
-				smtp_config = get_email_config(mx_full_domain, email, local_part, email_domain, True, False)
-				if smtp_config is not None:
-					_, hostname, _, _, _ = smtp_config
-					if not result["AD"] and not idna_encode(hostname).lower().endswith(aemail_domain):
-						logging.warning(
-							"The DNS MX record used to lookup the mail domain was not signed with DNS Security Extensions (DNSSEC)."
-						)
-					return smtp_config
+			if exchange != ".":
+				mx_hostname = exchange.rstrip(".").lower()
+				print("Found mail domain {!r}".format(mx_hostname))
+				# mx_base_domain # Needs the Public Suffix List (PSL)
+				mx_full_domain = ".".join(mx_hostname.split(".")[1:])
+				if aemail_domain not in {mx_hostname, mx_full_domain}:
+					smtp_config = get_email_config(mx_full_domain, email, local_part, email_domain, True, False)
+					if smtp_config is not None:
+						_, hostname, _, _, _ = smtp_config
+						hostname = idna_encode(hostname).lower()
+						if not result["AD"] and hostname != aemail_domain and not hostname.endswith("." + aemail_domain):
+							logging.warning(
+								"The DNS MX record used to lookup the mail domain was not signed with DNS Security Extensions (DNSSEC)."
+							)
+						return smtp_config
 			break
 
 	# https://datatracker.ietf.org/doc/html/rfc6186
@@ -2953,10 +3074,8 @@ def setup(config, args):
 			if not archive_dir:
 				break
 			archive = os.path.join(workdir, archive_dir)
-			if os.path.exists(archive):
-				break
 			try:
-				os.makedirs(archive)
+				os.makedirs(archive, exist_ok=True)
 			except OSError as e:
 				print("The directory does not exist and we were unable to create it: {}: {}".format(type(e).__name__, e))
 			else:
@@ -3223,9 +3342,13 @@ OPTIONS_TYPE_HINTS = {
 		"pm1_multiplier": float,
 		"ECMBoundsMultiplier": float,
 		"MaxECMCurves": int,
+		"no_report_100m": bool,
+		"convert_ll_to_prp": bool,
+		"convert_prp_to_ll": bool,
 		"version_check": bool,
 		"require_lock": bool,
 		"watch": bool,
+		"encrypt": bool,
 		"color": bool,
 	},
 	SEC.Email: {"to_emails": list, "tls": bool, "starttls": bool},
@@ -3258,8 +3381,15 @@ def config_write(config, args):
 	"""Write the current configuration to the local PrimeNet configuration file."""
 	# generate a new prime.ini file
 	localfile = os.path.join(workdir, args.localfile)
-	with open(localfile, "w", encoding="utf-8", opener=partial(os.open, mode=0o600)) as configfile:
+	with tempfile.NamedTemporaryFile("w", dir=workdir, encoding="utf-8", delete=False) as configfile:
 		config.write(configfile)
+	try:
+		os.replace(configfile.name, localfile)
+	except OSError as e:
+		logging.exception(
+			"Failed to replace the file %r with %r: %s: %s", configfile.name, localfile, type(e).__name__, e, exc_info=args.debug
+		)
+		raise
 
 
 def get_guid(config):
@@ -3453,6 +3583,13 @@ def decrypt(config, args):
 			attr_val = getattr(args, attr)
 			new_option = "encrypted_{}".format(option)
 			if attr_val is None and config.has_option(section, new_option):
+				if args.encrypt is not None and not args.encrypt:
+					logging.critical(
+						"Unable to decrypt existing passwords in %r when using the --no-encrypt option, so please set passwords again",
+						args.localfile,
+					)
+					sys.exit(1)
+
 				if libcrypto:
 					option_val = config.get(section, new_option)
 					logging.debug("Decrypting option %s in section %r in %r", new_option, section, args.localfile)
@@ -3474,19 +3611,13 @@ def decrypt(config, args):
 						sys.exit(1)
 
 					setattr(args, attr, new_val)
-					if args.encrypt is not None and not args.encrypt:
-						config.remove_option(section, new_option)
-					else:
-						ATTR_TO_COPY[section].pop(attr, None)
+					ATTR_TO_COPY[section].pop(attr, None)
 				else:
-					logging.critical(
-						"Unable to decrypt option %s in section %r in %r, as OpenSSL library not found",
-						new_option,
-						section,
-						args.localfile,
-					)
+					logging.critical("Unable to decrypt passwords in %r, as OpenSSL library not found", args.localfile)
 					logging.critical("Encrypted passwords cannot be moved between systems")
 					sys.exit(1)
+			else:
+				config.remove_option(section, new_option)
 
 
 def check_options(parser, args):
@@ -3623,11 +3754,17 @@ def check_options(parser, args):
 			"Version check channel/branch ({!r}) must be one of 'alpha', 'beta' or 'stable'".format(args.version_check_channel)
 		)
 
+	if (args.proxy_type or args.proxy or args.proxy_username or args.proxy_password) and not args.proxy:
+		parser.error("Providing the Proxy options requires also setting the Proxy server")
+
 	if args.proxy_type and args.proxy_type.lower() not in {"http", "https", "socks5", "socks5h"}:
 		parser.error("Proxy server type ({!r}) must be one of 'http', 'https', 'socks5' or 'socks5h'".format(args.proxy_type))
 
-	if (args.proxy_type or args.proxy or args.proxy_username or args.proxy_password) and not args.proxy:
-		parser.error("Providing the Proxy options requires also setting the Proxy server")
+	if args.proxy:
+		url = urlsplit(("" if "://" in args.proxy else "//") + args.proxy)
+
+		if url.scheme and url.scheme not in {"http", "https", "socks5", "socks5h"}:
+			parser.error("Proxy server type ({!r}) must be one of 'http', 'https', 'socks5' or 'socks5h'".format(url.scheme))
 
 	if (
 		args.toemails or args.fromemail or args.smtp or args.tls or args.starttls or args.email_username or args.email_password
@@ -3646,6 +3783,14 @@ def check_options(parser, args):
 		temp = fromaddress or args.fromemail
 		if not EMAIL_RE.match(temp):
 			parser.error("{!r} is not a valid e-mail address.".format(temp))
+
+		url = urlsplit(("" if "://" in args.smtp else "//") + args.smtp)
+
+		if url.scheme and url.scheme not in {"smtp", "smtps"}:
+			parser.error("SMTP server type ({!r}) must be 'smtp' or 'smtps'".format(url.scheme))
+
+		if not args.tls and not args.starttls and url.hostname.lower() != "localhost":
+			logging.warning("Using an insecure connection when sending e-mails to the SMTP server")
 
 	if args.tls and args.starttls:
 		parser.error("Cannot use both SSL/TLS and StartTLS.")
@@ -4227,9 +4372,10 @@ def send(args, subject, message, attachments=None, to=None, cc=None, bcc=None, p
 	if cc:
 		msg["Cc"] = COMMASPACE.join(cc)
 	if bcc:
-		message["Bcc"] = COMMASPACE.join(bcc)
+		msg["Bcc"] = COMMASPACE.join(bcc)
 	msg["Subject"] = subject
 	msg["Date"] = localtime()
+	# msg["Message-ID"] = make_msgid()
 	if priority:
 		msg["X-Priority"] = priority
 
@@ -4237,7 +4383,7 @@ def send(args, subject, message, attachments=None, to=None, cc=None, bcc=None, p
 	# print(msg.as_string())
 	# print(msg)
 
-	url = urlparse("")._replace(netloc=args.smtp)
+	url = urlsplit(("" if "://" in args.smtp else "//") + args.smtp)
 	host = url.hostname
 	port = url.port or 0
 
@@ -4285,7 +4431,7 @@ def send_msg(config, args, subject, message="", attachments=None, to=None, cc=No
 		if azipfile:
 			if os.path.exists(azipfile):
 				logging.info("File %r already exists.", azipfile)
-			with zipfile.ZipFile(azipfile, "w") as myzip:
+			with zipfile.ZipFile(azipfile, "w", compression=zipfile.ZIP_DEFLATED) as myzip:
 				for attachment in attachments:
 					if isinstance(attachment, (tuple, list)):
 						filename, file = attachment
@@ -4517,8 +4663,11 @@ def get_cpu_cores_threads():
 						if ptr.Relationship == 0:  # RelationProcessorCore
 							cores += 1
 						elif ptr.Relationship == 4:  # RelationGroup
+							group_info = (PROCESSOR_GROUP_INFO * ptr.Group.ActiveGroupCount).from_address(
+								ctypes.addressof(ptr.Group.GroupInfo)
+							)
 							for i in range(ptr.Group.ActiveGroupCount):
-								threads += ptr.Group.GroupInfo[i].ActiveProcessorCount
+								threads += group_info[i].ActiveProcessorCount
 						offset += ptr.Size
 		# ERROR_INSUFFICIENT_BUFFER
 		elif not kernel32.GetLogicalProcessorInformation(None, ctypes.byref(return_length)) and ctypes.get_last_error() == 122:
@@ -4606,8 +4755,8 @@ def get_physical_memory():
 		# (Get-CimInstance Win32_PhysicalMemoryArray).MaxCapacity
 		# (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
 		memory_status = MEMORYSTATUSEX()
-		kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
-		memory = memory_status.ullTotalPhys >> 20
+		if kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status)):
+			memory = memory_status.ullTotalPhys >> 20
 	elif sys.platform == "darwin":
 		output = sysctl_value(b"hw.memsize", ctypes.c_int64)
 		if output:
@@ -6907,7 +7056,7 @@ def upload_proof_file(config, args, adapter, filename):
 					return False
 
 				origurl = result["URLToUse"]
-				url = urlparse(origurl)
+				url = urlsplit(origurl)
 				baseurl = url._replace(scheme="https").geturl() if url.scheme == "http" else origurl
 				pos, end = next((int(a), b) for a, b in result["need"].items())
 				if pos > end or end >= filesize:
@@ -9718,6 +9867,7 @@ def ping_server(config, args, ping_type=1):
 					"http://{}/pingServer.php".format(sockaddr[0] if family == socket.AF_INET else "[{}]".format(sockaddr[0])),
 					json={"pingType": "simple echo"},
 					headers={"Host": "v6.mersenne.org"},
+					timeout=PRIMENET_TIMEOUT,
 				)
 				r.raise_for_status()
 				result = r.json()
@@ -10331,7 +10481,7 @@ parser.add_argument(
 	default=None,
 	help="Get PRP proof certification work, Default: %(default)r. Currently only supported by PRPLL.",
 )
-parser.add_argument("--no-cert-work", action="store_false", dest="cert_work")
+parser.add_argument("--no-cert-work", action="store_false", dest="cert_work", default=None)
 parser.add_argument(
 	"--cert-work-limit",
 	dest="cert_cpu_limit",
@@ -10435,7 +10585,7 @@ parser.add_argument(
 	default=None,
 	help="Do not report any prime results for exponents greater than or equal to 100 million digits. You must setup another method to notify yourself, such as setting the notification options below.",
 )
-parser.add_argument("--report-100m", action="store_false", dest="no_report_100m")
+parser.add_argument("--report-100m", action="store_false", dest="no_report_100m", default=None)
 
 parser.add_argument(
 	"--checkin",
@@ -10506,7 +10656,7 @@ parser.add_argument(
 	default=None,
 	help="Disable the automatic AutoPrimeNet and GIMPS program version check",
 )
-parser.add_argument("--version-check", action="store_true")
+parser.add_argument("--version-check", action="store_true", default=None)
 parser.add_argument(
 	"--version-check-channel",
 	choices=("alpha", "beta", "stable"),
@@ -10519,7 +10669,7 @@ parser.add_argument(
 	default=None,
 	help="Do not require the '~lock' lockfile to be successfully locked, which otherwise helps to prevent starting multiple instances of AutoPrimeNet in the same --workdir directory. This may be needed if the filesystem does not support file locking.",
 )
-parser.add_argument("--lock", action="store_true")
+parser.add_argument("--lock", action="store_true", default=None)
 parser.add_argument(
 	"--no-watch",
 	action="store_false",
@@ -10527,7 +10677,7 @@ parser.add_argument(
 	default=None,
 	help="Report assignment results and upload proof files on the --timeout interval instead of immediately. This may be needed if the filesystem does not support file watching.",
 )
-parser.add_argument("--watch", action="store_true")
+parser.add_argument("--watch", action="store_true", default=None)
 parser.add_argument(
 	"--no-encrypt",
 	action="store_false",
@@ -10538,10 +10688,11 @@ parser.add_argument(
 parser.add_argument(
 	"--encrypt",
 	action="store_true",
+	default=None,
 	help="Encrypt any passwords from the --proxy-password and --email-password options in the configuration file. Uses AES-256-GCM encryption with PBKDF2-HMAC-SHA256 key derivation. Requires the OpenSSL library. Does opportunistic encryption by default. Provide this option to enable strict encryption.",
 )
 parser.add_argument("--no-color", action="store_false", dest="color", default=None, help="Do not use color in output.")
-parser.add_argument("--color", action="store_true")
+parser.add_argument("--color", action="store_true", default=None)
 parser.add_argument(
 	"--setup", action="store_true", help="Prompt for all the options that are needed to setup this program and exit."
 )
@@ -10670,9 +10821,9 @@ group.add_argument("-P", "--email-password", help="SMTP server password")
 group.add_argument("--test-email", action="store_true", help="Send a test e-mail message and exit")
 
 args = parser.parse_args()
-args_no_defaults = argparse.Namespace(**{
-	key: value for key, value in args.__dict__.items() if value is not None and parser.get_default(key) is not value
-})
+namespace = argparse.Namespace(**dict.fromkeys(vars(args)))
+parser.parse_args(namespace=namespace)
+args_no_defaults = argparse.Namespace(**{key: value for key, value in vars(namespace).items() if value is not None})
 
 logger = logging.getLogger()
 logger.setLevel(max(logging.INFO - args.debug * 10, 0))
@@ -10773,16 +10924,21 @@ if COLOR:
 
 PROXIES = None
 if args.proxy:
-	url = urlparse(args.proxy, args.proxy_type or "http")
-	proxy = urlunparse((
-		url.scheme,
-		(args.proxy_username + (":" + args.proxy_password if args.proxy_password else "") + "@" if args.proxy_username else "")
-		+ (url.netloc or args.proxy),
-		"",
-		"",
-		"",
-		"",
-	))
+	url = urlsplit(("" if "://" in args.proxy else "//") + args.proxy, args.proxy_type or "http")
+	proxy = url._replace(
+		netloc=(
+			""
+			if url.username is not None
+			else (
+				quote(args.proxy_username, safe="")
+				+ (":" + quote(args.proxy_password, safe="") if args.proxy_password is not None else "")
+				+ "@"
+				if args.proxy_username is not None
+				else ""
+			)
+		)
+		+ url.netloc
+	).geturl()
 	PROXIES = {"http": proxy, "https": proxy}
 	session.proxies.update(PROXIES)
 
@@ -10793,7 +10949,7 @@ args.work_file = os.path.normpath(args.work_file)
 if args.results_file is not None:
 	args.results_file = os.path.normpath(args.results_file)
 
-if not args_no_defaults.__dict__ and not os.path.exists(os.path.join(workdir, args.localfile)):
+if not vars(args_no_defaults) and not os.path.exists(os.path.join(workdir, args.localfile)):
 	file = sys.executable if is_pyinstaller() else os.path.abspath(__file__)
 	adir = os.getcwd()
 	if adir != os.path.dirname(file):
@@ -11125,7 +11281,10 @@ Run --help for a full list of available options.
 				process_add_file(args, adapter, certwork_file)
 
 			if watching:
-				submit_work(config, args, dirs, adapter, adir, i, tasks)
+				if args.timeout > 0 and (args.watch is None or args.watch):
+					results_queue.put((adir, i))
+				else:
+					submit_work(config, args, dirs, adapter, adir, i, tasks)
 			progress = update_progress_all(config, args, adapter, adir, i, last_time, tasks, checkin or registered)
 			if cert_work:
 				get_cert_work(config, args, adapter, adir, i, current_time, progress, tasks)
