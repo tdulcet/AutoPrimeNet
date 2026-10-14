@@ -1546,11 +1546,25 @@ Then, run AutoPrimeNet again.""".format(type(e).__name__, e, executable, executa
 	)
 	sys.exit(1)
 else:
+	requests_version = tuple(map(int, requests.__version__.split(".", 2)[:2]))
+	urllib3_version = tuple(map(int, urllib3.__version__.split(".", 2)[:2]))
+
 	# Adapted from: https://github.com/requests/toolbelt/blob/master/requests_toolbelt/adapters/host_header_ssl.py
-	class HostHeaderSSLAdapter(requests.adapters.HTTPAdapter):
+	class SSLAdapter(requests.adapters.HTTPAdapter):
 		"""HTTP adapter that uses the Host header as the TLS SNI server name."""
 
-		__slots__ = ()
+		__slots__ = ("ssl_context",)
+
+		def __init__(self, ssl_context=None, **kwargs):
+			self.ssl_context = ssl_context
+
+			super().__init__(**kwargs)
+
+		def init_poolmanager(self, *args, **kwargs):
+			if self.ssl_context and requests_version >= (2, 4) and urllib3_version >= (1, 17):
+				kwargs["ssl_context"] = self.ssl_context
+
+			return super().init_poolmanager(*args, **kwargs)
 
 		def send(self, request, **kwargs):
 			"""Send a request after applying the Host header as the TLS SNI server name."""
@@ -1651,6 +1665,11 @@ PRIMENET_TIMEOUT = MERSENNE_CA_TIMEOUT = 180
 # elif sys.platform.startswith("linux"):
 # 	PORT = 8 if is_64bit else 2
 
+context = ssl.create_default_context()
+if certifi is not None:
+	context.load_verify_locations(cafile=certifi.where())
+context.options |= getattr(ssl, "OP_ENABLE_KTLS", 0x8)  # Python 3.12+
+
 session = requests.Session()
 session.headers["User-Agent"] = "AutoPrimeNet assignment handler version {} ({} {}/{})".format(
 	VERSION, session.headers["User-Agent"], platform.python_implementation(), platform.python_version()
@@ -1659,25 +1678,21 @@ session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))  # Disable c
 MAX_RETRIES = 3
 # urllib3 1.9+: urllib3.Retry
 if hasattr(urllib3, "Retry"):
-	version = tuple(map(int, urllib3.__version__.split(".", 2)[:2]))
 	kwargs = {}
 	# urllib3 1.19+: respect_retry_after_header=False
-	if version >= (1, 19):
+	if urllib3_version >= (1, 19):
 		kwargs["respect_retry_after_header"] = False
 	# urllib3 1.26+: allowed_methods=None, method_whitelist=None
-	if version >= (1, 26):
+	if urllib3_version >= (1, 26):
 		kwargs["allowed_methods"] = None
 	else:
 		kwargs["method_whitelist"] = None
 	retries = urllib3.Retry(MAX_RETRIES, backoff_factor=1, **kwargs)
 else:
 	retries = MAX_RETRIES
-session.mount("https://", HostHeaderSSLAdapter(max_retries=retries))
+session.mount("https://", SSLAdapter(context, max_retries=retries))
 session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
 atexit.register(session.close)
-
-context = ssl.create_default_context(cafile=certifi.where() if certifi is not None else certifi)
-context.options |= getattr(ssl, "OP_ENABLE_KTLS", 0x8)  # Python 3.12+
 
 
 # endregion
