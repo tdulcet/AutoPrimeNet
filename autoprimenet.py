@@ -5859,25 +5859,6 @@ def parse_work_unit_prpll(args, adapter, filename, p):
 	return counter, avg_msec_per_iter
 
 
-def prmers_transform_size(exponent):
-	"""Return the PrMers NTT transform-size bound for the specified exponent."""
-	log2_n = 1
-	while True:
-		log2_n += 1
-		w = exponent >> log2_n
-		if (w + 1) * 2 + log2_n < 64:
-			break
-
-	log2_n5 = 2
-	while True:
-		log2_n5 += 1
-		w = exponent // (5 << log2_n5)
-		if (w + 1) * 2 + (log2_n5 + 2.4) < 64:
-			break
-
-	return min(1 << log2_n, 5 << log2_n5)
-
-
 def parse_work_unit_prmers(args, adapter, filename, exponent):
 	"""Parse a PrMers checkpoint and return assignment progress and timing metadata."""
 	iterations = stage = None
@@ -5887,49 +5868,56 @@ def parse_work_unit_prmers(args, adapter, filename, exponent):
 			name = os.path.basename(filename)
 
 			if name.startswith("llsafe_m_"):
-				version, p, i, et = unpack("=iIQd", f)
+				version, p = unpack("=iI", f)
 
-				if not 1 <= version <= 2:
+				if not 1 <= version <= 3:
 					adapter.error("LL savefile with unknown version = %s", version)
 					return None
 
-				if version == 2:
+				if version >= 3:
+					(_backend,) = unpack("=I", f)
+
+				i, et = unpack("=Qd", f)
+
+				if version >= 2:
 					_itersave, _jsave = unpack("=QQ", f)
 
 				iteration = i
-			elif name.startswith("m_"):
-				version, p, i, et = unpack("=iIId", f)
+				iterations = p - 1
+			elif name.startswith(("llunsafe_m_", "m_")):
+				version, p = unpack("=iI", f)
 
-				if version != 1:
-					adapter.error("PRP savefile with unknown version = %s", version)
+				if version == 1:
+					i, et = unpack("=Id", f)
+				elif 2 <= version <= 4:
+					_mode, _backend, i, et = unpack("=IIId", f)
+					if version >= 3:
+						(_block,) = unpack("=I", f)
+					if version >= 4:
+						(_good_iter,) = unpack("=I", f)
+				else:
+					adapter.error("LL/PRP savefile with unknown version = %s", version)
 					return None
 
 				iteration = i
+				iterations = p - 2 if name.startswith("llunsafe_m_") else p
 			elif name.startswith("pm1_m_"):
-				version, p, i, et = unpack("=iIId", f)
+				version, p = unpack("=iI", f)
 
-				if version != 3:
+				if version == 3:
+					i, et = unpack("=Id", f)
+				elif version == 4:
+					i, et = unpack("=Qd", f)
+				else:
 					adapter.error("P-1 stage 1 savefile with unknown version = %s", version)
 					return None
 
-				f.seek(11 * prmers_transform_size(p) * 8, 1)  # os.SEEK_CUR
+				f.seek(-struct.calcsize("=QQBQQI"), 2)  # os.SEEK_END
 
-				_chk, _blks, _bib, _cbl, _inlot, eacc_len = unpack("=QQQQBI", f)
+				_chunk_idx, _start_p, _first, processed_bits, _bits_in_chunk = unpack("=QQBQQ", f)
 
-				eacc_hex_c = f.read(eacc_len)
-				if len(eacc_hex_c) != eacc_len:
-					raise EOFError
-
-				(wbits_len,) = unpack("=I", f)
-
-				wbits_hex_c = f.read(wbits_len)
-				if len(wbits_hex_c) != wbits_len:
-					raise EOFError
-
-				_chunkIdx, _startP, _first, processedBits, _bitsInChunk = unpack("=QQBQQ", f)
-
-				iteration = processedBits
-				iterations = processedBits + i  # bits
+				iteration = processed_bits
+				iterations = processed_bits + i  # bits
 				stage = 1
 			elif name.startswith("pm1_s2_m_"):
 				version, p, B1u, B2u, _D, cur_p, _cur_idx, et = unpack("=iIQQQQQd", f)
@@ -5942,15 +5930,43 @@ def parse_work_unit_prmers(args, adapter, filename, exponent):
 				iteration = cur_p - p0
 				iterations = B2u - p0
 				stage = 2
-			elif name.startswith(("ecm_m_", "ecm_te_m_")):
-				version, p, i, nb, _B1, et, _curve_seed, _current_te_family_mode = unpack("=iIIIQdQB", f)
+			elif name.startswith("pm1_s2_vtrace_"):
+				version, p, B1u, B2u, D, saved_p, _saved_idx, _saved_k, et = unpack("=iIQQQQQQd", f)
 
-				if version not in {1, 5}:
-					adapter.error("ECM stage 1 savefile with unknown version = %s", version)
+				if version != (23 if name.startswith("pm1_s2_vtrace_producttree_m_") else 24):
+					adapter.error("P-1 stage 2 savefile with unknown version = %s", version)
 					return None
 
-				if version == 5:
-					(_te_stage1_flag,) = unpack("=B", f)
+				if name.startswith("pm1_s2_vtrace_producttree_m_"):
+					k0 = (B1u + D // 2) // D
+					k1 = (B2u + D // 2) // D
+					iteration = saved_p - k0
+					iterations = k1 - k0
+				else:
+					p0 = next_prime(B1u)
+					iteration = saved_p - p0
+					iterations = B2u - p0
+
+				stage = 2
+			elif name.startswith(("ecm_m_", "ecm_te_m_")):
+				version, p, i, nb, _B1, et, _curve_seed, _family = unpack("=iIIIQdQB", f)
+
+				if name.startswith("ecm_te_m_"):
+					if version not in {1, 2}:
+						adapter.error("ECM stage 1 savefile with unknown version = %s", version)
+						return None
+
+					if version == 2:
+						(_sigma_id,) = unpack("=Q", f)
+				else:
+					if version not in {1, 5, 10}:
+						adapter.error("ECM stage 1 savefile with unknown version = %s", version)
+						return None
+
+					if version == 5:
+						(_te_stage1_flag,) = unpack("=B", f)
+					elif version == 10:
+						_construction_tag, _torsion_curve_k = unpack("=BQ", f)
 
 				iteration = i
 				iterations = nb  # bits
@@ -5958,27 +5974,39 @@ def parse_work_unit_prmers(args, adapter, filename, exponent):
 			elif name.startswith(("ecm2_m_", "ecm2_te_m_")):
 				version, p, idx, cnt, _B1, _B2 = unpack("=iIIIQQ", f)
 
-				if not 2 <= version <= 9:
-					adapter.error("ECM stage 2 savefile with unknown version = %s", version)
-					return None
+				in_chunk = chunk_bits = 0
 
-				if 5 <= version <= 9:
-					(
-						_curve_seed,
-						_current_te_family_mode,
-						et,
-						_in_chunk,
-						_chunk_start_idx,
-						_chunk_end_idx,
-						_chunk_bits_saved,
-						_chunk_steps_done_saved,
-					) = unpack("=QBdBIIII", f)
-				elif version == 4:
-					_curve_seed, _current_te_family_mode, et = unpack("=QBd", f)
-				elif version == 3:
-					et, _curve_seed, _current_te_family_mode = unpack("=dQB", f)
-				elif version == 2:
-					(et,) = unpack("=d", f)
+				if name.startswith("ecm2_te_m_"):
+					if version == 2:
+						(et,) = unpack("=d", f)
+					elif version == 3:
+						et, _seed, _family = unpack("=dQB", f)
+					elif version == 4:
+						_seed, _family, et = unpack("=QBd", f)
+					elif version in {5, 6}:
+						_seed, _family, et, in_chunk, chunk_start, chunk_end, chunk_bits, chunk_steps = unpack("=QBdBIIII", f)
+					elif version == 7:
+						_seed, _family, _sigma_id, et, in_chunk, chunk_start, chunk_end, chunk_bits, chunk_steps = unpack(
+							"=QBQdBIIII", f
+						)
+					else:
+						adapter.error("ECM stage 2 savefile with unknown version = %s", version)
+						return None
+				else:
+					if version == 2:
+						(et,) = unpack("=d", f)
+					elif version == 3:
+						et, _seed, _family = unpack("=dQB", f)
+					elif version == 4:
+						_seed, _family, et = unpack("=QBd", f)
+					elif version in {6, 7, 8, 9, 11}:
+						_seed, _family, et, in_chunk, chunk_start, chunk_end, chunk_bits, chunk_steps = unpack("=QBdBIIII", f)
+					else:
+						adapter.error("ECM stage 2 savefile with unknown version = %s", version)
+						return None
+
+				if in_chunk and chunk_bits:
+					idx = chunk_start + ((chunk_end - chunk_start) * min(chunk_steps, chunk_bits) // chunk_bits)
 
 				iteration = idx
 				iterations = cnt  # bits
@@ -5998,7 +6026,7 @@ def parse_work_unit_prmers(args, adapter, filename, exponent):
 
 	avg_msec_per_iter = (et / iteration) * 1000
 
-	return iteration, iterations, avg_msec_per_iter, stage, prmers_transform_size(p)
+	return iteration, iterations, avg_msec_per_iter, stage
 
 
 def mfaktx_calculate_k(exp, bits):
@@ -6466,7 +6494,9 @@ def get_prpll_progress(args, adapter, adir, p):
 	return iteration, None, avg_msec_per_iter, None, None, None
 
 
-PRMERS_RE = re.compile(r"^(?:(?:llsafe_|pm1_(?:s2_)?)?m_([0-9]+)|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt$")
+PRMERS_RE = re.compile(
+	r"^(?:(?:llsafe_|llunsafe_)?m_([0-9]+)|pm1_(?:(?:s2(?:_vtrace(?:_negadd|_producttree)?)?)_)?m_([0-9]+)|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt$"
+)
 
 
 def get_prmers_progress(args, adapter, adir, p):
@@ -6477,7 +6507,7 @@ def get_prmers_progress(args, adapter, adir, p):
 		match = PRMERS_RE.match(name)
 		if match:
 			savefiles.append((
-				2 if name.startswith(("llsafe_m_", "m_")) else 1 if name.startswith("pm1_") else 0,
+				2 if name.startswith(("llsafe_m_", "llunsafe_m_", "m_")) else 1 if name.startswith("pm1_") else 0,
 				int(match.group(3)) if match.group(3) else -1,
 				2 if name.startswith(("pm1_s2_", "ecm2_")) else 1,
 				entry,
@@ -6485,11 +6515,10 @@ def get_prmers_progress(args, adapter, adir, p):
 	iteration = 0
 	avg_msec_per_iter = None
 	iterations = curve = stage = None
-	fftlen = None
 	for _, acurve, _, savefile in sorted(savefiles, reverse=True):
 		result = parse_work_unit_prmers(args, adapter, savefile, p)
 		if result is not None:
-			iteration, iterations, avg_msec_per_iter, stage, fftlen = result
+			iteration, iterations, avg_msec_per_iter, stage = result
 			if acurve >= 0:
 				curve = acurve + 1
 			break
@@ -6497,7 +6526,7 @@ def get_prmers_progress(args, adapter, adir, p):
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
-	return iteration, iterations, avg_msec_per_iter, curve, stage, fftlen
+	return iteration, iterations, avg_msec_per_iter, curve, stage, None
 
 
 def get_mfaktc_output_filename(adir, p, sieve_depth, factor_to):

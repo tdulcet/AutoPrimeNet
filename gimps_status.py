@@ -344,7 +344,7 @@ PRPLL_RE = re.compile(
 	r"(?:(?:(?:ll|cert)-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp|cert)|unverified\.prp))$"
 )
 PRMERS_RE = re.compile(
-	r"^(?:(?:wagstaff_|llsafe_)?m_([0-9]+)|pm1_(?:s[2-4]_)?m_([0-9]+)(?:_ext)?|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$"
+	r"^(?:(?:wagstaff_|llsafe2?_|llunsafe_)?m_([0-9]+)|pm1_(?:(?:s[34]|s2(?:_vtrace(?:_negadd|_producttree)?)?)_)?m_([0-9]+)(?:_ext)?|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$"
 )
 MFAKTC_RE = re.compile(r"^([MW][0-9]+)(?:_[0-9]+-[0-9]+_[0-9]+)?\.ckp$")
 MFAKTO_RE = re.compile(r"^(M[0-9]+)\.ckp(\.bu)?$")
@@ -2301,25 +2301,6 @@ def parse_work_unit_prpll(filename):
 	return wu
 
 
-def prmers_transform_size(exponent):
-	"""Return the PrMers NTT transform-size bound for the specified exponent."""
-	log2_n = 1
-	while True:
-		log2_n += 1
-		w = exponent >> log2_n
-		if (w + 1) * 2 + log2_n < 64:
-			break
-
-	log2_n5 = 2
-	while True:
-		log2_n5 += 1
-		w = exponent // (5 << log2_n5)
-		if (w + 1) * 2 + (log2_n5 + 2.4) < 64:
-			break
-
-	return min(1 << log2_n, 5 << log2_n5)
-
-
 def parse_work_unit_prmers(filename, exponent, curve):
 	"""Parse a PrMers checkpoint into a work-unit status record."""
 	wu = work_unit()
@@ -2343,66 +2324,94 @@ def parse_work_unit_prmers(filename, exponent, curve):
 			if name.startswith("llsafe_m_"):
 				wu.work_type = WORK_TEST
 
-				version, p, i, et = unpack("=iIQd", f)
+				version, p = unpack("=iI", f)
 
-				if not 1 <= version <= 2:
+				if not 1 <= version <= 3:
 					logging.error("LL savefile with unknown version = %s", version)
 					return None
 
-				if version == 2:
+				if version >= 3:
+					(_backend,) = unpack("=I", f)
+
+				i, et = unpack("=Qd", f)
+
+				if version >= 2:
 					_itersave, _jsave = unpack("=QQ", f)
 
 				wu.counter = i
 
 				wu.stage = "LL"
-				wu.pct_complete = i / (p - 2)
-			elif name.startswith(("wagstaff_m_", "m_")):
-				wu.work_type = WORK_PRP
+				wu.pct_complete = i / (p - 1)
+			elif name.startswith("llsafe2_m_"):
+				wu.work_type = WORK_TEST
 
-				version, p, i, et = unpack("=iIId", f)
+				version, p, _backend, i = unpack("=iIII", f)
 
-				if version != 1:
-					logging.error("PRP savefile with unknown version = %s", version)
+				if not 2 <= version <= 3:
+					logging.error("LL savefile with unknown version = %s", version)
 					return None
+
+				if version >= 3:
+					(_itersave,) = unpack("=I", f)
+
+				(et,) = unpack("=d", f)
+
+				wu.counter = i
+
+				wu.stage = "LL"
+				wu.pct_complete = i / (p - 2)
+			elif name.startswith(("wagstaff_m_", "llunsafe_m_", "m_")):
+				wu.work_type = WORK_TEST if name.startswith("llunsafe_m_") else WORK_PRP
+
+				version, p = unpack("=iI", f)
+
+				if version == 1:
+					i, et = unpack("=Id", f)
+				elif 2 <= version <= 4:
+					_mode, _backend, i, et = unpack("=IIId", f)
+					if version >= 3:
+						(_block,) = unpack("=I", f)
+					if version >= 4:
+						(_good_iter,) = unpack("=I", f)
+				else:
+					logging.error("LL/PRP savefile with unknown version = %s", version)
+					return None
+
+				wu.counter = i
 
 				if name.startswith("wagstaff_m_"):
 					wu.c = 1
 					wu.known_factors = (3,)
-
-				wu.counter = i
-
-				wu.stage = "PRP"
-				wu.pct_complete = i / p
+					wu.stage = "PRP"
+					wu.pct_complete = i / (p >> 1)
+				elif name.startswith("llunsafe_m_"):
+					wu.stage = "LL"
+					wu.pct_complete = i / (p - 2)
+				else:
+					wu.stage = "PRP"
+					wu.pct_complete = i / p
 			elif name.startswith("pm1_m_"):
 				wu.work_type = WORK_PMINUS1
 
-				version, p, i, et = unpack("=iIId", f)
+				version, p = unpack("=iI", f)
 
-				if version != 3:
+				if version == 3:
+					i, et = unpack("=Id", f)
+				elif version == 4:
+					i, et = unpack("=Qd", f)
+				else:
 					logging.error("P-1 stage 1 savefile with unknown version = %s", version)
 					return None
 
-				f.seek(11 * prmers_transform_size(p) * 8, 1)  # os.SEEK_CUR
+				f.seek(-struct.calcsize("=QQBQQI"), 2)  # os.SEEK_END
 
-				_chk, _blks, _bib, _cbl, _inlot, eacc_len = unpack("=QQQQBI", f)
-
-				eacc_hex_c = f.read(eacc_len)
-				if len(eacc_hex_c) != eacc_len:
-					raise EOFError
-
-				(wbits_len,) = unpack("=I", f)
-
-				wbits_hex_c = f.read(wbits_len)
-				if len(wbits_hex_c) != wbits_len:
-					raise EOFError
-
-				_chunkIdx, _startP, _first, processedBits, _bitsInChunk = unpack("=QQBQQ", f)
+				_chunk_idx, _start_p, _first, processed_bits, _bits_in_chunk = unpack("=QQBQQ", f)
 
 				wu.state = PM1_STATE_STAGE1
-				wu.counter = processedBits
+				wu.counter = processed_bits
 
 				wu.stage = "S1"
-				wu.pct_complete = processedBits / (processedBits + i)
+				wu.pct_complete = processed_bits / (processed_bits + i)
 			elif name.startswith("pm1_s2_m_"):
 				wu.work_type = WORK_PMINUS1
 
@@ -2420,6 +2429,30 @@ def parse_work_unit_prmers(filename, exponent, curve):
 
 				wu.stage = "S2"
 				wu.pct_complete = wu.counter / (B2u - p0)
+			elif name.startswith("pm1_s2_vtrace_"):
+				wu.work_type = WORK_PMINUS1
+
+				version, p, B1u, B2u, D, saved_p, saved_idx, _saved_k, et = unpack("=iIQQQQQQd", f)
+
+				if version != (23 if name.startswith("pm1_s2_vtrace_producttree_m_") else 24):
+					logging.error("P-1 stage 2 savefile with unknown version = %s", version)
+					return None
+
+				if name.startswith("pm1_s2_vtrace_producttree_m_"):
+					k0 = (B1u + D // 2) // D
+					k1 = (B2u + D // 2) // D
+					wu.counter = saved_idx
+					wu.pct_complete = (saved_p - k0) / (k1 - k0)
+				else:
+					p0 = next_prime(B1u)
+					wu.counter = saved_p - p0
+					wu.pct_complete = wu.counter / (B2u - p0)
+
+				wu.state = PM1_STATE_STAGE2
+				wu.B_done = B1u
+				wu.C_done = B2u
+
+				wu.stage = "S2"
 			elif name.startswith("pm1_s3_m_"):
 				wu.work_type = WORK_PMINUS1
 
@@ -2451,14 +2484,24 @@ def parse_work_unit_prmers(filename, exponent, curve):
 			elif name.startswith(("ecm_m_", "ecm_te_m_")):
 				wu.work_type = WORK_ECM
 
-				version, p, i, nb, B1, et, _curve_seed, _current_te_family_mode = unpack("=iIIIQdQB", f)
+				version, p, i, nb, B1, et, _curve_seed, _family = unpack("=iIIIQdQB", f)
 
-				if version not in {1, 5}:
-					logging.error("ECM stage 1 savefile with unknown version = %s", version)
-					return None
+				if name.startswith("ecm_te_m_"):
+					if version not in {1, 2}:
+						logging.error("ECM stage 1 savefile with unknown version = %s", version)
+						return None
 
-				if version == 5:
-					(_te_stage1_flag,) = unpack("=B", f)
+					if version == 2:
+						(_sigma_id,) = unpack("=Q", f)
+				else:
+					if version not in {1, 5, 10}:
+						logging.error("ECM stage 1 savefile with unknown version = %s", version)
+						return None
+
+					if version == 5:
+						(_te_stage1_flag,) = unpack("=B", f)
+					elif version == 10:
+						_construction_tag, _torsion_curve_k = unpack("=BQ", f)
 
 				wu.state = ECM_STATE_STAGE1
 				wu.curve = curve + 1
@@ -2472,27 +2515,39 @@ def parse_work_unit_prmers(filename, exponent, curve):
 
 				version, p, idx, cnt, B1, B2 = unpack("=iIIIQQ", f)
 
-				if not 2 <= version <= 9:
-					logging.error("ECM stage 2 savefile with unknown version = %s", version)
-					return None
+				in_chunk = chunk_bits = 0
 
-				if 5 <= version <= 9:
-					(
-						_curve_seed,
-						_current_te_family_mode,
-						et,
-						_in_chunk,
-						_chunk_start_idx,
-						_chunk_end_idx,
-						_chunk_bits_saved,
-						_chunk_steps_done_saved,
-					) = unpack("=QBdBIIII", f)
-				elif version == 4:
-					_curve_seed, _current_te_family_mode, et = unpack("=QBd", f)
-				elif version == 3:
-					et, _curve_seed, _current_te_family_mode = unpack("=dQB", f)
-				elif version == 2:
-					(et,) = unpack("=d", f)
+				if name.startswith("ecm2_te_m_"):
+					if version == 2:
+						(et,) = unpack("=d", f)
+					elif version == 3:
+						et, _seed, _family = unpack("=dQB", f)
+					elif version == 4:
+						_seed, _family, et = unpack("=QBd", f)
+					elif version in {5, 6}:
+						_seed, _family, et, in_chunk, chunk_start, chunk_end, chunk_bits, chunk_steps = unpack("=QBdBIIII", f)
+					elif version == 7:
+						_seed, _family, _sigma_id, et, in_chunk, chunk_start, chunk_end, chunk_bits, chunk_steps = unpack(
+							"=QBQdBIIII", f
+						)
+					else:
+						logging.error("ECM stage 2 savefile with unknown version = %s", version)
+						return None
+				else:
+					if version == 2:
+						(et,) = unpack("=d", f)
+					elif version == 3:
+						et, _seed, _family = unpack("=dQB", f)
+					elif version == 4:
+						_seed, _family, et = unpack("=QBd", f)
+					elif version in {6, 7, 8, 9, 11}:
+						_seed, _family, et, in_chunk, chunk_start, chunk_end, chunk_bits, chunk_steps = unpack("=QBdBIIII", f)
+					else:
+						logging.error("ECM stage 2 savefile with unknown version = %s", version)
+						return None
+
+				if in_chunk and chunk_bits:
+					idx = chunk_start + ((chunk_end - chunk_start) * min(chunk_steps, chunk_bits) // chunk_bits)
 
 				wu.state = ECM_STATE_STAGE2
 				wu.curve = curve + 1
@@ -2517,7 +2572,6 @@ def parse_work_unit_prmers(filename, exponent, curve):
 
 	wu.n = p
 	wu.total_time = int(et * 1000 * 1000)
-	wu.fftlen = prmers_transform_size(p)
 
 	wu.version = version
 	return wu
