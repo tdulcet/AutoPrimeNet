@@ -662,8 +662,13 @@ elif machine.startswith("arm") or machine == "aarch64":
 
 cl_lib = find_library("OpenCL")
 if cl_lib:
-	cl = ctypes.WinDLL("OpenCL") if sys.platform == "win32" else ctypes.CDLL(cl_lib)
+	try:
+		cl = ctypes.WinDLL("OpenCL") if sys.platform == "win32" else ctypes.CDLL(cl_lib)
+	except OSError as e:
+		print("Error: Failed to load OpenCL library {!r}: {}: {}".format(cl_lib, type(e).__name__, e), file=sys.stderr)
+		cl_lib = None
 
+if cl_lib:
 	cl.clGetPlatformIDs.argtypes = (ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint))
 	# cl.clGetPlatformIDs.restype = ctypes.c_int
 
@@ -687,8 +692,13 @@ if cl_lib:
 
 cuda_lib = find_library("nvcuda" if sys.platform == "win32" else "cuda")
 if cuda_lib:
-	cuda = ctypes.WinDLL("nvcuda") if sys.platform == "win32" else ctypes.CDLL(cuda_lib)
+	try:
+		cuda = ctypes.WinDLL("nvcuda") if sys.platform == "win32" else ctypes.CDLL(cuda_lib)
+	except OSError as e:
+		print("Error: Failed to load CUDA library {!r}: {}: {}".format(cuda_lib, type(e).__name__, e), file=sys.stderr)
+		cuda_lib = None
 
+if cuda_lib:
 	cuda.cuInit.argtypes = (ctypes.c_uint,)
 	# cuda.cuInit.restype = ctypes.c_int
 
@@ -718,8 +728,13 @@ if cuda_lib:
 
 nvml_lib = find_library("nvml" if sys.platform == "win32" else "nvidia-ml")
 if nvml_lib:
-	nvml = ctypes.WinDLL("nvml") if sys.platform == "win32" else ctypes.CDLL(nvml_lib)
+	try:
+		nvml = ctypes.WinDLL("nvml") if sys.platform == "win32" else ctypes.CDLL(nvml_lib)
+	except OSError as e:
+		print("Error: Failed to load NVML library {!r}: {}: {}".format(nvml_lib, type(e).__name__, e), file=sys.stderr)
+		nvml_lib = None
 
+if nvml_lib:
 	class nvmlMemory_v2_t(ctypes.Structure):
 		"""NVML v2 device-memory information structure."""
 
@@ -798,8 +813,13 @@ else:
 	libcrypto = find_library("crypto") or find_library("eay32")
 
 if libcrypto:
-	crypto = ctypes.CDLL(libcrypto)
+	try:
+		crypto = ctypes.CDLL(libcrypto)
+	except OSError as e:
+		print("Error: Failed to load OpenSSL library {!r}: {}: {}".format(libcrypto, type(e).__name__, e), file=sys.stderr)
+		libcrypto = None
 
+if libcrypto:
 	OpenSSL_version_num = crypto.OpenSSL_version_num if hasattr(crypto, "OpenSSL_version_num") else crypto.SSLeay
 	# OpenSSL_version_num.argtypes = ()
 	OpenSSL_version_num.restype = ctypes.c_ulong

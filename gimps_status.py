@@ -631,8 +631,13 @@ def output_unit(number, scale=SCALE.IEC_I):
 
 gmp_lib = find_library("libgmp" if sys.platform == "win32" else "gmp")
 if gmp_lib:
-	gmp = ctypes.CDLL(gmp_lib)
+	try:
+		gmp = ctypes.CDLL(gmp_lib)
+	except OSError as e:
+		print("Error: Failed to load GMP library {!r}: {}: {}".format(gmp_lib, type(e).__name__, e), file=sys.stderr)
+		gmp_lib = None
 
+if gmp_lib:
 	class mpz_t(ctypes.Structure):
 		"""ctypes representation of GMP's internal mpz_t integer structure."""
 
