@@ -45,6 +45,8 @@ class Application:
 		self.tray = TrayController()
 		self.monitor = MonitorController()
 		self.active_operation = None
+		self.native_monitor = False
+		self.monitor_watch = False
 		self.quit_pending = False
 		self.hidden = False
 		self.closed = False
@@ -129,9 +131,9 @@ class Application:
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.monitor_status, justify="left").pack(anchor="w")
 		controls = ttk.Frame(self.tabs["Dashboard"])
 		controls.pack(anchor="w", pady=8)
-		self.start_button = ttk.Button(controls, text="Start scheduled monitoring…", command=self.start_monitoring)
+		self.start_button = ttk.Button(controls, text="Start monitoring…", command=self.start_monitoring)
 		self.start_button.pack(side="left")
-		self.stop_button = ttk.Button(controls, text="Stop after current cycle", command=self.stop_monitoring)
+		self.stop_button = ttk.Button(controls, text="Stop after active work", command=self.stop_monitoring)
 		self.stop_button.pack(side="left", padx=8)
 		self.force_button = ttk.Button(controls, text="Force stop…", command=self.force_stop_monitoring)
 		self.force_button.pack(side="left")
@@ -268,9 +270,18 @@ class Application:
 			if not 1 <= hours <= 168:
 				raise ValueError
 		except ValueError:
-			self.status.set("Correct and save the progress check-in interval before starting monitoring.")
+			self.status.set("Correct and save the progress check-in and polling intervals before starting monitoring.")
 			return
-		if not messagebox.askyesno("Start scheduled monitoring", "Run AutoPrimeNet in this workspace now, then every {} hour(s)?\n\nCycles can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Successfully uploaded proofs are archived or deleted according to the existing configuration.\n\nThis mode checks at the scheduled interval; it does not watch files immediately. Stop waits for the current cycle to finish. Computation engines are never started or stopped.".format(hours), parent=self.root):
+		try:
+			interval = document.config.getint("GUI", "PollSeconds", fallback=3600)
+			watch = document.config.getboolean("PrimeNet", "watch", fallback=True)
+			if interval < 0 or (interval != 0 and not 1800 <= interval <= hours * 3600):
+				raise ValueError
+		except ValueError:
+			self.status.set("Polling must be 0 or at least 1800 seconds, and no longer than the progress check-in interval.")
+			return
+		cadence = "Run one complete pass, then stop." if interval == 0 else f"Poll every {interval} seconds; report progress every {hours} hour(s). " + ("Watch results and proof files immediately." if watch else "Check results and proofs at each poll.")
+		if not messagebox.askyesno("Start monitoring", cadence + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. Computation engines are never started or stopped.", parent=self.root):
 			return
 		try:
 			self.monitor.start(document)
@@ -384,7 +395,7 @@ class Application:
 	def stop_monitoring(self):
 		if self.monitor.active:
 			self.monitor.stop()
-			self.update_monitor_state("Stopping", "Waiting for the current CLI cycle to finish safely.")
+			self.update_monitor_state("Stopping", "Waiting for active work and reporting/upload workers to finish safely.")
 
 	def force_stop_monitoring(self):
 		if self.monitor.active and messagebox.askyesno("Force stop monitoring", "Terminate only the CLI process launched by this GUI? This can interrupt a write or upload and leave sidecar locks behind. They will not be deleted automatically. Computation engines are not affected.", parent=self.root):
@@ -511,7 +522,9 @@ class Application:
 				continue
 			event = message["event"]
 			if event == "ready":
-				self.log("One-shot operation ready." if self.active_operation else "Scheduled runner ready; interval {} seconds.".format(message["interval"]))
+				self.native_monitor = message.get("native_scheduler", False)
+				self.monitor_watch = message.get("watch", False)
+				self.log("One-shot operation ready." if self.active_operation else "Monitoring runner ready; polling interval {} seconds.".format(message["interval"]))
 				if message.get("backup_created"):
 					self.log("A private configuration backup was created before starting AutoPrimeNet.")
 				if message.get("assignment_backup"):
@@ -524,13 +537,13 @@ class Application:
 				self.log("One-shot CLI exited zero; server acceptance and message delivery remain unverified. Consult the AutoPrimeNet log.")
 			elif event == "cycle_finished":
 				if self.monitor.state != "Stopping":
-					self.update_monitor_state("Waiting", "Last local cycle ended: {}\nNext cycle planned: {}".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["time"])), time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["next_cycle"]))))
-				self.log("CLI cycle exited zero; individual server outcomes remain unverified. Consult the AutoPrimeNet log.")
+					self.update_monitor_state("Watching files" if self.native_monitor and self.monitor_watch else "Waiting", "Last local cycle ended: {}\nNext poll planned: {}".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["time"])), time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["next_cycle"]))))
+				self.log("Local cycle completed; individual server outcomes remain unverified. Consult the AutoPrimeNet log.")
 			elif event == "failed":
 				self.update_monitor_state("Failed", message.get("error", "Check the workspace, locks and AutoPrimeNet log; reload before retrying."))
 				self.log("One-shot operation failed." if self.active_operation else "Scheduled monitoring failed.")
 			elif event == "stopped":
-				self.update_monitor_state("Stopped", "Forced stop; inspect runtime files and sidecar locks." if message.get("forced") else "One-shot command ended. Refresh before editing or running another command." if self.active_operation else "Stopped at a cycle boundary. Refresh before editing or restarting.")
+				self.update_monitor_state("Stopped", "Forced stop; inspect runtime files and sidecar locks." if message.get("forced") else "One-shot command ended. Refresh before editing or running another command." if self.active_operation else "Stopped after active work finished. Refresh before editing or restarting.")
 			elif event == "exited":
 				if self.monitor.state not in {"Failed", "Stopped"}:
 					self.update_monitor_state("Failed", "The scheduled runner exited unexpectedly.")
@@ -591,7 +604,7 @@ class Application:
 			return
 		if self.monitor.active:
 			self.show()
-			if messagebox.askyesno("Quit and stop AutoPrimeNet", "Stop the GUI-owned AutoPrimeNet runner and quit after the current CLI command finishes? Closing the window instead keeps it running in the background.", parent=self.root):
+			if messagebox.askyesno("Quit and stop AutoPrimeNet", "Stop the GUI-owned AutoPrimeNet runner and quit after active work and reporting/upload workers finish? Closing the window instead keeps it running in the background.", parent=self.root):
 				self.quit_pending = True
 				self.stop_monitoring()
 			return

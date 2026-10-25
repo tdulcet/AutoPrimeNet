@@ -167,6 +167,29 @@ class WindowTests(unittest.TestCase):
 			editor.complete_mail(result, None)
 			self.assertFalse(editor.dirty)
 
+	def test_polling_and_watching_are_reachable_and_saved_from_forms(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\nHoursBetweenCheckins=2\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.search.set("--timeout")
+			row = self.app.reference.get_children()[0]
+			self.assertEqual(self.app.reference.item(row, "values")[-1], "Available")
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			editor = self.app.editor
+			self.assertTrue(editor.options_window.winfo_exists())
+			editor.options_values["poll_seconds"].set("1800")
+			editor.options_values["watch"].set("False")
+			self.assertTrue(editor.apply_options())
+			self.app.save()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertFalse(editor.dirty)
+			self.assertEqual(editor.document.config.getint("GUI", "PollSeconds"), 1800)
+			self.assertFalse(editor.document.config.getboolean("PrimeNet", "watch"))
+
 	def test_navigation_search_workspace_and_repeated_refresh(self):
 		self.assertEqual(len(self.app.notebook.tabs()), 8)
 		for frame in self.app.tabs.values():
@@ -645,7 +668,7 @@ class WindowTests(unittest.TestCase):
 				self.wait_until(lambda: self.app.tray.ready)
 			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
 				self.app.start_monitoring()
-			self.wait_until(lambda: self.app.monitor.state == "Waiting")
+			self.wait_until(lambda: self.app.monitor.state in {"Waiting", "Watching files"})
 			self.assertTrue(self.app.editor.widgets[0].instate(["disabled"]))
 			self.assertTrue(self.app.save_button.instate(["disabled"]))
 			self.app.hide()

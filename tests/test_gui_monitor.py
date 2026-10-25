@@ -31,6 +31,13 @@ def fake_monitor_process(_command, **kwargs):
 			(Path(directory) / 'cycle.completed').write_text('completed')
 			return 0, False
 		gui_monitor.cli_cycle = fake_cycle
+		def fake_native(directory, config_name, control, interval, expected_hash):
+			gui_monitor.emit({"event": "cycle_started", "time": time.time()})
+			result = fake_cycle(directory, config_name, control)
+			gui_monitor.emit({"event": "cycle_finished", "time": time.time(), "next_cycle": time.time() + interval, "server_confirmation": "unverified"})
+			control.stop.wait(15)
+			return result
+		gui_monitor.native_cycle = fake_native
 		def fake_once(directory, config_name, control, operation=None, parameters=None, expected_hash=None):
 			(Path(directory) / 'operation.record').write_text(str(operation))
 			(Path(directory) / 'parameters.record').write_text(json.dumps(parameters or {}))

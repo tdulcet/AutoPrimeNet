@@ -17,8 +17,6 @@ EXTRA = {
 	"debug_info": ("Logs & Status", "Export private diagnostics", "Available"),
 	"help": ("Advanced", "Original CLI help / searchable reference", "Available"),
 	"version": ("Advanced", "Help → About", "Available"),
-	"timeout": ("Dashboard", "Scheduled cadence; independent polling interval unfinished", "Partial"),
-	"watch": (None, "Immediate file-watching lifecycle unfinished", "CLI only"),
 	"lock": (None, "GUI requires locks; disabling locking is unsupported", "CLI only"),
 	"debug": (None, "Verbose HTTP tracing is not exposed", "CLI only"),
 	"prime95": (None, "Hidden experimental Prime95 mode is not exposed", "Hidden / CLI only"),

@@ -272,7 +272,7 @@ describe remaining limitations. **Help → Original CLI help** displays the
 original parser's complete visible help offline without needing a workspace.
 **Help → About** includes the audited backend version.
 
-Use **Settings → Edit update and output preferences…** for version checks,
+Use **Settings → Edit monitoring and output preferences…** for version checks,
 alpha/beta/stable preference and native CLI console color. Saving performs no
 update check. These settings apply when the original backend next runs; console
 color does not style the GUI or plain backend log. The Advanced reporting policy
@@ -445,11 +445,14 @@ content of the desired `.bak`, and copy it back to the original configuration
 filename using your file manager. Keep its permissions appropriate, then reopen
 and refresh the GUI. Do not copy a backup over a work/results file.
 
-The progress check-in interval is distinct from the scheduler's `--timeout`.
-AutoPrimeNet does not persist `--timeout` through its INI mapping, so the GUI does
-not add an INI field that pretends to control it. A validated saved
-configuration is not evidence of registration, connectivity or successful server
-operations. Full graphical CLI parity remains later work.
+The progress check-in interval is distinct from the polling interval (`--timeout`).
+Use **Settings → Edit monitoring and output preferences** to set polling seconds
+and native file watching. The GUI saves polling in `[GUI] PollSeconds`, because
+the original CLI does not persist `--timeout`; the GUI passes this value explicitly
+to its owned runtime. Standalone CLI users must still supply `--timeout` themselves.
+The watch preference is the original `[PrimeNet] watch` setting and also applies
+to the standalone CLI. A validated configuration is not evidence of registration,
+connectivity or successful server operations.
 
 ### One-shot commands
 
@@ -494,7 +497,7 @@ writes can normalize comments/formatting.
 One command or scheduled monitor can run per GUI at a time. Settings, Save and
 other command buttons remain disabled until it exits. The same runner/native
 locks protect against overlapping GUI/CLI operations. Dashboard shows lifecycle
-state; closing retains background execution. **Stop after current cycle** lets
+state; closing retains background execution. **Stop after active work** lets
 an active command finish, while a stop received during startup can cancel it
 before execution. **Force stop…** can interrupt writes/uploads and requires a
 separate confirmation. **Quit** waits asynchronously for the owned command.
@@ -650,26 +653,43 @@ never change real reservations merely to test these controls.
 
 ### Scheduled monitoring
 
-Dashboard → **Start scheduled monitoring…** (or the tray Start item) asks before
-starting a GUI-owned runner. Save or reload unsaved form changes first. The
-runner checks the selected configuration's loaded fingerprint and performs
-offline validation before any CLI cycle starts. Startup errors, changed source
-files, an active independent CLI, or another GUI runner prevent startup.
+Dashboard → **Start monitoring…** (or the tray Start item) asks before starting
+a GUI-owned runner. Save or reload unsaved edits first. The runner checks the
+configuration fingerprint, audited source and native instance lock, validates
+offline and creates its private backup before asking the GUI for permission to
+begin. Stop during preflight prevents any server cycle from starting.
 
-This first mode runs the unmodified AutoPrimeNet CLI with `--timeout 0` now and
-then at the configured **progress check-in interval**, in hours. Each pass can
-register/update the computer, request/register work, report results/progress,
-upload proofs, download certification starting data, check versions and send
-existing configured notifications. Proof archival/deletion and all PrimeNet
-business logic remain the CLI's existing behavior. For a previously unregistered
-computer, a completed initial registration is followed by a work cycle unless
-Stop was requested in between. No computation engine is launched or terminated.
+Positive polling intervals run the original native scheduler continuously in a
+private child. Configure **Polling interval** and **Watch results/proof files
+immediately** in Settings → Edit monitoring and output preferences. Polling must
+be at least 1800 seconds and no longer than the progress check-in interval in
+PrimeNet. Blank watch policy uses the original enabled default. With watching off,
+results/proofs are checked on each poll. With watching on, the original native
+watchers enqueue result reporting and proof uploads between polls. Original
+ordering delays (one second for result reads, 60 seconds before proof uploads)
+and retry cooldowns remain in effect during normal operation. A stopped run does
+not retry pending queued work; source files remain available for the next run.
 
-The cadence intentionally matches the check-in interval in this scheduled mode;
-it does not offer the native CLI's separate polling interval or immediate file
-watchers yet. Results/proofs discovered between cycles wait for the next pass.
-Changing the cadence requires stopping, editing/saving, and restarting. The
-normal independent CLI remains available for its full native monitoring behavior.
+**Polling interval = 0** performs one complete pass and stops. For a newly
+registered computer this includes the normal work-cycle follow-up unless Stop
+was requested after registration. One-shot buttons still perform exactly their
+selected action, without starting a continuous scheduler.
+
+Each poll can register/update the computer, request/register work, report
+results/progress, download certification data, upload proofs, check versions and
+send configured notifications. The original scheduler decides which polls are
+progress check-ins and when certification/rolling-average work is due. All server
+logic and proof archival/deletion behavior remain original. No computation engine
+is launched or terminated. Stop before changing and saving monitoring preferences.
+
+The separate GUI runtime adds reviewed, in-memory lifecycle hooks to the audited
+source: scheduler-boundary stops, wakeable idle waits and reporting/upload worker
+draining. The original file is not edited. Native watchers only enqueue file names;
+they remain daemon threads whose OS handles close when this owned child exits.
+Watcher or worker failure stops monitoring and drains active writers; inspect the
+private backend log and retry with watching disabled if the filesystem cannot
+support it. Native FSEvents delivery has been tested on macOS with simulated
+server calls; other platform/runtime acceptance remains pending.
 
 Each Start creates an owner-private configuration snapshot named
 `<config-name>.gui-monitor-backup-<unique-id>.bak` before beginning a cycle. The
@@ -678,17 +698,20 @@ and formatting; GUI save preservation cannot prevent that backend behavior.
 This snapshot protects the original configuration, not server reservations or
 computation checkpoints. Restoring it cannot undo server operations.
 
-Dashboard and tray state distinguish Starting, Running cycle, Waiting, Stopping,
-Stopped and Failed. The displayed last-cycle timestamp is local process
-completion, and the next-cycle time is a plan. Exit zero is not proof that every
+Dashboard and tray state distinguish Starting, Running cycle, Watching files,
+Waiting, Stopping, Stopped and Failed. A cycle timestamp marks completion of the
+local scheduling pass; queued background uploads may still be active. The next
+poll time is a plan. A completed cycle or zero exit is not proof that every
 server operation succeeded: some existing CLI paths log errors without returning
 a failing exit code. Connectivity and per-operation acceptance stay unverified;
 review AutoPrimeNet's configured log for detailed results. Raw CLI output and
 credentials are not copied into GUI activity, whose display is capped at 2000
 lines. Refresh local snapshots to inspect current files.
 
-**Stop after current cycle** prevents another pass and interrupts an idle wait.
-It lets an active CLI cycle finish its writes/uploads before exiting. This can
+**Stop after active work** prevents another poll, wakes idle scheduler/worker
+waits, and ignores new watcher queue entries. It lets the active scheduling pass
+and active reporting/upload batches finish their writes before exiting. The
+original short ordering delays are preserved even after Stop. This can
 take time during retries, a large proof upload, or waits on an existing `.lck`.
 **Force stop…** requires a separate confirmation and terminates only the owned
 CLI child; it can interrupt a write/upload and leave sidecar locks. Those locks
@@ -696,7 +719,7 @@ are never removed automatically. Inspect the affected workspace before restartin
 after a forced stop. Neither stop action unreserves work or changes QuitGIMPS.
 
 Closing the window hides/minimizes it while monitoring continues. **Quit** asks
-to stop monitoring, waits for the current cycle to finish, then closes the GUI
+to stop monitoring, waits for active work and reporting/upload workers, then closes the GUI
 and tray helper. A force-stop control remains reachable while Quit is waiting.
 If the GUI process disappears unexpectedly, pipe EOF requests a graceful runner
 shutdown; it may still wait for the active cycle. This is not a guarantee of

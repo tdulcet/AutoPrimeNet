@@ -103,7 +103,7 @@ def cli_cycle(directory, config_name, control):
 	return result
 
 
-def run_schedule(directory, config_name, interval, control, emit, cycle=None):
+def run_schedule(directory, config_name, interval, control, emit, cycle=None, once=False):
 	"""Serialize whole cycles. Exit zero alone does not confirm server success."""
 	emit({"event": "ready", "interval": interval})
 	cycle = cycle or cli_cycle
@@ -125,9 +125,66 @@ def run_schedule(directory, config_name, interval, control, emit, cycle=None):
 		# This is a local process-completion timestamp, never a claimed check-in.
 		delay = max(interval - (time.monotonic() - monotonic_start), 0)
 		emit({"event": "cycle_finished", "time": time.time(), "next_cycle": time.time() + delay, "server_confirmation": "unverified"})
+		if once:
+			break
 		if control.stop.wait(delay):
 			break
 	emit({"event": "stopped", "forced": False})
+	return 0
+
+
+def native_cycle(directory, config_name, control, interval, expected_hash):
+	"""Own one continuous native child; forward graceful stop, reap on force."""
+	environment = dict(os.environ)
+	environment["NO_COLOR"] = "1"
+	environment.pop("FORCE_COLOR", None)
+	process = subprocess.Popen([sys.executable, "-B", str(ROOT / "gui_runtime.py")], stdin=subprocess.PIPE,
+		stderr=subprocess.DEVNULL, cwd=ROOT, env=environment)
+	try:
+		request = {"protocol": 1, "directory": str(directory), "config_name": config_name, "interval": interval, "config_sha256": expected_hash}
+		process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
+		process.stdin.flush()
+		stop_sent = False
+		while True:
+			try:
+				return process.wait(timeout=0.2), False
+			except subprocess.TimeoutExpired:
+				if control.force.is_set():
+					process.terminate()
+					try:
+						process.wait(timeout=3)
+					except subprocess.TimeoutExpired:
+						process.kill()
+						process.wait()
+					return process.returncode, True
+				if control.stop.is_set() and not stop_sent:
+					try:
+						process.stdin.write(b'{"command":"stop"}\n')
+						process.stdin.flush()
+					except OSError:
+						pass
+					stop_sent = True
+	finally:
+		try:
+			process.stdin.close()
+		except OSError:
+			pass
+		# EOF requests a boundary stop even if initial IPC failed.
+		process.wait()
+
+
+def run_native(directory, config_name, interval, watch, expected_hash, control, emit):
+	emit({"event": "ready", "interval": interval, "watch": watch, "native_scheduler": True})
+	while not control.begin.is_set() and not control.stop.wait(0.05):
+		pass
+	if control.stop.is_set():
+		emit({"event": "stopped", "forced": False})
+		return 0
+	code, forced = native_cycle(directory, config_name, control, interval, expected_hash)
+	if code and not forced:
+		emit({"event": "failed", "exit_code": code})
+		return 1
+	emit({"event": "stopped", "forced": forced})
 	return 0
 
 
@@ -227,7 +284,9 @@ def main():
 				emit(message)
 			if operation is not None:
 				return run_operation(document.directory, document.path.name, operation, control, report, parameters=parameters, expected_hash=hashlib.sha256(document.data).hexdigest())
-			return run_schedule(document.directory, document.path.name, settings["checkin_hours"] * 3600, control, report)
+			if settings["timeout"] == 0:
+				return run_schedule(document.directory, document.path.name, 0, control, report, once=True)
+			return run_native(document.directory, document.path.name, settings["timeout"], settings["watch"], hashlib.sha256(document.data).hexdigest(), control, report)
 	except (BackendError, WorkspaceError, ControllerError) as error:
 		emit({"event": "failed", "error": str(error)})
 		return 1

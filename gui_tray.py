@@ -33,8 +33,8 @@ def main():
 			menu=pystray.Menu(
 				pystray.MenuItem("Open AutoPrimeNet GUI", lambda *_: emit("open"), default=True),
 				pystray.MenuItem(lambda _item: "Scheduled monitoring: " + state[0], None, enabled=False),
-				pystray.MenuItem("Start scheduled monitoring…", lambda *_: emit("start"), enabled=lambda _item: state[0] in {"Stopped", "Failed"}),
-				pystray.MenuItem("Stop scheduled monitoring", lambda *_: emit("stop"), enabled=lambda _item: state[0] in {"Starting", "Running cycle", "Waiting"}),
+				pystray.MenuItem("Start monitoring…", lambda *_: emit("start"), enabled=lambda _item: state[0] in {"Stopped", "Failed"}),
+				pystray.MenuItem("Stop monitoring", lambda *_: emit("stop"), enabled=lambda _item: state[0] in {"Starting", "Running cycle", "Waiting", "Watching files"}),
 				pystray.Menu.SEPARATOR,
 				pystray.MenuItem("Quit AutoPrimeNet GUI", lambda *_: emit("quit")),
 			),
@@ -54,7 +54,7 @@ def main():
 			for line in sys.stdin:
 				try:
 					message = json.loads(line)
-					if message.get("state") in {"Stopped", "Starting", "Running cycle", "Waiting", "Stopping", "Failed"}:
+					if message.get("state") in {"Stopped", "Starting", "Running cycle", "Waiting", "Watching files", "Stopping", "Failed"}:
 						state[0] = message["state"]
 						on_native_thread(icon.update_menu)
 				except (ValueError, AttributeError):

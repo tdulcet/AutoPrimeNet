@@ -56,7 +56,7 @@ class ConfigurationForms:
 		button = ttk.Button(app.tabs["PrimeNet"], text="Edit hardware and resource settings…", command=lambda: self.edit_options(group="Hardware"))
 		button.pack(anchor="w", pady=(0, 8))
 		self.widgets.append(button)
-		button = ttk.Button(app.tabs["Settings"], text="Edit update and output preferences…", command=lambda: self.edit_options(group="Behavior"))
+		button = ttk.Button(app.tabs["Settings"], text="Edit monitoring and output preferences…", command=lambda: self.edit_options(group="Behavior"))
 		button.pack(anchor="w", pady=(0, 8))
 		self.widgets.append(button)
 		button = ttk.Button(app.tabs["Settings"], text="Edit connection settings…", command=lambda: self.edit_options(group="Connection"))
@@ -96,7 +96,7 @@ class ConfigurationForms:
 		hardware = group == "Hardware"
 		connection = group == "Connection"
 		behavior = group == "Behavior"
-		title = "Update and output preferences" if behavior else "Connection settings" if connection else "Hardware and resource settings" if hardware else "Advanced assignment settings"
+		title = "Monitoring and output preferences" if behavior else "Connection settings" if connection else "Hardware and resource settings" if hardware else "Advanced assignment settings"
 		window.title(title)
 		window.transient(self.app.root)
 		window.geometry("740x600")
@@ -136,7 +136,7 @@ class ConfigurationForms:
 		if connection:
 			help_text = "SOCKS proxies require the optional PySocks package. Encryption True is strict; blank uses opportunistic encryption in the CLI.\nThe GUI always requires encryption for new passwords. Existing encrypted passwords require encryption enabled or inherited."
 		elif behavior:
-			help_text = "Update checks occur during normal backend monitoring. Native console-color preferences do not change the GUI or plain backend log."
+			help_text = "Polling is 0 for one pass, or ≥1800 seconds and no longer than the check-in interval. Blank watch policy enables native watching.\nPolling is a GUI preference; the standalone CLI needs --timeout. Native console-color preferences do not change the GUI."
 		elif not hardware:
 			help_text += "\nWithholding ≥100M-digit prime results requires another notification method, as in the CLI."
 		ttk.Label(outer, text=help_text, wraplength=680).pack(anchor="w", pady=8)

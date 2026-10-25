@@ -14,12 +14,10 @@ Generated from the same option inventory and coverage metadata used by the GUI r
 - **Hidden / CLI only**: hidden experimental upstream behavior is not exposed.
 - **Removed upstream**: the original backend rejects this legacy feature.
 
-Current parser-entry coverage: 88 Available, 1 Partial, 5 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
+Current parser-entry coverage: 91 Available, 0 Partial, 3 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
 
 ## Remaining workflow gaps
 
-- `--timeout`: the GUI schedules whole `--timeout 0` passes on the progress check-in cadence. Independent polling/check-in intervals and continuous native file-watching lifecycle remain unfinished.
-- `--watch` / `--no-watch`: continuous native watching is not implemented in the GUI-owned runner.
 - `--lock` / `--no-lock`: GUI startup always requires its runner lease and the native instance lock. It cannot bypass locking on unsupported filesystems.
 - `--debug`: verbose HTTP tracing is not exposed. Private original-backend diagnostics and bounded native-log viewing are available separately.
 - Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
@@ -35,7 +33,7 @@ Current parser-entry coverage: 88 Available, 1 Partial, 5 CLI only, 1 Hidden / C
 | Exponent registration | Batch form for the eight original work types, explicit parameters/factors, source-based offline preview, typed confirmation, work snapshots and original registration function; no implicit exponent metadata lookup |
 | Recovery and unreservation | Dedicated confirmations, structured exponent input and work/certification snapshots; no automatic reservation rollback or restore |
 | Status/logs/diagnostics | Original status report to native log, bounded private log dialog, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
-| Lifecycle | Owned one-shot/scheduled processes, startup handshake, graceful stop, explicit force, tray/taskbar fallback and asynchronous Quit; no computation-engine process management |
+| Lifecycle | Owned native scheduler with separate polling/check-ins, native file watching, one-pass mode, worker-draining Stop, explicit force, tray/taskbar fallback and asynchronous Quit; no computation-engine process management |
 
 Batch registration supports one configured worker and up to 100 entries per operation, a 48 KiB normalized plan, and bounded integer/factor sizes. It also registers other unregistered work already in the selected worker file, matching upstream behavior. All graphical file/worker/preview/snapshot limits are documented in GUI.md.
 
@@ -85,7 +83,7 @@ Batch registration supports one configured worker and up to 100 entries per oper
 | `--no-report-100m` | `no_report_100m` | Available | Advanced → Withhold prime results at ≥100 million digits |
 | `--report-100m` | `no_report_100m` | Available | Advanced → Withhold prime results at ≥100 million digits |
 | `--checkin` | `hours_between_checkins` | Available | PrimeNet → Progress check-in interval (hours) |
-| `-t`, `--timeout` | `timeout` | Partial | Dashboard → Scheduled cadence; independent polling interval unfinished |
+| `-t`, `--timeout` | `timeout` | Available | Settings → Behavior → Polling interval (seconds; 0: once) |
 | `-s`, `--status` | `status` | Available | Logs & Status → Write work status to backend log |
 | `--report-results` | `results` | Available | Assignments → Report results |
 | `--upload-proofs` | `proofs` | Available | Assignments → Report results and upload proofs |
@@ -104,8 +102,8 @@ Batch registration supports one configured worker and up to 100 entries per oper
 | `--version-check-channel` | `version_check_channel` | Available | Settings → Behavior → Preferred update channel (blank: stable) |
 | `--no-lock` | `lock` | CLI only | GUI requires locks; disabling locking is unsupported |
 | `--lock` | `lock` | CLI only | GUI requires locks; disabling locking is unsupported |
-| `--no-watch` | `watch` | CLI only | Immediate file-watching lifecycle unfinished |
-| `--watch` | `watch` | CLI only | Immediate file-watching lifecycle unfinished |
+| `--no-watch` | `watch` | Available | Settings → Behavior → Watch results/proof files immediately |
+| `--watch` | `watch` | Available | Settings → Behavior → Watch results/proof files immediately |
 | `--no-encrypt` | `encrypt` | Available | Settings → Connection → Backend password encryption policy |
 | `--encrypt` | `encrypt` | Available | Settings → Connection → Backend password encryption policy |
 | `--no-color` | `color` | Available | Settings → Behavior → Native CLI console color |

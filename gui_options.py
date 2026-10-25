@@ -58,6 +58,8 @@ FIELDS = (
 	Field("version_check", "Check for AutoPrimeNet/engine updates", "Settings", kind="boolean", dialog="Behavior"),
 	Field("version_check_channel", "Preferred update channel (blank: stable)", "Settings", kind="choice", choices=("", "alpha", "beta", "stable"), dialog="Behavior"),
 	Field("color", "Native CLI console color", "Settings", kind="boolean", dialog="Behavior"),
+	Field("poll_seconds", "Polling interval (seconds; 0: once)", "Settings", "3600", "integer", 0, 604800, destination="timeout", section="GUI", option="PollSeconds", dialog="Behavior"),
+	Field("watch", "Watch results/proof files immediately", "Settings", kind="boolean", dialog="Behavior"),
 	Field("GetMinExponent", "Minimum assignment exponent", "Advanced", "", "integer", 2, 9999999999),
 	Field("GetMaxExponent", "Maximum assignment exponent", "Advanced", "", "integer", 2, 9999999999),
 	Field("CertWork", "Receive certification work (PRPLL only)", "Advanced", "", "boolean"),
