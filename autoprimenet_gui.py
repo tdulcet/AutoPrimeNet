@@ -472,6 +472,8 @@ class Application:
 				self.registration.complete_preview(value, error)
 			elif name == "discover_gpus":
 				self.editor.complete_gpus(value, error)
+			elif name == "discover_mail":
+				self.editor.complete_mail(value, error)
 			elif name == "backend_log":
 				self.backend_log.complete(value, error)
 			elif error:
@@ -583,7 +585,7 @@ class Application:
 		# boundary. Closing the window instead retains background monitoring.
 		if self.jobs.busy:
 			self.show()
-			self.status.set("A local preview is still running; quit when it completes.")
+			self.status.set("An operation is still running; quit when it completes.")
 			return
 		if not self.discard_changes():
 			return

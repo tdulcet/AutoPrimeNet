@@ -111,6 +111,62 @@ class WindowTests(unittest.TestCase):
 			self.assertFalse(editor.dirty)
 			self.assertEqual(path.read_text(), original)
 
+	def test_mail_discovery_confirmation_review_apply_and_preservation(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			original = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n[Email]\nfrom_email=User <user@example.com>\npassword=old-secret\nsend=False\n"
+			path.write_text(original)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			editor.discover_mail()
+			result = {"match": {"provider": "Fixture", "security": "STARTTLS", "settings": {"smtp_server": "smtp.example.com:587", "tls": "False", "starttls": "True", "email_username": "user@example.com"}}}
+			with patch("gui_forms.messagebox.askyesno", return_value=False), patch("gui_forms.discover_mail") as lookup:
+				editor.start_mail_lookup()
+				lookup.assert_not_called()
+			self.assertFalse(editor.dirty)
+			with patch("gui_forms.messagebox.askyesno", return_value=True), patch("gui_forms.discover_mail", return_value=result) as lookup:
+				editor.start_mail_lookup()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				lookup.assert_called_once_with(editor.document, "user@example.com")
+			self.assertEqual(editor.values["smtp_server"].get(), "")
+			self.assertIn("smtp.example.com:587", editor.mail_details.get())
+			self.assertFalse(editor.dirty)
+			editor.apply_mail()
+			self.assertTrue(editor.dirty)
+			self.assertEqual(editor.values["smtp_server"].get(), "smtp.example.com:587")
+			self.assertEqual(editor.values["notification_send"].get(), "False")
+			self.assertEqual(editor.credentials, {})
+			self.assertEqual(path.read_text(), original)
+
+	def test_mail_discovery_address_change_cancel_empty_and_failure(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			window = editor.discover_mail()
+			editor.mail_address.set("user@example.com")
+			result = {"match": {"provider": "Fixture", "security": "SSL", "settings": {"smtp_server": "smtp.example.com:465", "tls": "True", "starttls": "False"}}}
+			with patch("gui_forms.messagebox.askyesno", return_value=True), patch("gui_forms.discover_mail", return_value=result):
+				editor.start_mail_lookup()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			editor.mail_address.set("other@example.com")
+			editor.apply_mail()
+			self.assertIn("changed", editor.mail_details.get())
+			self.assertFalse(editor.dirty)
+			editor.mail_address.set("user@example.com")
+			editor.complete_mail({"match": None}, None)
+			self.assertIn("No provider", editor.mail_details.get())
+			editor.complete_mail(None, RuntimeError("private error"))
+			self.assertNotIn("private error", editor.mail_details.get())
+			window.destroy()
+			editor.complete_mail(result, None)
+			self.assertFalse(editor.dirty)
+
 	def test_navigation_search_workspace_and_repeated_refresh(self):
 		self.assertEqual(len(self.app.notebook.tabs()), 8)
 		for frame in self.app.tabs.values():

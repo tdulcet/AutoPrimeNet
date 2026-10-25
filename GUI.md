@@ -517,8 +517,8 @@ startup, then enters its setup-completion branch with saved graphical values.
 It calls the original computer-registration and program-options routines,
 including their configuration updates and server overrides, without running the
 terminal setup questions, automatically sending test email or fetching work.
-Refresh afterward. GPU discovery is available in the hardware dialog (see below). SMTP-provider
-discovery remains unfinished; supply mail settings manually in the forms.
+Refresh afterward. GPU discovery is available in the hardware dialog, and
+SMTP-provider discovery is available in Notifications (see below).
 
 For explicit exponents, choose **Assignments → Register exponent batch…**:
 
@@ -770,3 +770,42 @@ Unknown cores/caches retain existing values; review these before saving. No GPUs
 or a driver failure leaves manual editing available. CPU defaults still apply
 when no hardware overrides are supplied. Native driver behavior on Windows,
 Linux and FreeBSD still requires platform testing.
+
+
+### Discovering an SMTP provider
+
+Choose **Notifications → Discover SMTP provider** and enter a sender address
+(optionally including its display name). **Look up provider** asks for confirmation
+before any network access. It uses the original provider-autoconfiguration code,
+including provider endpoints, the Mozilla ISP database, and DNS-over-HTTPS
+fallbacks. The sender address may be included in provider requests; lookups may
+use unencrypted HTTP or unsigned DNS. Review returned settings with your provider.
+
+Lookup uses **saved** proxy settings, including saved proxy credentials, and the
+normal system proxy environment. Save connection edits first. It runs in a
+separate helper with an eight-second timeout per request and a 90-second overall
+limit. Closing the dialog discards its result; an in-flight lookup may continue
+until completion or timeout. Retry Quit after this bounded job finishes. Discovery does not
+send an SMTP password, email, or PrimeNet request and creates no runtime files.
+The original offline bridge continues to reject network-enabled operations.
+
+Review provider, SMTP server/port, connection security and optional username,
+then choose **Apply to form**. This replaces those form fields and the sender
+address. An unknown username retains the existing username; review it manually.
+A changed sender or workspace requires another lookup. Unknown connection
+security is rejected; explicitly advertised plain SMTP is shown as `plain` with
+both TLS switches off. Passwords, recipients and notification send policy remain
+unchanged. Use **Save settings** separately. A test email remains a separate,
+confirmed operation. Empty results or errors leave manual SMTP editing available.
+
+### Planned manual acceptance testing
+
+Manual acceptance testing is deferred until implementation is ready. Automated
+checks recorded in GUI_DEVELOPMENT.md are separate evidence and do not imply the
+user has tested these workflows. Use disposable workspaces on the available test
+machines first. Record OS, Python/Tk versions, computation engine, tray support,
+and results for workspace loading, preservation/validation, GPU/mail discovery,
+registration previews, lifecycle/quit, and private logs/reports. Live provider or
+PrimeNet actions should be exercised deliberately with the intended account and
+workspace, with local backups and review of server state. Cross-platform runtime
+and live-service acceptance remain pending in GUI_PARITY.md.

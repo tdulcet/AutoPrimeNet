@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from gui_config import ENGINES
 from gui_options import FIELDS, validate_fields
 from gui_controller import backend_request
+from gui_mail_discovery import discover_mail
 
 
 class ConfigurationForms:
@@ -26,6 +27,8 @@ class ConfigurationForms:
 		self.options_window = None
 		self.options_values = {}
 		self.gpu_target = None
+		self.mail_window = None
+		self.mail_document = None
 		self.credentials = {}
 		self.password_window = None
 		for field in FIELDS:
@@ -63,6 +66,9 @@ class ConfigurationForms:
 			button = ttk.Button(app.tabs[tab], text="Manage SMTP and proxy passwords…", command=self.edit_passwords)
 			button.pack(anchor="w", pady=(0, 8))
 			self.widgets.append(button)
+		button = ttk.Button(app.tabs["Notifications"], text="Discover SMTP provider…", command=self.discover_mail)
+		button.pack(anchor="w", pady=(0, 8))
+		self.widgets.append(button)
 		frame = ttk.LabelFrame(app.tabs["Workers"], text="Program and worker configuration", padding=8)
 		frame.pack(fill="x", pady=(0, 8))
 		ttk.Label(frame, text="Computation program").grid(row=0, column=0, sticky="w")
@@ -222,6 +228,88 @@ class ConfigurationForms:
 				self.values[key].set(variable.get())
 		self.options_window.destroy()
 		return True
+
+	def discover_mail(self):
+		if self.document is None or self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			return
+		if self.mail_window is not None and self.mail_window.winfo_exists():
+			self.mail_window.lift()
+			return
+		window = self.mail_window = tk.Toplevel(self.app.root)
+		window.title("Discover SMTP provider")
+		window.transient(self.app.root)
+		frame = ttk.Frame(window, padding=12)
+		frame.pack(fill="both", expand=True)
+		ttk.Label(frame, text="Look up the provider for a sender address, then review the proposed SMTP settings.\nUses saved connection/proxy settings; save those first if you changed them.\nNo SMTP password, notification, test email or PrimeNet request is sent.", wraplength=640).pack(anchor="w")
+		self.mail_address = tk.StringVar(value=self.values["from_email"].get())
+		ttk.Entry(frame, textvariable=self.mail_address, width=65).pack(fill="x", pady=8)
+		self.mail_result = None
+		self.mail_details = tk.StringVar(value="Lookup has not started.")
+		ttk.Label(frame, textvariable=self.mail_details, wraplength=640).pack(anchor="w", pady=8)
+		buttons = ttk.Frame(frame)
+		buttons.pack(fill="x")
+		self.mail_lookup = ttk.Button(buttons, text="Look up provider…", command=self.start_mail_lookup)
+		self.mail_lookup.pack(side="left")
+		self.mail_apply = ttk.Button(buttons, text="Apply to form", command=self.apply_mail, state="disabled")
+		self.mail_apply.pack(side="left", padx=8)
+		ttk.Button(buttons, text="Cancel", command=window.destroy).pack(side="right")
+		window.bind("<Escape>", lambda _: window.destroy())
+		window.grab_set()
+		return window
+
+	def start_mail_lookup(self):
+		from email.utils import parseaddr
+		if self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			return
+		raw = self.mail_address.get().strip()
+		email = parseaddr(raw)[1]
+		if not email or any(char in raw for char in "\r\n\x00"):
+			messagebox.showerror("Mail discovery", "Enter a single valid sender email address.", parent=self.mail_window)
+			return
+		if not messagebox.askyesno("Contact mail configuration services?", "This lookup contacts your mail provider, the Mozilla ISP database and DNS-over-HTTPS services as needed. It may send the sender address to the provider and can use unencrypted HTTP, matching AutoPrimeNet setup.\n\nUses saved proxy settings and system proxy environment. No SMTP password or email message is sent. Review all returned settings before applying. Continue?", parent=self.mail_window):
+			return
+		self.mail_document = self.document
+		self.mail_target = self.mail_window
+		self.mail_query = raw
+		self.mail_result = None
+		self.mail_apply.state(["disabled"])
+		self.mail_lookup.state(["disabled"])
+		if self.app.jobs.submit("discover_mail", discover_mail, self.document, email):
+			self.app.set_busy(True)
+			self.mail_details.set("Looking up provider; up to 90 seconds… Cancel discards the result.")
+			self.app.status.set("Mail-provider discovery running; no email is being sent.")
+
+	def complete_mail(self, value, error):
+		target = self.mail_target
+		if not target.winfo_exists() or target is not self.mail_window or self.app.quit_pending:
+			return
+		self.mail_lookup.state(["!disabled"])
+		self.app.status.set("Mail-provider discovery finished; no settings saved or email sent.")
+		if error:
+			self.mail_details.set("Discovery failed. Check saved settings/connection or configure SMTP manually.")
+			return
+		if self.document is not self.mail_document or self.mail_address.get().strip() != self.mail_query:
+			self.mail_details.set("Address or workspace changed. Look up the provider again.")
+			return
+		result = value["match"]
+		if result is None:
+			self.mail_details.set("No provider configuration found. Enter SMTP settings manually.")
+			return
+		self.mail_result = result
+		self.mail_details.set("Provider: " + result["provider"] + "\nSecurity: " + result["security"] + "\n" + "\n".join(f"{key}: {text}" for key, text in result["settings"].items()) + "\n\nLookup may use HTTP or unsigned DNS. Verify these settings with your provider.")
+		self.mail_apply.state(["!disabled"])
+
+	def apply_mail(self):
+		if self.mail_result is None or self.app.jobs.busy or self.app.monitor.active or self.app.quit_pending:
+			return
+		if self.document is not self.mail_document or self.mail_address.get().strip() != self.mail_query:
+			self.mail_apply.state(["disabled"])
+			self.mail_details.set("Address or workspace changed. Look up the provider again.")
+			return
+		for key, value in self.mail_result["settings"].items():
+			self.values[key].set(value)
+		self.values["from_email"].set(self.mail_query)
+		self.mail_window.destroy()
 
 	def edit_passwords(self):
 		if self.document is None or self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:

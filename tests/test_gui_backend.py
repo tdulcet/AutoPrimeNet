@@ -41,7 +41,7 @@ class BackendTests(unittest.TestCase):
 		self.assertEqual(result["backend_version"], "2.0.2")
 		self.assertFalse([item for item in result["cli_options"] if reference_info(item["dest"])[2] == "Unmapped"])
 		self.assertEqual(reference_info("timeout")[2], "Partial")
-		self.assertEqual(reference_info("setup")[2], "Partial")
+		self.assertEqual(reference_info("setup")[2], "Available")
 		self.assertEqual(reference_info("watch")[2], "CLI only")
 	def run_bridge(self, request, source=None):
 		with tempfile.TemporaryDirectory() as directory:

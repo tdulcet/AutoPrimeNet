@@ -14,12 +14,11 @@ Generated from the same option inventory and coverage metadata used by the GUI r
 - **Hidden / CLI only**: hidden experimental upstream behavior is not exposed.
 - **Removed upstream**: the original backend rejects this legacy feature.
 
-Current parser-entry coverage: 87 Available, 2 Partial, 5 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
+Current parser-entry coverage: 88 Available, 1 Partial, 5 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
 
 ## Remaining workflow gaps
 
 - `--timeout`: the GUI schedules whole `--timeout 0` passes on the progress check-in cadence. Independent polling/check-in intervals and continuous native file-watching lifecycle remain unfinished.
-- `--setup`: saved graphical settings and computer registration/update are available. Local GPU discovery, review and selection are available in the hardware dialog. Automatic SMTP-provider discovery from the terminal setup workflow remains unfinished.
 - `--watch` / `--no-watch`: continuous native watching is not implemented in the GUI-owned runner.
 - `--lock` / `--no-lock`: GUI startup always requires its runner lease and the native instance lock. It cannot bypass locking on unsupported filesystems.
 - `--debug`: verbose HTTP tracing is not exposed. Private original-backend diagnostics and bounded native-log viewing are available separately.
@@ -30,9 +29,9 @@ Current parser-entry coverage: 87 Available, 2 Partial, 5 CLI only, 1 Hidden / C
 
 | Workflow | Graphical path and limits |
 | --- | --- |
-| Initial account/program/worker setup | PrimeNet, Workers and Settings forms; validate/save offline, then Register or update computer with confirmation |
+| Initial account/program/worker setup | PrimeNet, Workers and Settings forms with optional GPU/SMTP discovery; validate/save offline, then Register or update computer with confirmation |
 | Hardware/resources | PrimeNet hardware dialog with explicit values and detected/default inheritance; local GPU discovery and a reviewed GPU picker |
-| Notifications | SMTP/recipient/TLS forms, send policy, masked encrypted password replacement, confirmed test email; no provider autodiscovery or per-event editor |
+| Notifications | SMTP/recipient/TLS forms, send policy, masked encrypted password replacement, confirmed test email and reviewed provider discovery; no per-event editor |
 | Exponent registration | Batch form for the eight original work types, explicit parameters/factors, source-based offline preview, typed confirmation, work snapshots and original registration function; no implicit exponent metadata lookup |
 | Recovery and unreservation | Dedicated confirmations, structured exponent input and work/certification snapshots; no automatic reservation rollback or restore |
 | Status/logs/diagnostics | Original status report to native log, bounded private log dialog, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
@@ -111,7 +110,7 @@ Batch registration supports one configured worker and up to 100 entries per oper
 | `--encrypt` | `encrypt` | Available | Settings → Connection → Backend password encryption policy |
 | `--no-color` | `color` | Available | Settings → Behavior → Native CLI console color |
 | `--color` | `color` | Available | Settings → Behavior → Native CLI console color |
-| `--setup` | `setup` | Partial | PrimeNet → Register or update computer |
+| `--setup` | `setup` | Available | PrimeNet → Register or update computer |
 | `--proxy-type` | `proxy_type` | Available | Settings → Connection → Proxy type (blank: http) |
 | `-x`, `--proxy-server` | `proxy` | Available | Settings → Connection → Proxy server (optional hostname:port) |
 | `--proxy-username` | `proxy_username` | Available | Settings → Connection → Proxy username (optional) |

@@ -35,7 +35,7 @@ def reference_info(destination):
 	operation = operation_for_destination(destination)
 	if operation:
 		item = OPERATIONS[operation]
-		return item.tab, item.title, "Partial" if destination == "setup" else "Available"
+		return item.tab, item.title, "Available"
 	if destination in {"email_password", "proxy_password"}:
 		return "Notifications" if destination == "email_password" else "Settings", "Manage passwords (encrypted replacement)", "Available"
 	return EXTRA.get(destination, (None, "No coverage classification", "Unmapped"))
