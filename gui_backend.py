@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Offline integration prototype for the optional AutoPrimeNet GUI.
+"""Offline integration bridge for the optional AutoPrimeNet GUI.
 
 Copyright (C) 2026 Jacob Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 
 Run as a private child process, never import AutoPrimeNet into the GUI process.
-This prototype has no command that can change assignments or contact a server.
+This bridge has no command that can change assignments or contact a server.
 """
 
 import sys
@@ -182,17 +182,55 @@ def _validate_config(namespace, tree, boundary, request):
 	}
 
 
+def _protect_credentials(namespace, tree, boundary, request):
+	"""Encrypt only explicit replacements with the original CLI implementation."""
+	replacements = request.get("credentials")
+	if not isinstance(replacements, dict) or not replacements or set(replacements) - {"proxy", "email"}:
+		raise BackendError("Select a supported password to replace.")
+	if any(not isinstance(value, str) or not value or len(value) > 4096 or any(char in value for char in "\r\n\x00") for value in replacements.values()):
+		raise BackendError("Passwords must contain 1–4096 characters without line breaks or NUL.")
+	_validate_config(namespace, tree, boundary, request)
+	args, config = namespace["args"], namespace["config"]
+	if args.encrypt is False:
+		raise BackendError("Enable password encryption or clear its override before replacing a password.")
+	if not namespace["libcrypto"]:
+		raise BackendError("OpenSSL encryption is unavailable; no password was saved.")
+	mapping = {"proxy": ("PrimeNet", "ProxyPass", "proxy_password"), "email": ("Email", "password", "email_password")}
+	# Avoid opportunistically re-encrypting unrelated credentials. The isolated
+	# namespace is discarded after this request; no upstream files are written.
+	namespace["OPTIONS_ENCRYPT"] = {}
+	for key, secret in replacements.items():
+		section, option, attribute = mapping[key]
+		config.set(section, option, secret.replace("%", "%%"))
+		setattr(args, attribute, secret)
+		namespace["OPTIONS_ENCRYPT"].setdefault(section, {})[attribute] = option
+	namespace["check_options"](namespace["parser"], args)
+	args.encrypt = True
+	try:
+		namespace["encrypt"](config, args)
+	except (Exception, SystemExit) as error:
+		raise BackendError("Password encryption failed; no password was saved.") from error
+	protected = {}
+	for key in replacements:
+		section, option, _ = mapping[key]
+		encrypted = "encrypted_" + option
+		if config.has_option(section, option) or not config.has_option(section, encrypted):
+			raise BackendError("Password encryption failed; no password was saved.")
+		protected[key] = config.get(section, encrypted)
+	return {"credentials": protected, "hardware_guid": config.get("PrimeNet", "HardwareGUID"), "network_enabled": False}
+
+
 def _dispatch(request, path):
 	if not isinstance(request, dict) or request.get("protocol") != PROTOCOL_VERSION:
 		raise BackendError("Unsupported GUI backend protocol.")
 	operation = request.get("operation")
-	if operation not in {"capabilities", "parse_work", "validate_config"}:
-		raise BackendError("This offline bridge supports only capabilities, parse_work and validate_config.")
+	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials"}:
+		raise BackendError("Unsupported offline bridge operation.")
 	_source, tree, boundary = _read_source(path)
 	if operation == "capabilities":
 		return {
 			"source_sha256": AUDITED_SOURCE_SHA256,
-			"operations": ["capabilities", "parse_work", "validate_config"],
+			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials"],
 			"network_enabled": False,
 			"cli_options": _parser_inventory(tree),
 		}
@@ -202,6 +240,8 @@ def _dispatch(request, path):
 		raise BackendError("Work preview requires a list of at most 1000 text lines.")
 	namespace = _load_definitions(path, tree, boundary)
 	try:
+		if operation == "protect_credentials":
+			return _protect_credentials(namespace, tree, boundary, request)
 		if operation == "validate_config":
 			return _validate_config(namespace, tree, boundary, request)
 		return _parse_work(namespace, lines)

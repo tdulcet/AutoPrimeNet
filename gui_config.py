@@ -263,6 +263,8 @@ class ConfigDocument:
 		edits = {}
 		for field in FIELDS:
 			before = original[field.key].strip() or None
+			if field.key == "proxy_type" and before:
+				before = before.lower()
 			if field.kind == "boolean" and before is not None:
 				before = str(self.config.getboolean(field.section, field.ini_key))
 			if field.kind == "recipients" and before:
@@ -331,13 +333,48 @@ def load_editor_workspace(directory, config_name="prime.ini"):
 	return {"document": document, "snapshot": snapshot}
 
 
-def save_configuration(document, values, engine, workers):
+def _credential_patch(text, document, changes):
+	if not changes:
+		return text
+	mapping = {"proxy": ("PrimeNet", "ProxyPass"), "email": ("Email", "password")}
+	if not isinstance(changes, dict) or set(changes) - mapping.keys():
+		raise WorkspaceError("Unsupported password change.")
+	edits = {}
+	for key, value in changes.items():
+		if value is not None and (not isinstance(value, str) or not value or len(value) > 4096 or any(char in value for char in "\r\n\x00")):
+			raise WorkspaceError("Passwords must contain 1–4096 characters without line breaks or NUL.")
+		section, option = mapping[key]
+		if any(name in document.config.defaults() for name in (option, "encrypted_" + option)):
+			raise WorkspaceError("Inherited passwords in DEFAULT must be adjusted outside the GUI first.")
+		edits[section, option] = edits[section, "encrypted_" + option] = None
+	text = patch_ini(text, edits)
+	replacements = {key: value for key, value in changes.items() if value is not None}
+	if replacements:
+		result = backend_request("protect_credentials", text=text, directory=str(document.directory), config_name=document.path.name, credentials=replacements)
+		protected = result.get("credentials", {})
+		if set(protected) != set(replacements) or not result.get("hardware_guid"):
+			raise WorkspaceError("The backend did not return all encrypted passwords; nothing was saved.")
+		for key, value in protected.items():
+			section, option = mapping[key]
+			edits[section, "encrypted_" + option] = value
+		# Keep a generated encryption binding with the ciphertext. Never change
+		# an existing GUID, which may protect other saved credentials.
+		guid = document.config.get("PrimeNet", "HardwareGUID", fallback=None)
+		if guid is not None and result["hardware_guid"] != guid:
+			raise WorkspaceError("The encryption hardware binding changed; nothing was saved.")
+		if guid is None:
+			edits["PrimeNet", "HardwareGUID"] = result["hardware_guid"]
+	return patch_ini(text, edits)
+
+
+def save_configuration(document, values, engine, workers, credentials=None):
 	with instance_lease(document.directory, "~gui-monitor.lock"), instance_lease(document.directory):
 		if _file_version(document.path)[0] != document.version:
 			raise WorkspaceError("Configuration changed outside the GUI. Reload before saving.")
 		if document.version is not None and (not document.path.stat().st_mode & 0o222 or not os.access(document.path, os.W_OK)):
 			raise WorkspaceError("Configuration is read-only; no changes were saved.")
 		text = document.render(values, engine, workers)
+		text = _credential_patch(text, document, credentials)
 		backend_request("validate_config", text=text, directory=str(document.directory), config_name=document.path.name)
 		data = (b"\xef\xbb\xbf" if document.bom else b"") + text.encode("utf-8")
 		backup = None

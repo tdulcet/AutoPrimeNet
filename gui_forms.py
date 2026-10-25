@@ -24,6 +24,8 @@ class ConfigurationForms:
 		self.worker_values = []
 		self.options_window = None
 		self.options_values = {}
+		self.credentials = {}
+		self.password_window = None
 		for field in FIELDS:
 			variable = tk.StringVar(value=field.default)
 			variable.trace_add("write", self.changed)
@@ -49,6 +51,13 @@ class ConfigurationForms:
 		button = ttk.Button(app.tabs["PrimeNet"], text="Edit hardware and resource settings…", command=lambda: self.edit_options(group="Hardware"))
 		button.pack(anchor="w", pady=(0, 8))
 		self.widgets.append(button)
+		button = ttk.Button(app.tabs["Settings"], text="Edit connection settings…", command=lambda: self.edit_options(group="Connection"))
+		button.pack(anchor="w", pady=(0, 8))
+		self.widgets.append(button)
+		for tab in ("Settings", "Notifications"):
+			button = ttk.Button(app.tabs[tab], text="Manage SMTP and proxy passwords…", command=self.edit_passwords)
+			button.pack(anchor="w", pady=(0, 8))
+			self.widgets.append(button)
 		frame = ttk.LabelFrame(app.tabs["Workers"], text="Program and worker configuration", padding=8)
 		frame.pack(fill="x", pady=(0, 8))
 		ttk.Label(frame, text="Computation program").grid(row=0, column=0, sticky="w")
@@ -74,13 +83,16 @@ class ConfigurationForms:
 			return
 		window = self.options_window = tk.Toplevel(self.app.root)
 		hardware = group == "Hardware"
-		title = "Hardware and resource settings" if hardware else "Advanced assignment settings"
+		connection = group == "Connection"
+		title = "Connection settings" if connection else "Hardware and resource settings" if hardware else "Advanced assignment settings"
 		window.title(title)
 		window.transient(self.app.root)
 		window.geometry("740x600")
 		outer = ttk.Frame(window, padding=12)
 		outer.pack(fill="both", expand=True)
 		intro = ("Blank retains INI inheritance or the backend's automatic CPU detection/defaults.\nThese values are reported to PrimeNet during registration or computer updates. They do not configure your computation program." if hardware else "Blank uses the backend default. True/False explicitly overrides it.\nThese settings can change assignment selection or rewrite assignments during monitoring.")
+		if connection:
+			intro = "Blank uses INI/backend defaults. Proxy settings apply when monitoring communicates with servers.\nUse Manage SMTP and proxy passwords to change passwords."
 		ttk.Label(outer, text=intro, wraplength=680).pack(anchor="w", pady=(0, 8))
 		body = ttk.Frame(outer)
 		body.pack(fill="both", expand=True)
@@ -107,6 +119,8 @@ class ConfigurationForms:
 			# Keyboard traversal keeps the focused field reachable on short displays.
 			widget.bind("<FocusIn>", lambda event: canvas.yview_moveto(max(0, (event.widget.winfo_y() - 20) / max(1, frame.winfo_height()))))
 		help_text = ("Total physical memory (memory) and maximum stage 2 memory (Memory) are separate settings. Maximum memory cannot exceed total memory.\nBlank GPU-related fields use CPU detection, not automatic GPU selection." if hardware else "P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.")
+		if connection:
+			help_text = "SOCKS proxies require the optional PySocks package. Encryption True is strict; blank uses opportunistic encryption in the CLI.\nThe GUI always requires encryption for new passwords. Existing encrypted passwords require encryption enabled or inherited."
 		ttk.Label(outer, text=help_text, wraplength=680).pack(anchor="w", pady=8)
 		buttons = ttk.Frame(outer)
 		buttons.pack(fill="x")
@@ -138,6 +152,65 @@ class ConfigurationForms:
 		self.options_window.destroy()
 		return True
 
+	def edit_passwords(self):
+		if self.document is None or self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			return
+		if self.password_window is not None and self.password_window.winfo_exists():
+			self.password_window.lift()
+			return
+		window = self.password_window = tk.Toplevel(self.app.root)
+		window.title("Manage passwords")
+		window.transient(self.app.root)
+		frame = ttk.Frame(window, padding=14)
+		frame.pack(fill="both", expand=True)
+		ttk.Label(frame, text="Saved passwords are never loaded into these fields. Replacement passwords are encrypted when you Save settings.\nKeep retains pending edits; Use saved discards a pending edit. Remove deletes the saved password on Save.", wraplength=680).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 12))
+		self.password_modes, self.password_values = {}, {}
+		for row, (key, label, section, option) in enumerate((("email", "SMTP password", "Email", "password"), ("proxy", "Proxy password", "PrimeNet", "ProxyPass")), 1):
+			pending = "replacement pending" if self.credentials.get(key) is not None else "removal pending"
+			stored = "saved" if any(self.document.config.has_option(section, name) for name in (option, "encrypted_" + option)) else "not saved"
+			ttk.Label(frame, text=label + " (" + (pending if key in self.credentials else stored) + ")").grid(row=row, column=0, sticky="w", padx=(0, 10))
+			mode = self.password_modes[key] = tk.StringVar(value="Keep")
+			value = self.password_values[key] = tk.StringVar()
+			ttk.Combobox(frame, textvariable=mode, values=("Keep", "Replace", "Remove", "Use saved"), state="readonly", width=12).grid(row=row, column=1, padx=6, pady=8)
+			entry = ttk.Entry(frame, textvariable=value, show="*", width=32, state="disabled")
+			entry.grid(row=row, column=2, pady=8)
+			mode.trace_add("write", lambda *_, mode=mode, entry=entry: entry.configure(state="normal" if mode.get() == "Replace" else "disabled"))
+
+		def close():
+			for value in self.password_values.values():
+				value.set("")
+			window.destroy()
+
+		self.close_passwords = close
+		ttk.Button(frame, text="Apply to form", command=self.apply_passwords).grid(row=3, column=0, sticky="w", pady=12)
+		ttk.Button(frame, text="Cancel", command=close).grid(row=3, column=2, sticky="e", pady=12)
+		window.protocol("WM_DELETE_WINDOW", close)
+		window.bind("<Escape>", lambda _: close())
+		window.grab_set()
+		return window
+
+	def apply_passwords(self):
+		if self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			messagebox.showerror("Passwords", "Stop monitoring and wait for local operations before applying changes.", parent=self.password_window)
+			return False
+		changes = dict(self.credentials)
+		for key, mode in self.password_modes.items():
+			if mode.get() == "Replace":
+				secret = self.password_values[key].get()
+				if not secret or len(secret) > 4096 or any(char in secret for char in "\r\n\x00"):
+					messagebox.showerror("Passwords", "Enter a password of 1–4096 characters without line breaks or NUL.", parent=self.password_window)
+					return False
+				changes[key] = secret
+			elif mode.get() == "Remove":
+				changes[key] = None
+			elif mode.get() == "Use saved":
+				changes.pop(key, None)
+		if changes != self.credentials:
+			self.credentials = changes
+			self.changed()
+		self.close_passwords()
+		return True
+
 	def changed(self, *_):
 		if not self.loading and self.document is not None:
 			self.dirty = True
@@ -151,6 +224,7 @@ class ConfigurationForms:
 		self.loading = True
 		try:
 			self.document = document
+			self.credentials.clear()
 			for key, value in document.values().items():
 				field = next(field for field in FIELDS if field.key == key)
 				if field.kind == "boolean" and value:
@@ -241,4 +315,4 @@ class ConfigurationForms:
 			raise ValueError("Enter a valid worker count and apply it before saving.") from error
 		if count != len(self.worker_values):
 			raise ValueError("Apply the worker count before saving.")
-		return ({key: value.get() for key, value in self.values.items()}, self.engine.get(), [dict(worker) for worker in self.worker_values])
+		return ({key: value.get() for key, value in self.values.items()}, self.engine.get(), [dict(worker) for worker in self.worker_values], dict(self.credentials))

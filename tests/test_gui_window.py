@@ -214,6 +214,87 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(editor.values["memory"].get(), "8192")
 			self.assertEqual(editor.values["Memory"].get(), "4096")
 			self.assertEqual(editor.values["WorkerDiskSpace"].get(), "2.5")
+	def test_password_dialog_cancel_pending_edits_encrypted_save_and_remove(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n[Email]\nfrom_email=sender@example.org\nsmtp_server=localhost\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			editor.edit_passwords()
+			editor.password_modes["email"].set("Replace")
+			editor.password_values["email"].set("cancelled-fixture")
+			editor.close_passwords()
+			self.assertFalse(editor.dirty)
+			self.assertEqual(editor.credentials, {})
+			self.assertEqual(editor.password_values["email"].get(), "")
+			self.app.search.set("--email-password")
+			row = self.app.reference.get_children()[0]
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			self.assertEqual(self.app.notebook.select(), str(self.app.tabs["Notifications"]))
+			editor.password_modes["email"].set("Replace")
+			with patch("gui_forms.messagebox.showerror") as error:
+				self.assertFalse(editor.apply_passwords())
+				error.assert_called_once()
+			editor.password_values["email"].set("desktop-mail-fixture")
+			self.assertTrue(editor.apply_passwords())
+			self.assertEqual(editor.credentials, {"email": "desktop-mail-fixture"})
+			self.assertEqual(editor.password_values["email"].get(), "")
+			editor.edit_passwords()
+			self.assertEqual(editor.password_values["email"].get(), "")
+			self.assertTrue(editor.apply_passwords())  # Keep retains the pending replacement.
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			if "OpenSSL encryption is unavailable" in self.app.status.get():
+				self.skipTest("Native OpenSSL encryption unavailable")
+			self.assertFalse(editor.dirty)
+			self.assertEqual(editor.credentials, {})
+			self.assertIn("encrypted_password=", path.read_text())
+			self.assertNotIn("desktop-mail-fixture", path.read_text())
+			self.assertNotIn("desktop-mail-fixture", self.app.activity.get("1.0", "end") + self.app.status.get())
+			editor.edit_passwords()
+			editor.password_modes["email"].set("Remove")
+			self.assertTrue(editor.apply_passwords())
+			editor.edit_passwords()
+			editor.password_modes["email"].set("Use saved")
+			self.assertTrue(editor.apply_passwords())
+			self.assertEqual(editor.credentials, {})
+			editor.edit_passwords()
+			editor.password_modes["email"].set("Remove")
+			self.assertTrue(editor.apply_passwords())
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertNotIn("password=", path.read_text())
+
+	def test_connection_dialog_proxy_validation_and_reference(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.search.set("--proxy-server")
+			row = self.app.reference.get_children()[0]
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			editor = self.app.editor
+			self.assertEqual(set(editor.options_values), {"proxy_type", "ProxyHost", "ProxyUser", "encrypt"})
+			editor.options_values["proxy_type"].set("http")
+			editor.options_values["ProxyHost"].set("localhost:8080")
+			editor.options_values["ProxyUser"].set("fixture-proxy-user")
+			editor.options_values["encrypt"].set("True")
+			self.assertTrue(editor.apply_options())
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertFalse(editor.dirty)
+			self.assertEqual(editor.document.config.get("PrimeNet", "ProxyUser"), "fixture-proxy-user")
+			self.assertTrue(editor.document.config.getboolean("PrimeNet", "encrypt"))
+
 	def test_unsaved_changes_can_cancel_reload_and_quit(self):
 		with tempfile.TemporaryDirectory() as directory:
 			self.app.directory.set(directory)

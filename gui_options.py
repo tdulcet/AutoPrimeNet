@@ -51,6 +51,10 @@ FIELDS = (
 	Field("results_file", "Results filename (blank: program default)", "Settings", "", "filename"),
 	Field("logfile", "Activity log path", "Settings", "autoprimenet.log"),
 	Field("ProofArchiveDir", "Proof archive directory (optional)", "Settings"),
+	Field("proxy_type", "Proxy type (blank: http)", "Settings", kind="choice", choices=("", "http", "https", "socks5", "socks5h"), dialog="Connection"),
+	Field("ProxyHost", "Proxy server (optional hostname:port)", "Settings", destination="proxy", dialog="Connection"),
+	Field("ProxyUser", "Proxy username (optional)", "Settings", destination="proxy_username", dialog="Connection"),
+	Field("encrypt", "Backend password encryption policy", "Settings", kind="boolean", dialog="Connection"),
 	Field("GetMinExponent", "Minimum assignment exponent", "Advanced", "", "integer", 2, 9999999999),
 	Field("GetMaxExponent", "Maximum assignment exponent", "Advanced", "", "integer", 2, 9999999999),
 	Field("CertWork", "Receive certification work (PRPLL only)", "Advanced", "", "boolean"),
@@ -92,6 +96,8 @@ def validate_fields(values):
 	result = {}
 	for field in FIELDS:
 		value = str(values.get(field.key, field.default)).strip()
+		if field.key == "proxy_type":
+			value = value.lower()
 		if "\n" in value or "\r" in value or "\x00" in value:
 			raise ValueError(field.label + ": enter a single-line value.")
 		if field.key in {"username", "ComputerID"} and len(value) > 20:

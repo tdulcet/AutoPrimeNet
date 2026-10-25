@@ -120,7 +120,7 @@ class Application:
 		self.workers = self._table(self.tabs["Workers"], ("Worker", "Directory", "Preference", "Work file"))
 		for name, explanation in (
 			("PrimeNet", "Save changes locally with Save settings. Start scheduled monitoring from Dashboard when ready to communicate with PrimeNet. Standalone registration and diagnostics remain unfinished."),
-			("Notifications", "Save notification settings locally with Save settings. Blank boolean values use the backend default. Scheduled monitoring can send configured messages. Existing passwords are preserved; password editing and test-message sending are not yet available. To suppress sending without removing the server configuration, set Send configured notifications to False."),
+			("Notifications", "Save notification settings locally with Save settings. Blank boolean values use the backend default. Scheduled monitoring can send configured messages. Manage passwords to replace or remove SMTP/proxy passwords; replacements require encryption. Test-message sending is not yet available. Set Send configured notifications to False to suppress sending."),
 		):
 			ttk.Label(self.tabs[name], text=explanation, wraplength=720, justify="left").pack(anchor="w")
 		ttk.Label(self.tabs["Advanced"], text="Search the existing CLI options (reference only; graphical controls are still being implemented).").pack(anchor="w")
@@ -203,13 +203,13 @@ class Application:
 			self.status.set("Reload the selected directory/configuration filename before saving.")
 			return
 		try:
-			values, engine, workers = self.editor.collect()
+			values, engine, workers, credentials = self.editor.collect()
 		except ValueError as error:
 			self.status.set(str(error))
 			return
 		if not messagebox.askyesno("Save local configuration", "Validate and save the displayed settings locally? An existing configuration will be backed up. No server will be contacted. Stop any independently running AutoPrimeNet before saving.", parent=self.root):
 			return
-		if self.jobs.submit("save", save_configuration, document, values, engine, workers):
+		if self.jobs.submit("save", save_configuration, document, values, engine, workers, credentials):
 			self.status.set("Validating and saving local configuration…")
 			self.set_busy(True)
 
@@ -289,6 +289,8 @@ class Application:
 			flags = ", ".join(option["flags"])
 			field = field_for_destination(option["dest"])
 			location = field.tab + " → " + (field.dialog + " → " if field.dialog else "") + field.label if field else "Not mapped in this reference"
+			if option["dest"] in {"email_password", "proxy_password"}:
+				location = "Notifications → Manage passwords" if option["dest"] == "email_password" else "Settings → Manage passwords"
 			if term in (flags + " " + option["dest"] + " " + location).casefold():
 				self.reference.insert("", "end", values=(flags, option["dest"], location))
 
@@ -296,7 +298,12 @@ class Application:
 		selected = self.reference.selection()
 		if not selected:
 			return
-		field = field_for_destination(self.reference.item(selected[0], "values")[1])
+		destination = self.reference.item(selected[0], "values")[1]
+		if destination in {"email_password", "proxy_password"}:
+			self.notebook.select(self.tabs["Notifications" if destination == "email_password" else "Settings"])
+			self.editor.edit_passwords()
+			return
+		field = field_for_destination(destination)
 		if field:
 			self.notebook.select(self.tabs[field.tab])
 			if field.tab == "Advanced" or field.dialog:

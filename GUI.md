@@ -98,6 +98,7 @@ files; existing CLI installation instructions remain unchanged.
 | User session | Graphical desktop/display | Displays Tk windows; headless CLI operation is separate |
 | Project `.venv` | Packages from `requirements-gui.txt` (currently Requests and its resolved dependencies) | Existing backend HTTP support |
 | Optional `.venv` extra | Requests SOCKS extra, only for SOCKS proxy users | Adds PySocks support |
+| System/interpreter library, required for password replacement or existing encrypted passwords | Loadable OpenSSL `libcrypto` compatible with the original backend | Existing AES-256-GCM password encryption; this is a native library, not a pip package |
 | Optional `.venv` packages on macOS/Windows | `requirements-gui-tray.txt`: pystray, Pillow, six and platform dependencies | Tray/menu-bar helper; no tray packages needed for taskbar-only mode |
 | Separate working directory | Computation engine and its existing work/configuration files | Actual computation; engines are not Python GUI dependencies |
 
@@ -245,7 +246,7 @@ backend defaults. Choose a computation program and provide a GIMPS username or
 | PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day; hardware/resource settings dialog |
 | Workers | One of the eight supported computation programs, worker count, per-worker directories and preference codes |
 | Assignments | Days of queued work and legacy extra-assignment cache |
-| Settings | Work/results filenames, activity-log path, optional proof-archive directory |
+| Settings | Work/results filenames, activity-log path, optional proof-archive directory; connection settings and password management |
 | Advanced | Minimum/maximum exponent and factoring bit level, target factoring bits, P−1 tests saved/retry threshold/optimal bounds, ECM bounds multiplier/curve limit, LL↔PRP conversions, PRPLL certification enablement and daily time limit |
 | Notifications | Send enablement, sender, recipients, SMTP server/username, SSL/TLS and StartTLS |
 
@@ -283,8 +284,8 @@ and existing ciphertext remain intact. Untouched interpolation and implicit
 defaults remain as written. Enter literal text in the fields; new percent signs
 are escaped automatically for the INI format. Clearing an optional field removes
 its explicit override so backend defaults or INI inheritance apply. Edited
-multiline values are refused rather than flattened. Password editing is not yet
-available, and encrypted passwords are never shown in the forms.
+multiline values are refused rather than flattened. Saved passwords are never
+shown in the forms; use the password-management dialog to replace or remove them.
 
 ### Hardware and resource settings
 
@@ -342,13 +343,55 @@ offline validation cannot confirm server reachability, credentials, certificate
 validity or delivery. Scheduled monitoring may send the original backend's
 notifications using these settings. Start confirms that possibility.
 
-SMTP password editing, automatic server discovery, per-event notification
-controls, and **Send test message** are not implemented yet. Existing plaintext
-or encrypted password entries are preserved when editing the other notification
-fields. Changing SMTP servers/usernames does not replace their saved password;
-ensure the existing credential is appropriate before starting monitoring. The
-GUI does not display passwords, decrypt them into a form, or convert plaintext
-passwords into encrypted storage during Save.
+Automatic server discovery, per-event notification controls, and **Send test
+message** are not implemented yet. Changing SMTP servers/usernames does not
+automatically replace their saved password; use password management as needed.
+
+### Connections and passwords
+
+In **Settings**, choose **Edit connection settings…** to set proxy type, server,
+username and the original backend's encryption policy. Proxy fields require a
+proxy server; SOCKS types require the optional Requests SOCKS extra described
+above. Enter credentials separately rather than embedding a password in the
+server URL. Saving validates syntax offline and cannot confirm proxy access.
+
+The encryption policy follows the CLI: True requires encryption, blank uses its
+opportunistic default, and False disables encryption. Existing encrypted
+passwords require True or blank. Regardless of that policy, the GUI always
+requires successful encryption for a newly entered password and refuses to save
+a replacement when encryption is disabled or OpenSSL is unavailable.
+
+Choose **Manage SMTP and proxy passwords…** in Settings or Notifications:
+
+| Action | Effect when applied to the form |
+| --- | --- |
+| Keep | Retains the saved password and any already pending change |
+| Replace | Stages the newly entered, masked password |
+| Remove | Stages removal of both plaintext and encrypted entries |
+| Use saved | Cancels a pending change for that password |
+
+**Apply to form** stages changes; **Cancel** discards edits made in that dialog.
+**Save settings** encrypts replacements through the original backend, validates
+the resulting configuration and writes atomically with a private backup. No
+server is contacted. Passwords can include spaces and percent signs; replacement
+values must be 1–4096 characters without line breaks or NUL. Existing passwords
+are never populated into the entry fields, and entries are cleared when the
+dialog closes. Pending replacements stay in process memory until saved or
+discarded; they are sent to the offline helper through stdin, never argv.
+
+Only explicitly selected passwords change. Other plaintext/ciphertext entries
+remain as written; Save does not automatically migrate old plaintext passwords.
+To migrate one, choose Replace and re-enter it. The original backend's
+hardware-GUID binding is saved with new ciphertext and retained for later edits.
+Encrypted credentials are not portable between systems under the backend's
+rules. Passwords inherited from `[DEFAULT]` must be adjusted outside the GUI.
+The hidden legacy account-password flag remains unsupported by the original
+backend; these controls cover SMTP and proxy authentication only.
+
+Backups preserve the original file, including any old plaintext passwords.
+Protect those backups with the same care as the configuration. The GUI does not
+verify credentials or delivery when saving; test-message sending remains future
+work.
 
 Before replacement, the GUI acquires its `~gui-monitor.lock` scheduled-runner lock
 and the same `~lock` instance lock as the CLI
