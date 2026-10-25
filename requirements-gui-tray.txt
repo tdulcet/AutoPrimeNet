@@ -1,0 +1,4 @@
+# Optional tray integration currently enabled only on macOS and Windows.
+# Linux/FreeBSD retain a reachable taskbar fallback pending host validation.
+-r requirements-gui.txt
+pystray==0.19.5; sys_platform == "darwin" or sys_platform == "win32"

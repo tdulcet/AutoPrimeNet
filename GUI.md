@@ -1,9 +1,9 @@
 # AutoPrimeNet GUI
 
 The planned optional Tkinter/ttk GUI will provide a graphical interface to
-AutoPrimeNet. Development has started with an offline backend prototype; the
-desktop GUI is not available yet. This document records the agreed requirements
-and environment setup rather than installation instructions for a finished GUI.
+AutoPrimeNet. A runnable desktop foundation provides read-only local previews and
+experimental macOS/Windows tray integration. Monitoring, configuration editing,
+and server operations are not implemented yet. This is not a complete GUI release.
 See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
 
 ## Python requirements
@@ -63,20 +63,27 @@ GUI's shutdown control. Hiding or quitting the GUI must never terminate Mlucas,
 Prime95, or another computation engine, unreserve assignments, or change the
 stop/resume-new-work setting as a side effect.
 
-Tkinter does not directly provide a portable tray API. A small tray integration
-dependency or platform adapter may be necessary and must be justified and
-documented before adoption. The library choice, Python 3.15 compatibility, native
-dependencies, and Tk event-loop integration still need validation. In particular,
-[pystray's integration documentation](https://pystray.readthedocs.io/en/latest/faq.html)
-describes macOS main-loop and Linux desktop/backend constraints; it is a candidate,
-not an established dependency. Tray functionality is not implemented yet.
+The prototype uses optional `pystray` in a separate child process with its own
+native event loop. Tkinter does not directly provide a portable tray API; using
+this library avoids maintaining separate native tray implementations. Its LGPLv3
+license is compatible with the GUI's GPLv3 licensing. Dependencies include Pillow,
+six, and platform bindings (PyObjC Cocoa/Quartz on macOS). These packages are not
+required by the CLI. They are declared separately in `requirements-gui-tray.txt`.
+
+Native tray integration has been programmatically tested on macOS with Python
+3.15.1. Windows remains untested. Linux/FreeBSD currently use taskbar minimization;
+their tray hosts have not yet been validated. This follows the event-loop and
+desktop constraints described in
+[pystray's integration documentation](https://pystray.readthedocs.io/en/latest/faq.html).
+If the helper fails while hidden, the GUI restores itself. The helper also exits
+when its parent closes its input pipe, including after a parent-process failure.
 
 ## Environment setup for users and testers
 
-These instructions prepare an environment. The GUI launcher does not exist yet;
-the offline backend test suite is documented in
-[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). There is no full GUI test claim at this
-stage. All GUI-specific dependency declarations and documentation are new
+These instructions prepare an environment for the current offline preview. The
+backend and opt-in desktop test suites are documented in
+[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). There is no complete-parity or monitoring
+test claim at this stage. All GUI-specific dependency declarations and documentation are new
 files; existing CLI installation instructions remain unchanged.
 
 ### Required components
@@ -88,7 +95,7 @@ files; existing CLI installation instructions remain unchanged.
 | User session | Graphical desktop/display | Displays Tk windows; headless CLI operation is separate |
 | Project `.venv` | Packages from `requirements-gui.txt` (currently Requests and its resolved dependencies) | Existing backend HTTP support |
 | Optional `.venv` extra | Requests SOCKS extra, only for SOCKS proxy users | Adds PySocks support |
-| Desktop/system and possibly `.venv` | Tray integration components, to be determined by prototype | Native background controls; dependency list is not final |
+| Optional `.venv` packages on macOS/Windows | `requirements-gui-tray.txt`: pystray, Pillow, six and platform dependencies | Tray/menu-bar helper; no tray packages needed for taskbar-only mode |
 | Separate working directory | Computation engine and its existing work/configuration files | Actual computation; engines are not Python GUI dependencies |
 
 Users and testers need the same runtime environment. The initial automated tests
@@ -151,7 +158,7 @@ Install Python 3.15 or later, its matching Tk bindings, venv support, and Tcl/Tk
 through your distribution's supported installation method. Package names and
 availability vary; a default `python3-tk` package may target an older Python and
 must not be assumed to work with Python 3.15. A tray host or desktop extension
-may also be needed once a tray backend is selected.
+may also be needed for future Linux/FreeBSD tray support; it is not enabled yet.
 
 From the checkout root, for an interpreter available as `python3.15`:
 
@@ -180,6 +187,47 @@ For a test report, record the OS, desktop session, Python version, Tcl/Tk versio
 and installed package versions (`python -m pip list` using the venv interpreter).
 Redact usernames, credentials, proxy URLs, and private paths before sharing.
 The current requirements file declares runtime dependencies, not a tested lockfile.
+
+### Launching the offline preview
+
+From the repository root on macOS/Linux/FreeBSD:
+
+```sh
+.venv/bin/python -B autoprimenet_gui.py
+```
+
+On Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -B autoprimenet_gui.py
+```
+
+For the experimental native tray/menu-bar helper on macOS or Windows, install
+the optional dependency file in the same environment first:
+
+```sh
+.venv/bin/python -m pip install -r requirements-gui-tray.txt
+```
+
+On Windows substitute `.\.venv\Scripts\python.exe`. Without these packages, or
+with the `--no-tray` launcher flag, close minimizes to the taskbar/Dock. The tray
+menu accurately labels this milestone as offline, with monitoring unavailable.
+Closing the window currently keeps only this offline GUI running; actual
+AutoPrimeNet monitoring will be added in a later milestone.
+
+Choose a working directory and press **Refresh preview** to inspect identity,
+workers, configured request state, disk space, and local assignments. Settings
+lets you choose a configuration filename within that directory. Preview limits
+are 128 workers, 1000 total work lines, 2 MiB per file and 1 MiB per backend
+request. The GUI does not save or lock these files, start computation software,
+or contact PrimeNet. If files change while being read, refresh again; this is a
+local snapshot rather than a synchronized view of an active computation engine.
+
+Use **File → Quit** or the tray menu's Quit item to exit. If a bounded local
+preview is still running, wait for it to finish and choose Quit again. The
+Advanced tab currently provides a searchable flag reference, not implemented
+graphical controls for those operations. PrimeNet and Notifications explain
+their unavailable functionality; Logs & Status displays GUI activity only.
 
 ### Local files and Git hygiene
 
@@ -214,5 +262,6 @@ The GUI additions leave the original CLI files unchanged.
 
 The development environment now has Python 3.15.1, working Tcl/Tk 9.1.0 bindings,
 and Requests inside `.venv`. A real Tk window smoke check has passed on macOS.
-Full GUI, tray, Python 3.15.0-floor, and cross-platform validation remain pending;
+The user also confirmed the manual macOS hide/reopen/Quit test passed.
+Complete GUI, Python 3.15.0-floor, and cross-platform validation remain pending;
 see [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for the scope of actual checks.
