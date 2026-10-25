@@ -150,7 +150,7 @@ class ConfigurationForms:
 			for key, value in document.values().items():
 				field = next(field for field in FIELDS if field.key == key)
 				if field.kind == "boolean" and value:
-					value = str(document.config.getboolean("PrimeNet", key))
+					value = str(document.config.getboolean(field.section, field.ini_key))
 				self.values[key].set(value)
 			config = document.config
 			engines = [name for name in ENGINES if config.getboolean("PrimeNet", name, fallback=False)]

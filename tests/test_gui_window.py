@@ -135,6 +135,43 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(self.app.editor.values["username"].get(), "ANONYMOUS")
 			self.assertEqual({path.name for path in base.iterdir()}, {"prime.ini", "~lock", "~gui-monitor.lock"})
 
+	def test_notifications_save_tls_conflict_reload_and_reference(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			original = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n[Email]\nfrom_email=sender@example.org\nsmtp_server=localhost\nusername=smtp-account\ntls=off\nstarttls=on\nsend=yes\n"
+			path.write_text(original)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			values = self.app.editor.values
+			self.assertEqual(values["username"].get(), "ANONYMOUS")
+			self.assertEqual(values["email_username"].get(), "smtp-account")
+			self.assertEqual(values["tls"].get(), "False")
+			self.assertEqual(values["starttls"].get(), "True")
+			self.assertEqual(values["notification_send"].get(), "True")
+			self.app.search.set("--email-username")
+			row = self.app.reference.get_children()[0]
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			self.assertEqual(self.app.notebook.select(), str(self.app.tabs["Notifications"]))
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				values["tls"].set("True")
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				self.assertEqual(path.read_text(), original)
+				self.assertIn("SSL/TLS or StartTLS", self.app.status.get())
+				values["tls"].set("False")
+				values["notification_send"].set("False")
+				values["to_emails"].set("one@example.org, two@example.org")
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertFalse(self.app.editor.dirty)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertEqual(values["to_emails"].get(), "one@example.org,two@example.org")
+			self.assertEqual(values["notification_send"].get(), "False")
+			self.assertEqual(values["username"].get(), "ANONYMOUS")
+
 	def test_unsaved_changes_can_cancel_reload_and_quit(self):
 		with tempfile.TemporaryDirectory() as directory:
 			self.app.directory.set(directory)

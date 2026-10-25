@@ -120,7 +120,7 @@ class Application:
 		self.workers = self._table(self.tabs["Workers"], ("Worker", "Directory", "Preference", "Work file"))
 		for name, explanation in (
 			("PrimeNet", "Save changes locally with Save settings. Start scheduled monitoring from Dashboard when ready to communicate with PrimeNet. Standalone registration and diagnostics remain unfinished."),
-			("Notifications", "Notification editing and test actions are not yet available. Scheduled monitoring uses existing notification settings and can send configured messages."),
+			("Notifications", "Save notification settings locally with Save settings. Blank boolean values use the backend default. Scheduled monitoring can send configured messages. Existing passwords are preserved; password editing and test-message sending are not yet available. To suppress sending without removing the server configuration, set Send configured notifications to False."),
 		):
 			ttk.Label(self.tabs[name], text=explanation, wraplength=720, justify="left").pack(anchor="w")
 		ttk.Label(self.tabs["Advanced"], text="Search the existing CLI options (reference only; graphical controls are still being implemented).").pack(anchor="w")

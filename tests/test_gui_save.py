@@ -28,6 +28,47 @@ def form(document, **changes):
 
 
 class SaveTests(unittest.TestCase):
+	def test_notification_fields_use_email_section_and_round_trip(self):
+		with tempfile.TemporaryDirectory() as directory:
+			document = ConfigDocument(directory)
+			changes = dict(notification_send="True", from_email="sender@example.org", to_emails="one@example.org, two@example.org", smtp_server="localhost:2525", email_username="smtp-account", tls="False", starttls="True")
+			result = save_configuration(document, form(document, **changes), "mlucas", [{"directory": "", "preference": ""}])
+			config = result["document"].config
+			self.assertEqual(config.get("PrimeNet", "username"), "ANONYMOUS")
+			self.assertEqual(config.get("Email", "username"), "smtp-account")
+			self.assertEqual(config.get("Email", "to_emails"), "one@example.org,two@example.org")
+			self.assertTrue(config.getboolean("Email", "send"))
+			self.assertTrue(config.getboolean("Email", "starttls"))
+			loaded = load_editor_workspace(directory)["document"]
+			self.assertEqual(loaded.values()["email_username"], "smtp-account")
+			unchanged = save_configuration(loaded, loaded.values(), "mlucas", [{"directory": "", "preference": ""}])
+			self.assertIsNone(unchanged["backup"])
+
+	def test_notification_validation_refuses_invalid_data_without_writing(self):
+		base = dict(from_email="sender@example.org", smtp_server="localhost")
+		for changes in (dict(from_email="invalid"), dict(smtp_server="http://localhost"), dict(tls="True", starttls="True"), dict(to_emails="one@example.org,,two@example.org"), dict(to_emails="invalid"), dict(email_username="injected\npassword=bad"), dict(smtp_server="")):
+			with self.subTest(changes=changes), tempfile.TemporaryDirectory() as directory:
+				document = ConfigDocument(directory)
+				with self.assertRaises((ControllerError, WorkspaceError)):
+					save_configuration(document, form(document, **(base | changes)), "mlucas", [{"directory": "", "preference": ""}])
+				self.assertFalse(document.path.exists())
+				self.assertFalse(list(Path(directory).glob("*.bak")))
+
+	def test_notification_disable_and_inherit_preserve_unrelated_credentials(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			original = "# retained\n[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n[Email]\nfrom_email=sender@example.org\nsmtp_server=localhost\nusername=account\npassword=fixture-secret\nsend=yes\nCustom=keep\n"
+			path.write_text(original)
+			document = ConfigDocument(directory)
+			result = save_configuration(document, form(document, notification_send="False"), "mlucas", [{"directory": "", "preference": ""}])
+			self.assertFalse(result["document"].config.getboolean("Email", "send"))
+			self.assertIn("password=fixture-secret\n", result["document"].text)
+			self.assertIn("Custom=keep\n", result["document"].text)
+			self.assertEqual(Path(result["backup"]).read_text(), original)
+			inherited = save_configuration(result["document"], form(result["document"], notification_send=""), "mlucas", [{"directory": "", "preference": ""}])
+			self.assertFalse(inherited["document"].config.has_option("Email", "send"))
+			self.assertIn("password=fixture-secret\n", inherited["document"].text)
+
 	def test_advanced_options_round_trip_through_real_backend(self):
 		with tempfile.TemporaryDirectory() as directory:
 			document = ConfigDocument(directory)
@@ -248,7 +289,7 @@ class SaveTests(unittest.TestCase):
 				validate_fields({"username": "ANONYMOUS", **changes})
 
 	def test_bad_form_values_fail_in_background_load_instead_of_tk_callback(self):
-		for setting in ("CertWork=maybe", "logfile=%(missing)s"):
+		for setting in ("CertWork=maybe", "logfile=%(missing)s", "[Email]\nsend=maybe", "[Email]\ntls=maybe"):
 			with self.subTest(setting=setting), tempfile.TemporaryDirectory() as directory:
 				(Path(directory) / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n" + setting + "\n")
 				with self.assertRaisesRegex(WorkspaceError, "invalid form value"):
@@ -269,7 +310,7 @@ class InitializationTests(unittest.TestCase):
 				if not ns['libcrypto']:
 					print('null')
 					sys.exit(0)
-				text = '[PrimeNet]\\nusername=ANONYMOUS\\nmlucas=True\\nProxyHost=localhost:8080\\nProxyPass=fixture-secret\\n'
+				text = '[PrimeNet]\\nusername=ANONYMOUS\\nmlucas=True\\nProxyHost=localhost:8080\\nProxyPass=fixture-secret\\n[Email]\\nfrom_email=sender@example.org\\nsmtp_server=localhost\\npassword=fixture-mail-secret\\n'
 				b._validate_config(ns, tree, boundary, {'text': text, 'directory': sys.argv[1]})
 				ns['args'].encrypt = True
 				ns['encrypt'](ns['config'], ns['args'])
@@ -284,14 +325,18 @@ class InitializationTests(unittest.TestCase):
 			if text is None:
 				self.skipTest("Native OpenSSL encryption unavailable")
 			self.assertIn("encrypted_ProxyPass", text)
+			self.assertIn("encrypted_password", text)
 			self.assertNotIn("fixture-secret", text)
+			self.assertNotIn("fixture-mail-secret", text)
 			path = Path(directory) / "prime.ini"
 			path.write_text(text)
 			document = ConfigDocument(directory)
-			result = save_configuration(document, form(document, ComputerID="fixture"), "mlucas", [{"directory": "", "preference": ""}])
+			result = save_configuration(document, form(document, ComputerID="fixture", email_username="new-mail-account"), "mlucas", [{"directory": "", "preference": ""}])
 			self.assertEqual(result["document"].config.get("PrimeNet", "encrypted_ProxyPass"), document.config.get("PrimeNet", "encrypted_ProxyPass"))
+			self.assertEqual(result["document"].config.get("Email", "encrypted_password"), document.config.get("Email", "encrypted_password"))
 			self.assertEqual(Path(result["backup"]).read_bytes(), document.data)
 			self.assertNotIn("fixture-secret", result["document"].text)
+			self.assertNotIn("fixture-mail-secret", result["document"].text)
 
 	def test_backend_defaults_all_engines_without_side_effects(self):
 		for engine in ("mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "mfaktc", "mfakto", "primepath"):

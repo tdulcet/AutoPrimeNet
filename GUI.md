@@ -230,7 +230,7 @@ local snapshot rather than a synchronized view of an active computation engine.
 Use **File → Quit** or the tray menu's Quit item to exit. If a bounded local
 preview is still running, wait for it to finish and choose Quit again. The
 Advanced tab provides a searchable flag reference and an advanced assignment
-settings dialog described below. Notifications remains unavailable;
+settings dialog described below. Notifications provides local SMTP configuration;
 Logs & Status displays GUI activity only.
 
 ### Configuring AutoPrimeNet locally
@@ -247,6 +247,7 @@ backend defaults. Choose a computation program and provide a GIMPS username or
 | Assignments | Days of queued work and legacy extra-assignment cache |
 | Settings | Work/results filenames, activity-log path, optional proof-archive directory |
 | Advanced | Minimum/maximum exponent and factoring bit level, target factoring bits, P−1 tests saved/retry threshold/optimal bounds, ECM bounds multiplier/curve limit, LL↔PRP conversions, PRPLL certification enablement and daily time limit |
+| Notifications | Send enablement, sender, recipients, SMTP server/username, SSL/TLS and StartTLS |
 
 Choose **Edit advanced assignment settings…** to open the scrollable dialog.
 Blank values use the backend default; boolean fields also offer explicit True
@@ -284,6 +285,36 @@ are escaped automatically for the INI format. Clearing an optional field removes
 its explicit override so backend defaults or INI inheritance apply. Edited
 multiline values are refused rather than flattened. Password editing is not yet
 available, and encrypted passwords are never shown in the forms.
+
+### Notification configuration
+
+Use the **Notifications** tab to edit the existing backend's email settings.
+Provide both a From address and SMTP server when configuring email. Enter an
+optional port as `hostname:port`. Recipients are comma-separated; surrounding
+spaces are removed on an edited value. A blank recipient field uses the sender.
+The backend's comma-separated format cannot represent a display name containing
+a comma. Use plain email addresses for multiple recipients.
+
+Choose SSL/TLS for a secure connection from the start or StartTLS to upgrade the
+connection; both cannot be True. Blank boolean fields inherit INI/backend
+defaults. The CLI defaults to port 465 with SSL/TLS and port 25 otherwise unless
+you specify a port. Set **Send configured notifications** to False to suppress
+notifications while retaining the SMTP configuration. Clearing that field
+removes the explicit override, normally enabling configured notifications again.
+
+**Save settings** validates and saves locally without sending a message or
+contacting SMTP. The original backend validates addresses and required fields;
+offline validation cannot confirm server reachability, credentials, certificate
+validity or delivery. Scheduled monitoring may send the original backend's
+notifications using these settings. Start confirms that possibility.
+
+SMTP password editing, automatic server discovery, per-event notification
+controls, and **Send test message** are not implemented yet. Existing plaintext
+or encrypted password entries are preserved when editing the other notification
+fields. Changing SMTP servers/usernames does not replace their saved password;
+ensure the existing credential is appropriate before starting monitoring. The
+GUI does not display passwords, decrypt them into a form, or convert plaintext
+passwords into encrypted storage during Save.
 
 Before replacement, the GUI acquires its `~gui-monitor.lock` scheduled-runner lock
 and the same `~lock` instance lock as the CLI

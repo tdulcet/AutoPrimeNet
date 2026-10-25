@@ -246,7 +246,7 @@ class ConfigDocument:
 			raise WorkspaceError("Configuration is malformed; it was not opened for editing.") from error
 
 	def values(self):
-		return {field.key: self.config.get("PrimeNet", field.key, fallback=field.default) for field in FIELDS}
+		return {field.key: self.config.get(field.section, field.ini_key, fallback=field.default) for field in FIELDS}
 
 	def render(self, values, engine, workers):
 		if engine not in ENGINES:
@@ -264,9 +264,11 @@ class ConfigDocument:
 		for field in FIELDS:
 			before = original[field.key].strip() or None
 			if field.kind == "boolean" and before is not None:
-				before = str(self.config.getboolean("PrimeNet", field.key))
+				before = str(self.config.getboolean(field.section, field.ini_key))
+			if field.kind == "recipients" and before:
+				before = ",".join(address.strip() for address in before.split(","))
 			if fields[field.key] != before:
-				edits["PrimeNet", field.key] = fields[field.key]
+				edits[field.section, field.ini_key] = fields[field.key]
 		for program in ENGINES:
 			if program != engine:
 				edits["PrimeNet", program] = None
@@ -321,7 +323,7 @@ def load_editor_workspace(directory, config_name="prime.ini"):
 		values = document.values()
 		for field in FIELDS:
 			if field.kind == "boolean" and values[field.key]:
-				document.config.getboolean("PrimeNet", field.key)
+				document.config.getboolean(field.section, field.ini_key)
 	except (ConfigError, ValueError) as error:
 		raise WorkspaceError("Configuration contains an invalid form value or interpolation.") from error
 	if _file_version(document.path)[0] != document.version:
