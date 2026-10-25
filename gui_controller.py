@@ -154,7 +154,7 @@ class TrayController:
 
 
 class MonitorController:
-	"""Own the scheduled runner and expose sanitized lifecycle events to Tk."""
+	"""Own scheduled/one-shot execution and expose sanitized events to Tk."""
 
 	def __init__(self, process_factory=None):
 		self.events = queue.Queue()
@@ -168,15 +168,20 @@ class MonitorController:
 	def active(self):
 		return self.process is not None and self.process.poll() is None
 
-	def start(self, document):
+	def start(self, document, operation=None):
 		if self.active:
-			raise ControllerError("Scheduled monitoring is already active.")
+			raise ControllerError("A GUI-owned AutoPrimeNet runner is already active.")
 		if document.version is None:
-			raise ControllerError("Save the configuration before starting monitoring.")
+			raise ControllerError("Save the configuration before starting AutoPrimeNet.")
 		request = {
 			"protocol": 1, "directory": str(document.directory), "config_name": document.path.name,
 			"config_sha256": hashlib.sha256(document.data).hexdigest(),
 		}
+		if operation is not None:
+			from gui_operations import OPERATIONS
+			if operation not in OPERATIONS:
+				raise ControllerError("Unsupported one-shot operation.")
+			request["operation"] = operation
 		try:
 			process = self._process_factory(
 				[sys.executable, "-B", str(ROOT / "gui_monitor.py")],
@@ -190,7 +195,7 @@ class MonitorController:
 				process.stdin.close()
 				process.wait(timeout=5)
 				process.stdout.close()
-			raise ControllerError("Could not launch scheduled monitoring.") from error
+			raise ControllerError("Could not launch the AutoPrimeNet runner.") from error
 		self.process = process
 		self.state = "Starting"
 		self.generation += 1
@@ -203,7 +208,7 @@ class MonitorController:
 					message = json.loads(line)
 				except ValueError:
 					continue
-				if isinstance(message, dict) and message.get("event") in {"ready", "cycle_started", "cycle_finished", "failed", "stopped"}:
+				if isinstance(message, dict) and message.get("event") in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped"}:
 					if message["event"] == "ready":
 						with self._control_lock:
 							if generation == self.generation and self.state == "Starting":

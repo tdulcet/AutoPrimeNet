@@ -27,6 +27,7 @@ from gui_config import WorkspaceError, load_editor_workspace, save_configuration
 from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request
 from gui_forms import ConfigurationForms
 from gui_options import field_for_destination
+from gui_operations import OPERATIONS, operation_for_destination
 
 
 TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
@@ -39,6 +40,7 @@ class Application:
 		self.jobs = BackgroundJobs()
 		self.tray = TrayController()
 		self.monitor = MonitorController()
+		self.active_operation = None
 		self.quit_pending = False
 		self.hidden = False
 		self.closed = False
@@ -103,6 +105,11 @@ class Application:
 			self.notebook.add(frame, text=name)
 			self.tabs[name] = frame
 		self.editor = ConfigurationForms(self)
+		self.operation_buttons = {}
+		for key, operation in OPERATIONS.items():
+			button = ttk.Button(self.tabs[operation.tab], text=operation.title + "…", command=lambda key=key: self.run_operation(key))
+			button.pack(anchor="w", pady=(0, 6))
+			self.operation_buttons[key] = button
 		ttk.Label(self.tabs["Dashboard"], text="Local workspace", font=("TkDefaultFont", 16)).pack(anchor="w")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.summary, justify="left", wraplength=720).pack(anchor="w", pady=12)
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.monitor_status, justify="left").pack(anchor="w")
@@ -116,11 +123,11 @@ class Application:
 		self.force_button.pack(side="left")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.tray_status, wraplength=720).pack(anchor="w", pady=16)
 		self.assignments = self._table(self.tabs["Assignments"], ("Worker", "Exponent", "Work type", "Local AID", "Server confirmation"))
-		ttk.Label(self.tabs["Assignments"], text="Read-only preview. Parsed work lines and local AIDs do not confirm current server reservations.", wraplength=720).pack(anchor="w", pady=8)
+		ttk.Label(self.tabs["Assignments"], text="The table is a read-only preview. Parsed work lines and local AIDs do not confirm current server reservations. Reporting/upload actions above require confirmation.", wraplength=720).pack(anchor="w", pady=8)
 		self.workers = self._table(self.tabs["Workers"], ("Worker", "Directory", "Preference", "Work file"))
 		for name, explanation in (
-			("PrimeNet", "Save changes locally with Save settings. Start scheduled monitoring from Dashboard when ready to communicate with PrimeNet. Standalone registration and diagnostics remain unfinished."),
-			("Notifications", "Save notification settings locally with Save settings. Blank boolean values use the backend default. Scheduled monitoring can send configured messages. Manage passwords to replace or remove SMTP/proxy passwords; replacements require encryption. Test-message sending is not yet available. Set Send configured notifications to False to suppress sending."),
+			("PrimeNet", "Save changes locally with Save settings. Ping contacts PrimeNet once; Dashboard starts scheduled monitoring. Standalone registration and full debugging reports remain unfinished."),
+			("Notifications", "Save notification settings locally with Save settings. Blank boolean values use the backend default. Monitoring and confirmed test-email actions can send messages. Manage passwords to replace or remove SMTP/proxy passwords; replacements require encryption. Set Send configured notifications to False to suppress sending."),
 		):
 			ttk.Label(self.tabs[name], text=explanation, wraplength=720, justify="left").pack(anchor="w")
 		ttk.Label(self.tabs["Advanced"], text="Search the existing CLI options (reference only; graphical controls are still being implemented).").pack(anchor="w")
@@ -185,6 +192,8 @@ class Application:
 		self.editor.set_enabled(not busy and not active and not self.quit_pending and self.editor.document is not None)
 		self.save_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.start_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
+		for button in self.operation_buttons.values():
+			button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.stop_button.state(["!disabled"] if active and self.monitor.state != "Stopping" else ["disabled"])
 		self.force_button.state(["!disabled"] if active else ["disabled"])
 
@@ -241,12 +250,40 @@ class Application:
 		except ControllerError as error:
 			self.status.set(str(error))
 			return
+		self.active_operation = None
+		self.update_monitor_state("Starting")
+
+	def run_operation(self, key):
+		operation = OPERATIONS.get(key)
+		if operation is None or self.jobs.busy or self.monitor.active or self.quit_pending or self.editor.document is None:
+			return
+		self.show()
+		if self.editor.dirty:
+			self.status.set("Save or reload unsaved changes before running an operation.")
+			return
+		document = self.editor.document
+		if Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
+			self.status.set("Reload the selected workspace before running an operation.")
+			return
+		if document.version is None:
+			self.status.set("Save the configuration before running an operation.")
+			return
+		command = " ".join((*operation.flags, "--timeout", "0"))
+		if not messagebox.askyesno(operation.title, operation.effects + "\n\nRun once for the selected workspace? The CLI can update its configuration and runtime files. A private configuration backup is created first; it does not roll back server actions or proof/result changes.\n\nCLI options: " + command + "\n\nCompletion alone does not confirm server acceptance or message delivery. Check the AutoPrimeNet log. Stop waits for this command to finish; computation engines are not started or stopped.", parent=self.root):
+			return
+		try:
+			self.monitor.start(document, operation=key)
+		except ControllerError as error:
+			self.status.set(str(error))
+			return
+		self.active_operation = key
 		self.update_monitor_state("Starting")
 
 	def update_monitor_state(self, state, detail=""):
 		self.monitor.state = state
-		self.status.set("Scheduled monitoring: " + state)
-		self.monitor_status.set("Scheduled monitoring: " + state + ("\n" + detail if detail else "") + "\nServer acceptance/connectivity: unverified")
+		label = OPERATIONS[self.active_operation].title if self.active_operation else "Scheduled monitoring"
+		self.status.set(label + ": " + state)
+		self.monitor_status.set(label + ": " + state + ("\n" + detail if detail else "") + "\nServer acceptance/connectivity: unverified")
 		self.tray.set_state(state)
 		self.set_busy(self.jobs.busy)
 
@@ -291,6 +328,9 @@ class Application:
 			location = field.tab + " → " + (field.dialog + " → " if field.dialog else "") + field.label if field else "Not mapped in this reference"
 			if option["dest"] in {"email_password", "proxy_password"}:
 				location = "Notifications → Manage passwords" if option["dest"] == "email_password" else "Settings → Manage passwords"
+			operation = operation_for_destination(option["dest"])
+			if operation:
+				location = OPERATIONS[operation].tab + " → " + OPERATIONS[operation].title
 			if term in (flags + " " + option["dest"] + " " + location).casefold():
 				self.reference.insert("", "end", values=(flags, option["dest"], location))
 
@@ -299,6 +339,11 @@ class Application:
 		if not selected:
 			return
 		destination = self.reference.item(selected[0], "values")[1]
+		operation = operation_for_destination(destination)
+		if operation:
+			self.notebook.select(self.tabs[OPERATIONS[operation].tab])
+			self.operation_buttons[operation].focus_set()
+			return
 		if destination in {"email_password", "proxy_password"}:
 			self.notebook.select(self.tabs["Notifications" if destination == "email_password" else "Settings"])
 			self.editor.edit_passwords()
@@ -343,22 +388,24 @@ class Application:
 				continue
 			event = message["event"]
 			if event == "ready":
-				self.log("Scheduled runner ready; interval {} seconds.".format(message["interval"]))
+				self.log("One-shot operation ready." if self.active_operation else "Scheduled runner ready; interval {} seconds.".format(message["interval"]))
 				if message.get("backup_created"):
-					self.log("A private configuration backup was created before monitoring.")
+					self.log("A private configuration backup was created before starting AutoPrimeNet.")
 			elif event == "cycle_started":
 				if self.monitor.state != "Stopping":
 					self.update_monitor_state("Running cycle")
-				self.log("AutoPrimeNet communication cycle started.")
+				self.log((OPERATIONS[self.active_operation].title if self.active_operation else "AutoPrimeNet communication cycle") + " started.")
+			elif event == "operation_finished":
+				self.log("One-shot CLI exited zero; server acceptance and message delivery remain unverified. Consult the AutoPrimeNet log.")
 			elif event == "cycle_finished":
 				if self.monitor.state != "Stopping":
 					self.update_monitor_state("Waiting", "Last local cycle ended: {}\nNext cycle planned: {}".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["time"])), time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["next_cycle"]))))
 				self.log("CLI cycle exited zero; individual server outcomes remain unverified. Consult the AutoPrimeNet log.")
 			elif event == "failed":
 				self.update_monitor_state("Failed", message.get("error", "Check the workspace, locks and AutoPrimeNet log; reload before retrying."))
-				self.log("Scheduled monitoring failed.")
+				self.log("One-shot operation failed." if self.active_operation else "Scheduled monitoring failed.")
 			elif event == "stopped":
-				self.update_monitor_state("Stopped", "Forced stop; inspect runtime files and sidecar locks." if message.get("forced") else "Stopped at a cycle boundary. Refresh before editing or restarting.")
+				self.update_monitor_state("Stopped", "Forced stop; inspect runtime files and sidecar locks." if message.get("forced") else "One-shot command ended. Refresh before editing or running another command." if self.active_operation else "Stopped at a cycle boundary. Refresh before editing or restarting.")
 			elif event == "exited":
 				if self.monitor.state not in {"Failed", "Stopped"}:
 					self.update_monitor_state("Failed", "The scheduled runner exited unexpectedly.")
@@ -419,7 +466,7 @@ class Application:
 			return
 		if self.monitor.active:
 			self.show()
-			if messagebox.askyesno("Quit and stop monitoring", "Stop scheduled monitoring and quit after the current CLI cycle finishes? Closing the window instead keeps monitoring in the background.", parent=self.root):
+			if messagebox.askyesno("Quit and stop AutoPrimeNet", "Stop the GUI-owned AutoPrimeNet runner and quit after the current CLI command finishes? Closing the window instead keeps it running in the background.", parent=self.root):
 				self.quit_pending = True
 				self.stop_monitoring()
 			return

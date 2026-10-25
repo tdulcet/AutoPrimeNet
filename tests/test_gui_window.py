@@ -295,6 +295,57 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(editor.document.config.get("PrimeNet", "ProxyUser"), "fixture-proxy-user")
 			self.assertTrue(editor.document.config.getboolean("PrimeNet", "encrypt"))
 
+	def test_one_shot_actions_confirmation_no_overlap_and_unverified_completion(self):
+		from gui_controller import MonitorController
+		from gui_operations import OPERATIONS
+		from test_gui_monitor import fake_monitor_process
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			text = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n[Email]\nfrom_email=sender@example.org\nsmtp_server=localhost\n"
+			path.write_text(text)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.monitor = MonitorController(process_factory=fake_monitor_process)
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False):
+				self.app.run_operation("test_email")
+			self.assertIsNone(self.app.monitor.process)
+			self.assertFalse(list(Path(directory).glob("*.bak")))
+			for key in OPERATIONS:
+				with self.subTest(operation=key), patch("autoprimenet_gui.messagebox.askyesno", return_value=True) as confirm:
+					self.app.run_operation(key)
+					process = self.app.monitor.process
+					self.app.run_operation(key)
+					self.assertIs(self.app.monitor.process, process)
+					confirm.assert_called_once()
+					self.assertTrue(self.app.save_button.instate(["disabled"]))
+					self.assertTrue(all(button.instate(["disabled"]) for button in self.app.operation_buttons.values()))
+					self.wait_until(lambda: not self.app.monitor.active and self.app.monitor.state == "Stopped")
+					self.assertIn(OPERATIONS[key].title, self.app.monitor_status.get())
+					self.assertIn("unverified", self.app.monitor_status.get())
+					self.assertEqual((Path(directory) / "operation.record").read_text(), key)
+					self.assertEqual(path.read_text(), text)
+			self.assertEqual((Path(directory) / "cycles.record").read_text().count("simulated"), 4)
+
+	def test_one_shot_reference_navigation_does_not_run_and_dirty_form_blocks(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.search.set("--report-results")
+			row = self.app.reference.get_children()[0]
+			self.app.reference.selection_set(row)
+			with patch("autoprimenet_gui.messagebox.askyesno") as confirm:
+				self.app.open_reference_setting()
+				self.assertEqual(self.app.notebook.select(), str(self.app.tabs["Assignments"]))
+				self.assertIsNone(self.app.monitor.process)
+				self.app.editor.values["ComputerID"].set("unsaved")
+				self.app.run_operation("report_results")
+				confirm.assert_not_called()
+			self.assertIn("unsaved", self.app.status.get())
+
 	def test_unsaved_changes_can_cancel_reload_and_quit(self):
 		with tempfile.TemporaryDirectory() as directory:
 			self.app.directory.set(directory)

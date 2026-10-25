@@ -2,10 +2,11 @@
 
 The planned optional Tkinter/ttk GUI will provide a graphical interface to
 AutoPrimeNet. The current desktop foundation provides local previews, initial
-configuration forms with validated saving, scheduled CLI monitoring, and
-experimental macOS/Windows tray integration. Starting monitoring performs real
-server operations. Immediate file watching and standalone graphical assignment
-actions are not implemented yet. This is not a complete GUI release.
+configuration forms with validated saving, scheduled CLI monitoring, confirmed
+one-shot commands and experimental macOS/Windows tray integration. Starting
+monitoring or confirming a server/email command performs real external
+operations. Immediate file watching, assignment recovery/unreservation and
+exponent registration remain unfinished. This is not a complete GUI release.
 See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
 
 ## Python requirements
@@ -343,9 +344,10 @@ offline validation cannot confirm server reachability, credentials, certificate
 validity or delivery. Scheduled monitoring may send the original backend's
 notifications using these settings. Start confirms that possibility.
 
-Automatic server discovery, per-event notification controls, and **Send test
-message** are not implemented yet. Changing SMTP servers/usernames does not
-automatically replace their saved password; use password management as needed.
+Automatic server discovery and per-event notification controls are not
+implemented yet. **Send test email…** is a confirmed one-shot action described
+below. Changing SMTP servers/usernames does not automatically replace their
+saved password; use password management as needed.
 
 ### Connections and passwords
 
@@ -390,8 +392,8 @@ backend; these controls cover SMTP and proxy authentication only.
 
 Backups preserve the original file, including any old plaintext passwords.
 Protect those backups with the same care as the configuration. The GUI does not
-verify credentials or delivery when saving; test-message sending remains future
-work.
+verify credentials or delivery when saving. Testing email requires the separate,
+confirmed **Send test email…** command.
 
 Before replacement, the GUI acquires its `~gui-monitor.lock` scheduled-runner lock
 and the same `~lock` instance lock as the CLI
@@ -427,6 +429,50 @@ AutoPrimeNet does not persist `--timeout` through its INI mapping, so the GUI do
 not add an INI field that pretends to control it. A validated saved
 configuration is not evidence of registration, connectivity or successful server
 operations. Full graphical CLI parity remains later work.
+
+### One-shot commands
+
+Save or reload unsaved edits before running these commands. Each button asks
+for confirmation, describing its effects and showing its fixed CLI flags:
+
+| Tab and action | Original CLI flags | Effect |
+| --- | --- | --- |
+| PrimeNet → Ping PrimeNet… | `--ping` | Contacts the normal PrimeNet API and logs its response/version information |
+| Notifications → Send test email… | `--test-email` | Sends the backend's test message to configured recipients |
+| Assignments → Report results… | `--report-results` | Submits pending results for all configured workers |
+| Assignments → Report results and upload proofs… | `--upload-proofs` | Reports results and uploads available PRP proofs, using configured archive/delete behavior |
+
+The email test requires a saved SMTP server, From address and notification
+sending enabled. Its message contains version, username, computer name and GUID
+information. Confirm it only when ready to send to the configured recipients.
+The proof action can archive/delete successfully uploaded proofs. Result/proof
+actions can update local state, result files and server reservations, and send
+configured notifications. Do not run them against real assignments merely to
+exercise the GUI.
+
+These commands run the original CLI once with `--timeout 0`; they do not start a
+scheduled loop or add the new-computer registration follow-up used by scheduled
+monitoring. The helper checks the saved configuration fingerprint, validates
+offline and creates the same private `.gui-monitor-backup-*.bak` configuration
+snapshot used by monitoring. This backup does not undo server actions or recover
+deleted/archived proofs or changed result files. Original CLI configuration
+writes can normalize comments/formatting.
+
+One command or scheduled monitor can run per GUI at a time. Settings, Save and
+other command buttons remain disabled until it exits. The same runner/native
+locks protect against overlapping GUI/CLI operations. Dashboard shows lifecycle
+state; closing retains background execution. **Stop after current cycle** lets
+an active command finish, while a stop received during startup can cancel it
+before execution. **Force stop…** can interrupt writes/uploads and requires a
+separate confirmation. **Quit** waits asynchronously for the owned command.
+
+CLI output remains in the configured AutoPrimeNet log rather than being copied
+into the GUI. A zero exit code records local completion only; some CLI paths
+log server errors without returning failure. The GUI therefore leaves server
+acceptance and message delivery unverified. Review the log and refresh local
+snapshots after completion. CLI-reference navigation focuses the corresponding
+button without running it. Experimental v6 ping, full debug reports, assignment
+recovery/unreservation and exponent registration are not implemented yet.
 
 ### Scheduled monitoring
 

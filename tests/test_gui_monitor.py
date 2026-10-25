@@ -31,6 +31,10 @@ def fake_monitor_process(_command, **kwargs):
 			(Path(directory) / 'cycle.completed').write_text('completed')
 			return 0, False
 		gui_monitor.cli_cycle = fake_cycle
+		def fake_once(directory, config_name, control, operation=None):
+			(Path(directory) / 'operation.record').write_text(str(operation))
+			return fake_cycle(directory, config_name, control)
+		gui_monitor._cli_once = fake_once
 		sys.exit(gui_monitor.main())
 	''')
 	return subprocess.Popen([sys.executable, "-B", "-c", code], **kwargs)
