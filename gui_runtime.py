@@ -19,6 +19,7 @@ from pathlib import Path
 from gui_backend import _read_source
 from gui_config import ConfigDocument
 from gui_registration_plan import block_terminal
+from gui_trace import debug_arguments
 
 ROOT = Path(__file__).resolve().parent
 
@@ -162,7 +163,7 @@ def execute(request, stop, emit, before_main=None):
 	runtime = Runtime(stop, emit, interval)
 	namespace = {"__name__": "__main__", "__file__": str(path), "_gui_cycles": runtime.cycles, "_gui_pause": runtime.pause, "_gui_idle": stop.wait, "_gui_start": runtime.start_worker}
 	argv = sys.argv
-	sys.argv = [str(path), "--workdir", str(document.directory), "--config-file", document.path.name, "--timeout", str(interval)]
+	sys.argv = [str(path), "--workdir", str(document.directory), "--config-file", document.path.name, "--timeout", str(interval), *debug_arguments(document.config)]
 	code = 0
 	try:
 		if stop.is_set():

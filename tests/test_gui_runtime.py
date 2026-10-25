@@ -203,20 +203,20 @@ print(json.dumps(dict(result=result, seen=seen, drained=all(not t.is_alive() for
 			self.assertTrue(result["drained"])
 
 	def test_supervisor_forwards_stop_and_force_targets_only_owned_child(self):
-		from gui_monitor import native_cycle
+		from gui_monitor import _native_process
 		control = StopControl()
 		control.stop.set()
 		code = "import json,sys; request=json.loads(sys.stdin.buffer.readline()); assert request['interval']==1800; assert json.loads(sys.stdin.buffer.readline())['command']=='stop'"
 		process = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE)
 		with patch("gui_monitor.subprocess.Popen", return_value=process):
-			self.assertEqual(native_cycle("fixture", "prime.ini", control, 1800, "sha"), (0, False))
+			self.assertEqual(_native_process("fixture", "prime.ini", control, 1800, "sha"), (0, False))
 		control = StopControl()
 		control.force.set()
 		process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], stdin=subprocess.PIPE)
 		unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
 		try:
 			with patch("gui_monitor.subprocess.Popen", return_value=process):
-				self.assertTrue(native_cycle("fixture", "prime.ini", control, 1800, "sha")[1])
+				self.assertTrue(_native_process("fixture", "prime.ini", control, 1800, "sha")[1])
 			self.assertIsNotNone(process.poll())
 			self.assertIsNone(unrelated.poll())
 		finally:

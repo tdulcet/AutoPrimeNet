@@ -14,12 +14,11 @@ Generated from the same option inventory and coverage metadata used by the GUI r
 - **Hidden / CLI only**: hidden experimental upstream behavior is not exposed.
 - **Removed upstream**: the original backend rejects this legacy feature.
 
-Current parser-entry coverage: 91 Available, 0 Partial, 3 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
+Current parser-entry coverage: 92 Available, 0 Partial, 2 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
 
 ## Remaining workflow gaps
 
 - `--lock` / `--no-lock`: GUI startup always requires its runner lease and the native instance lock. It cannot bypass locking on unsupported filesystems.
-- `--debug`: verbose HTTP tracing is not exposed. Private original-backend diagnostics and bounded native-log viewing are available separately.
 - Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
 - Live registration, assignment changes, email, proof/result operations and v6 ping remain unvalidated. Tests use offline probes or simulated API responses. Python 3.15.0 itself and Windows/Linux/FreeBSD runtime coverage remain pending.
 
@@ -32,7 +31,7 @@ Current parser-entry coverage: 91 Available, 0 Partial, 3 CLI only, 1 Hidden / C
 | Notifications | SMTP/recipient/TLS forms, send policy, masked encrypted password replacement, confirmed test email and reviewed provider discovery; no per-event editor |
 | Exponent registration | Batch form for the eight original work types, explicit parameters/factors, source-based offline preview, typed confirmation, work snapshots and original registration function; no implicit exponent metadata lookup |
 | Recovery and unreservation | Dedicated confirmations, structured exponent input and work/certification snapshots; no automatic reservation rollback or restore |
-| Status/logs/diagnostics | Original status report to native log, bounded private log dialog, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
+| Status/logs/diagnostics | Original status report to native log, bounded private log/trace viewer, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
 | Lifecycle | Owned native scheduler with separate polling/check-ins, native file watching, one-pass mode, worker-draining Stop, explicit force, tray/taskbar fallback and asynchronous Quit; no computation-engine process management |
 
 Batch registration supports one configured worker and up to 100 entries per operation, a 48 KiB normalized plan, and bounded integer/factor sizes. It also registers other unregistered work already in the selected worker file, matching upstream behavior. All graphical file/worker/preview/snapshot limits are documented in GUI.md.
@@ -42,7 +41,7 @@ Batch registration supports one configured worker and up to 100 entries per oper
 | CLI flags | Destination | Coverage | Graphical location / limitation |
 | --- | --- | --- | --- |
 | `--version` | `version` | Available | Advanced → Help → About |
-| `-d`, `--debug` | `debug` | CLI only | Verbose HTTP tracing is not exposed |
+| `-d`, `--debug` | `debug` | Available | Settings → Behavior → Debug verbosity (0–3; 2+: raw trace) |
 | `-w`, `--workdir` | `workdir` | Available | Settings → Working directory selector |
 | `-D`, `--dir` | `dirs` | Available | Workers → Edit selected worker → Directory |
 | `-i`, `--work-file` | `work_file` | Available | Settings → Work filename |

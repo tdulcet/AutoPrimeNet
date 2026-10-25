@@ -832,3 +832,45 @@ registration previews, lifecycle/quit, and private logs/reports. Live provider o
 PrimeNet actions should be exercised deliberately with the intended account and
 workspace, with local backups and review of server state. Cross-platform runtime
 and live-service acceptance remain pending in GUI_PARITY.md.
+
+
+### Debug verbosity and private traces
+
+Use **Settings → Edit monitoring and output preferences → Debug verbosity**:
+
+| Level | Original backend behavior |
+| --- | --- |
+| 0 | Normal logging (default) |
+| 1 | Detailed debug logging in the original backend log |
+| 2 | Detailed logging plus original HTTP/SMTP wire tracing |
+| 3 | All logging plus wire tracing; higher repeated `--debug` counts have the same upstream logging threshold |
+
+The GUI stores this preference as `[GUI] DebugLevel` and supplies repeated
+`--debug` flags to its owned CLI processes and graphical registration/native
+runtime adapters. The standalone CLI ignores this GUI preference and still needs
+its own `--debug` flags. Offline previews, validation, mail discovery and diagnostic
+exports do not enable raw trace capture or create trace files.
+
+At levels 2–3, the existing Start/action confirmation explains that raw traces
+can contain SMTP/proxy passwords, authentication tokens, email addresses and
+message bodies. Each CLI child gets a new owner-private
+`.gui-backend-trace-<unique-id>.log` in the selected workspace (POSIX mode 0600;
+on Windows, permissions depend on the workspace's inherited ACL). Capture is
+limited to 8 MiB including a limit marker; later output is drained and discarded
+so it cannot block the backend. A new-computer one-pass run may start two CLI
+processes and produce two files. The original native log retains its independent
+upstream rotation policy.
+
+**Logs & Status → View latest private trace** reads only the latest regular trace
+file, at most the last 128 KiB / 2000 lines. It is available while monitoring runs,
+and Refresh reads newly flushed output. Trace contents are never copied to GUI
+activity or included automatically in exported diagnostics. The existing private
+backend-log viewer remains separate. Older trace files can be reviewed with a
+local text editor. Trace files are retained until you remove them with your file
+manager; review/redact before sharing, and turn verbosity back to 0 when done.
+
+A trace file must be created before the chosen CLI process starts. Capture I/O
+errors after launch do not interrupt an active backend write/upload; the pipe
+continues draining and a generic incomplete-capture warning appears after the
+process ends. Raw errors and trace contents are not emitted on the GUI event
+channel. Trace files created in the repository root are ignored by Git.

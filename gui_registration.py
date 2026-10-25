@@ -13,6 +13,7 @@ import sys
 
 from gui_backend import _read_source
 from gui_config import ConfigDocument
+from gui_trace import debug_arguments
 from gui_registration_plan import block_terminal, install_answers, validate_plan, validate_shape
 
 
@@ -45,7 +46,7 @@ def execute(request, before_main=None):
 	if len(main_calls) != 1:
 		raise ValueError("Unsupported AutoPrimeNet main entry point.")
 	argv = sys.argv
-	sys.argv = [str(path), "--workdir", str(directory), "--config-file", name, "--timeout", "0"]
+	sys.argv = [str(path), "--workdir", str(directory), "--config-file", name, "--timeout", "0", *debug_arguments(document.config)]
 	if operation == "register_exponents":
 		sys.argv.append("--register-exponents")
 	namespace = {"__name__": "__main__", "__file__": str(path)}

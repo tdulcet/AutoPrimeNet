@@ -184,11 +184,55 @@ class WindowTests(unittest.TestCase):
 			editor.options_values["poll_seconds"].set("1800")
 			editor.options_values["watch"].set("False")
 			self.assertTrue(editor.apply_options())
-			self.app.save()
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
 			self.wait_until(lambda: not self.app.jobs.busy)
 			self.assertFalse(editor.dirty)
 			self.assertEqual(editor.document.config.getint("GUI", "PollSeconds"), 1800)
 			self.assertFalse(editor.document.config.getboolean("PrimeNet", "watch"))
+
+	def test_debug_controls_confirmation_and_private_trace_viewer(self):
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			(base / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n[GUI]\nDebugLevel=2\n")
+			(base / ".gui-backend-trace-fixture.log").write_text("fixture-private-password")
+			(base / "autoprimenet.log").write_text("fixture-native-log")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False) as confirm:
+				self.app.start_monitoring()
+				self.assertIn("passwords", confirm.call_args.args[1])
+				self.app.run_operation("status")
+				self.assertIn("HTTP/SMTP tracing", confirm.call_args.args[1])
+			self.assertFalse(self.app.monitor.active)
+			self.app.backend_log.open_trace()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertIn("fixture-private-password", self.app.backend_log.text.get("1.0", "end"))
+			self.assertNotIn("fixture-private-password", self.app.activity.get("1.0", "end"))
+			self.app.backend_log.open()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertIn("fixture-native-log", self.app.backend_log.text.get("1.0", "end"))
+			self.assertNotIn("fixture-private-password", self.app.backend_log.text.get("1.0", "end"))
+			self.app.backend_log.close()
+			self.app.search.set("--debug")
+			row = self.app.reference.get_children()[0]
+			self.assertEqual(self.app.reference.item(row, "values")[-1], "Available")
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			self.app.editor.options_values["debug_level"].set("3")
+			self.assertTrue(self.app.editor.apply_options())
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertEqual(self.app.editor.document.config.getint("GUI", "DebugLevel"), 3)
+			self.app.editor.document.config.set("GUI", "DebugLevel", "4")
+			with patch("autoprimenet_gui.messagebox.askyesno") as confirm:
+				self.app.start_monitoring()
+				self.assertIn("debug verbosity", self.app.status.get())
+				self.app.run_operation("status")
+				self.assertIn("debug verbosity", self.app.status.get())
+				confirm.assert_not_called()
 
 	def test_navigation_search_workspace_and_repeated_refresh(self):
 		self.assertEqual(len(self.app.notebook.tabs()), 8)

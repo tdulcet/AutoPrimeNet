@@ -144,6 +144,8 @@ def _validate_config(namespace, tree, boundary, request):
 	# The upstream CLI does not persist --timeout. Keep the GUI's preference
 	# in its own section and pass it explicitly to the owned native runtime.
 	args.timeout = config.getint("GUI", "PollSeconds", fallback=3600)
+	from gui_trace import debug_level
+	args.debug = debug_level(config)
 	# Work on a private in-memory config: decryption may update its keys/GUID.
 	# No plaintext or encrypted credential is returned in the result.
 	namespace["decrypt"](config, args)
@@ -181,7 +183,7 @@ def _validate_config(namespace, tree, boundary, request):
 		"work_preferences": args.work_preference, "supported_preferences": sorted(namespace["SUPPORTED"]),
 		"results_file": args.results_file, "days_of_work": args.days_of_work,
 		"timeout": args.timeout, "checkin_hours": args.hours_between_checkins,
-		"watch": args.watch is not False,
+		"watch": args.watch is not False, "debug_level": args.debug,
 		"network_enabled": False, "configuration_written": False,
 	}
 

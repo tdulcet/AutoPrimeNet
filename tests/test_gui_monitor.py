@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from gui_config import ConfigDocument, WorkspaceError, instance_lease, save_configuration
 from gui_controller import ControllerError, MonitorController
-from gui_monitor import StopControl, _cli_once, cli_cycle, run_schedule
+from gui_monitor import StopControl, _cli_process, _cli_once, cli_cycle, run_schedule
 
 
 def fake_monitor_process(_command, **kwargs):
@@ -127,7 +127,7 @@ class ScheduleTests(unittest.TestCase):
 	def test_cli_argv_contains_no_credentials_and_uses_noninteractive_one_pass(self):
 		with patch("gui_monitor.subprocess.Popen") as popen:
 			popen.return_value.wait.return_value = 0
-			self.assertEqual(_cli_once("/fixture", "prime.ini", StopControl()), (0, False))
+			self.assertEqual(_cli_process("/fixture", "prime.ini", StopControl()), (0, False))
 			command = popen.call_args.args[0]
 			self.assertEqual(command[-2:], ["--timeout", "0"])
 			self.assertNotIn("--password", command)
@@ -141,7 +141,7 @@ class ScheduleTests(unittest.TestCase):
 		try:
 			control.force.set()
 			with patch("gui_monitor.subprocess.Popen", return_value=process):
-				_code, forced = _cli_once("/fixture", "prime.ini", control)
+				_code, forced = _cli_process("/fixture", "prime.ini", control)
 			self.assertTrue(forced)
 			self.assertIsNotNone(process.poll())
 			self.assertIsNone(unrelated.poll())

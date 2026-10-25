@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from gui_config import ConfigDocument, WorkspaceError, save_configuration
 from gui_controller import ControllerError, MonitorController
-from gui_monitor import StopControl, _cli_once, run_operation
+from gui_monitor import StopControl, _cli_process, _cli_once, run_operation
 from gui_operations import OPERATIONS, operation_arguments
 from test_gui_monitor import fake_monitor_process, fixture, wait_event
 
@@ -66,7 +66,7 @@ class OperationTests(unittest.TestCase):
 			with self.subTest(operation=key), patch("gui_monitor.subprocess.Popen") as popen:
 				popen.return_value.wait.return_value = 0
 				parameters = {"exponent": 127} if operation.requires_exponent else {}
-				self.assertEqual(_cli_once("fixture workspace", "private.ini", StopControl(), operation=key, parameters=parameters), (0, False))
+				self.assertEqual(_cli_process("fixture workspace", "private.ini", StopControl(), operation=key, parameters=parameters), (0, False))
 				arguments = popen.call_args.args[0]
 				self.assertEqual(arguments[3:], ["--workdir", "fixture workspace", "--config-file", "private.ini", "--timeout", "0", *operation_arguments(key, parameters)])
 				self.assertEqual(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)

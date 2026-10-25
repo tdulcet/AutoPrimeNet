@@ -32,6 +32,7 @@ from gui_operations import OPERATIONS, operation_arguments, operation_for_destin
 from gui_registration_form import RegistrationForm
 from gui_reports import BackendLogWindow, export_debug_report
 from gui_reference import reference_info
+from gui_trace import trace_notice
 
 
 TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
@@ -157,6 +158,8 @@ class Application:
 		reports.pack(fill="x", pady=(0, 8))
 		self.backend_log_button = ttk.Button(reports, text="View private backend log…", command=self.backend_log.open)
 		self.backend_log_button.pack(side="left")
+		self.trace_button = ttk.Button(reports, text="View latest private trace…", command=self.backend_log.open_trace)
+		self.trace_button.pack(side="left", padx=8)
 		self.diagnostics_button = ttk.Button(reports, text="Export private diagnostics…", command=self.request_diagnostics)
 		self.diagnostics_button.pack(side="left", padx=8)
 		self.activity = tk.Text(self.tabs["Logs & Status"], wrap="word", state="disabled", height=12)
@@ -215,6 +218,7 @@ class Application:
 		self.registration.set_busy(busy or active or self.quit_pending)
 		self.backend_log.set_busy(busy or self.quit_pending)
 		self.backend_log_button.state(["disabled"] if busy or self.quit_pending or self.editor.document is None else ["!disabled"])
+		self.trace_button.state(["disabled"] if busy or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.diagnostics_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.save_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.start_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
@@ -280,8 +284,13 @@ class Application:
 		except ValueError:
 			self.status.set("Polling must be 0 or at least 1800 seconds, and no longer than the progress check-in interval.")
 			return
+		try:
+			trace_text = trace_notice(document)
+		except ValueError:
+			self.status.set("Correct and save debug verbosity before running AutoPrimeNet.")
+			return
 		cadence = "Run one complete pass, then stop." if interval == 0 else f"Poll every {interval} seconds; report progress every {hours} hour(s). " + ("Watch results and proof files immediately." if watch else "Check results and proofs at each poll.")
-		if not messagebox.askyesno("Start monitoring", cadence + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. Computation engines are never started or stopped.", parent=self.root):
+		if not messagebox.askyesno("Start monitoring", cadence + trace_text + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. Computation engines are never started or stopped.", parent=self.root):
 			return
 		try:
 			self.monitor.start(document)
@@ -327,6 +336,11 @@ class Application:
 			parameters["exponent"] = exponent
 		command = " ".join((*operation_arguments(key, parameters), "--timeout", "0"))
 		prompt = operation.effects + "\n\nRun once for the selected workspace? The CLI can update its configuration and runtime files. A private configuration backup is created first; it does not roll back server actions or proof/result changes.\n\nCLI options: " + command + "\n\nCompletion alone does not confirm server acceptance or message delivery. Check the AutoPrimeNet log. Stop waits for this command to finish; computation engines are not started or stopped."
+		try:
+			prompt += trace_notice(document)
+		except ValueError:
+			self.status.set("Correct and save debug verbosity before running AutoPrimeNet.")
+			return
 		if key == "register_exponents":
 			prompt += "\n\nWorker: {}. Batch size: {}. Review the offline work-line preview before continuing.".format(parameters["worker"], len(parameters["entries"]))
 		if operation.confirmation:
@@ -529,6 +543,10 @@ class Application:
 					self.log("A private configuration backup was created before starting AutoPrimeNet.")
 				if message.get("assignment_backup"):
 					self.log("Private work/certification snapshot: " + message["assignment_backup"])
+			elif event == "trace_created":
+				self.log("Private raw trace file created: " + message["name"] + ". Review/redact before sharing.")
+			elif event == "trace_warning":
+				self.log("Private trace capture was incomplete. Check workspace disk space and permissions.")
 			elif event == "cycle_started":
 				if self.monitor.state != "Stopping":
 					self.update_monitor_state("Running cycle")

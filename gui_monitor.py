@@ -20,6 +20,7 @@ from gui_config import ConfigDocument, WorkspaceError, instance_lease, inspect_w
 from gui_controller import ControllerError, ROOT, backend_request
 from gui_operations import OPERATIONS, operation_arguments
 from gui_assignment_backup import snapshot_assignments
+from gui_trace import debug_level, private_trace
 
 
 class StopControl:
@@ -46,6 +47,17 @@ class StopControl:
 
 
 def _cli_once(directory, config_name, control, operation=None, parameters=None, expected_hash=None):
+	level = debug_level(ConfigDocument(directory, config_name).config)
+	with private_trace(directory, level) as capture:
+		if capture:
+			emit({"event": "trace_created", "name": capture.path.name})
+		result = _cli_process(directory, config_name, control, operation, parameters, expected_hash, capture, level)
+	if capture and capture.failed:
+		emit({"event": "trace_warning"})
+	return result
+
+
+def _cli_process(directory, config_name, control, operation=None, parameters=None, expected_hash=None, capture=None, level=0):
 	"""Run only our CLI child; forced termination requires a separate command."""
 	if operation is None and parameters:
 		raise ValueError("Scheduled cycles do not accept operation parameters.")
@@ -55,7 +67,7 @@ def _cli_once(directory, config_name, control, operation=None, parameters=None, 
 	environment.pop("FORCE_COLOR", None)
 	flags = () if operation is None else operation_arguments(operation, parameters)
 	registration = operation in {"register_computer", "register_exponents"}
-	command = [sys.executable, "-B", str(ROOT / "gui_registration.py")] if registration else [sys.executable, "-B", str(ROOT / "autoprimenet.py"), "--workdir", str(directory), "--config-file", config_name, "--timeout", "0", *flags]
+	command = [sys.executable, "-B", str(ROOT / "gui_registration.py")] if registration else [sys.executable, "-B", str(ROOT / "autoprimenet.py"), "--workdir", str(directory), "--config-file", config_name, "--timeout", "0", *(["--debug"] * level), *flags]
 	payload = None
 	if registration:
 		request = {"operation": operation, "directory": str(directory), "config_name": config_name, "parameters": parameters or {}, "config_sha256": expected_hash or hashlib.sha256(ConfigDocument(directory, config_name).data).hexdigest()}
@@ -64,9 +76,11 @@ def _cli_once(directory, config_name, control, operation=None, parameters=None, 
 			raise WorkspaceError("Registration request exceeds the 64 KiB execution limit.")
 	process = subprocess.Popen(
 		command,
-		stdin=subprocess.PIPE if registration else subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+		stdin=subprocess.PIPE if registration else subprocess.DEVNULL, stdout=subprocess.PIPE if capture else subprocess.DEVNULL, stderr=subprocess.STDOUT if capture else subprocess.DEVNULL,
 		cwd=ROOT, env=environment,
 	)
+	if capture:
+		capture.start(process.stdout)
 	if registration:
 		try:
 			process.stdin.write(payload)
@@ -134,12 +148,25 @@ def run_schedule(directory, config_name, interval, control, emit, cycle=None, on
 
 
 def native_cycle(directory, config_name, control, interval, expected_hash):
+	level = debug_level(ConfigDocument(directory, config_name).config)
+	with private_trace(directory, level) as capture:
+		if capture:
+			emit({"event": "trace_created", "name": capture.path.name})
+		result = _native_process(directory, config_name, control, interval, expected_hash, capture)
+	if capture and capture.failed:
+		emit({"event": "trace_warning"})
+	return result
+
+
+def _native_process(directory, config_name, control, interval, expected_hash, capture=None):
 	"""Own one continuous native child; forward graceful stop, reap on force."""
 	environment = dict(os.environ)
 	environment["NO_COLOR"] = "1"
 	environment.pop("FORCE_COLOR", None)
 	process = subprocess.Popen([sys.executable, "-B", str(ROOT / "gui_runtime.py")], stdin=subprocess.PIPE,
-		stderr=subprocess.DEVNULL, cwd=ROOT, env=environment)
+		stderr=subprocess.PIPE if capture else subprocess.DEVNULL, cwd=ROOT, env=environment)
+	if capture:
+		capture.start(process.stderr)
 	try:
 		request = {"protocol": 1, "directory": str(directory), "config_name": config_name, "interval": interval, "config_sha256": expected_hash}
 		process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))

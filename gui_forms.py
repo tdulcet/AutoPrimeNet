@@ -136,7 +136,7 @@ class ConfigurationForms:
 		if connection:
 			help_text = "SOCKS proxies require the optional PySocks package. Encryption True is strict; blank uses opportunistic encryption in the CLI.\nThe GUI always requires encryption for new passwords. Existing encrypted passwords require encryption enabled or inherited."
 		elif behavior:
-			help_text = "Polling is 0 for one pass, or ≥1800 seconds and no longer than the check-in interval. Blank watch policy enables native watching.\nPolling is a GUI preference; the standalone CLI needs --timeout. Native console-color preferences do not change the GUI."
+			help_text = "Polling: 0 for one pass, or ≥1800 seconds and no longer than check-ins. Blank watch policy enables watching.\nDebug 0: normal; 1: detailed log; 2: HTTP/SMTP trace; 3: all logging. Raw traces may contain passwords/tokens/message bodies.\nPolling/debug are GUI preferences; the standalone CLI needs --timeout/--debug. View private traces in Logs & Status."
 		elif not hardware:
 			help_text += "\nWithholding ≥100M-digit prime results requires another notification method, as in the CLI."
 		ttk.Label(outer, text=help_text, wraplength=680).pack(anchor="w", pady=8)

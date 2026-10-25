@@ -214,7 +214,7 @@ class MonitorController:
 					message = json.loads(line)
 				except ValueError:
 					continue
-				if isinstance(message, dict) and message.get("event") in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped"}:
+				if isinstance(message, dict) and message.get("event") in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped", "trace_created", "trace_warning"}:
 					if message["event"] == "ready":
 						with self._control_lock:
 							if generation == self.generation and self.state == "Starting":

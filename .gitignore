@@ -44,6 +44,7 @@ Desktop.ini
 /~gui-monitor.lock
 /.gui-assignment-backup-*/
 /.gui-debug-report-*.txt
+/.gui-backend-trace-*.log
 /*.lck
 /worktodo*.txt
 /worktodo*.add

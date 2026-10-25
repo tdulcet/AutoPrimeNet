@@ -21,6 +21,24 @@ MAX_LOG_BYTES = 128 * 1024
 def read_backend_tail(document):
 	name = document.config.get("PrimeNet", "logfile", fallback="autoprimenet.log")
 	path = document.directory / name
+	return _read_tail(path)
+
+
+def read_latest_trace(document):
+	candidates = []
+	for path in document.directory.glob(".gui-backend-trace-*.log"):
+		try:
+			info = path.lstat()
+		except FileNotFoundError:
+			continue
+		if stat.S_ISREG(info.st_mode):
+			candidates.append((info.st_mtime_ns, path.name, path))
+	if not candidates:
+		raise WorkspaceError("No private backend trace is available in this workspace.")
+	return _read_tail(max(candidates)[2])
+
+
+def _read_tail(path):
 	try:
 		before = path.lstat()
 		if not stat.S_ISREG(before.st_mode):
@@ -69,19 +87,29 @@ class BackendLogWindow:
 		self.window = None
 
 	def open(self):
+		return self._open(False)
+
+	def open_trace(self):
+		return self._open(True)
+
+	def _open(self, trace):
 		if self.app.jobs.busy or self.app.editor.document is None:
 			return
 		if self.window is not None and self.window.winfo_exists():
-			self.window.lift()
-			self.refresh()
-			return
+			if self.trace_mode == trace:
+				self.window.lift()
+				self.refresh()
+				return
+			self.close()
+		self.trace_mode = trace
 		self.document = self.app.editor.document
 		self.window = window = tk.Toplevel(self.app.root)
-		window.title("Private AutoPrimeNet backend log")
+		window.title("Latest private AutoPrimeNet trace" if trace else "Private AutoPrimeNet backend log")
 		window.geometry("900x560")
 		outer = ttk.Frame(window, padding=12)
 		outer.pack(fill="both", expand=True)
-		ttk.Label(outer, text="Private native log: may contain account details, paths or verbose diagnostics. Review/redact before sharing.\nThis bounded snapshot is not copied into GUI activity. Refresh to read new output.", wraplength=850).pack(anchor="w")
+		intro = "Private raw trace: may contain passwords, tokens and message bodies. Review/redact before sharing. Latest file only." if trace else "Private native log: may contain account details, paths or verbose diagnostics. Review/redact before sharing."
+		ttk.Label(outer, text=intro + "\nThis bounded snapshot is not copied into GUI activity. Refresh to read new output.", wraplength=850).pack(anchor="w")
 		self.path_label = tk.StringVar(value="Reading configured log…")
 		ttk.Label(outer, textvariable=self.path_label, wraplength=850).pack(anchor="w", pady=6)
 		frame = ttk.Frame(outer)
@@ -91,14 +119,14 @@ class BackendLogWindow:
 		self.text.configure(yscrollcommand=scrollbar.set)
 		scrollbar.pack(side="right", fill="y")
 		self.text.pack(side="left", fill="both", expand=True)
-		self.refresh_button = ttk.Button(outer, text="Refresh backend log", command=self.refresh)
+		self.refresh_button = ttk.Button(outer, text="Refresh latest trace" if trace else "Refresh backend log", command=self.refresh)
 		self.refresh_button.pack(anchor="w", pady=(8, 0))
 		window.protocol("WM_DELETE_WINDOW", self.close)
 		self.refresh()
 		return window
 
 	def refresh(self):
-		if not self.app.jobs.busy and self.app.jobs.submit("backend_log", read_backend_tail, self.document):
+		if not self.app.jobs.busy and self.app.jobs.submit("backend_log", read_latest_trace if self.trace_mode else read_backend_tail, self.document):
 			self.app.set_busy(True)
 
 	def set_busy(self, busy):
