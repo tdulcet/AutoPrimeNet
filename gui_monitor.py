@@ -16,9 +16,10 @@ import threading
 import time
 
 from gui_backend import BackendError, _read_source
-from gui_config import ConfigDocument, WorkspaceError, instance_lease
+from gui_config import ConfigDocument, WorkspaceError, instance_lease, inspect_workspace
 from gui_controller import ControllerError, ROOT, backend_request
-from gui_operations import OPERATIONS
+from gui_operations import OPERATIONS, operation_arguments
+from gui_assignment_backup import snapshot_assignments
 
 
 class StopControl:
@@ -44,13 +45,15 @@ class StopControl:
 		self.stop.set()
 
 
-def _cli_once(directory, config_name, control, operation=None):
+def _cli_once(directory, config_name, control, operation=None, parameters=None):
 	"""Run only our CLI child; forced termination requires a separate command."""
+	if operation is None and parameters:
+		raise ValueError("Scheduled cycles do not accept operation parameters.")
 	_read_source(ROOT / "autoprimenet.py")
 	environment = dict(os.environ)
 	environment["NO_COLOR"] = "1"
 	environment.pop("FORCE_COLOR", None)
-	flags = () if operation is None else OPERATIONS[operation].flags
+	flags = () if operation is None else operation_arguments(operation, parameters)
 	process = subprocess.Popen(
 		[sys.executable, "-B", str(ROOT / "autoprimenet.py"), "--workdir", str(directory), "--config-file", config_name, "--timeout", "0", *flags],
 		stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -114,10 +117,11 @@ def emit(message):
 	print(json.dumps(message), flush=True)
 
 
-def run_operation(directory, config_name, operation, control, emit, cycle=None):
+def run_operation(directory, config_name, operation, control, emit, cycle=None, parameters=None):
 	"""A confirmed action executes exactly once, without registration follow-up."""
 	if operation not in OPERATIONS:
 		raise WorkspaceError("Unsupported one-shot operation.")
+	operation_arguments(operation, parameters)
 	emit({"event": "ready", "operation": operation})
 	while not control.begin.is_set() and not control.stop.wait(0.05):
 		pass
@@ -125,7 +129,10 @@ def run_operation(directory, config_name, operation, control, emit, cycle=None):
 		emit({"event": "stopped", "forced": False})
 		return 0
 	emit({"event": "cycle_started", "time": time.time(), "operation": operation})
-	code, forced = (cycle or _cli_once)(directory, config_name, control, operation=operation)
+	options = {"operation": operation}
+	if parameters:
+		options["parameters"] = parameters
+	code, forced = (cycle or _cli_once)(directory, config_name, control, **options)
 	if forced:
 		emit({"event": "stopped", "forced": True})
 		return 0
@@ -151,6 +158,11 @@ def main():
 		operation = request.get("operation")
 		if operation is not None and operation not in OPERATIONS:
 			raise WorkspaceError("Unsupported one-shot operation.")
+		parameters = request.get("parameters")
+		if operation is not None:
+			operation_arguments(operation, parameters)
+		elif parameters:
+			raise WorkspaceError("Scheduled monitoring does not accept operation parameters.")
 		document = ConfigDocument(request["directory"], request["config_name"])
 		if document.version is None or hashlib.sha256(document.data).hexdigest() != request["config_sha256"]:
 			raise WorkspaceError("Configuration changed. Reload before starting monitoring.")
@@ -159,6 +171,12 @@ def main():
 			# subsequent cycle, protecting against an independent CLI instance.
 			with instance_lease(document.directory):
 				settings = backend_request("validate_config", directory=str(document.directory), config_name=document.path.name, text=document.text)
+				if operation in {"recover", "recover_all"} and not document.config.get("PrimeNet", "ComputerGUID", fallback=""):
+					raise WorkspaceError("Recovery requires an existing computer registration. No assignments were requested.")
+				if operation == "unreserve":
+					assignments = inspect_workspace(str(document.directory), document.path.name)["assignments"]
+					if not any(item.get("fields", {}).get("n") == parameters["exponent"] for item in assignments):
+						raise WorkspaceError("The exponent is not in the current local work files. Refresh before retrying.")
 				if operation == "test_email":
 					if not document.config.get("Email", "from_email", fallback="") or not document.config.get("Email", "smtp_server", fallback=""):
 						raise WorkspaceError("Configure and save an SMTP server and From address before sending a test email.")
@@ -166,6 +184,11 @@ def main():
 						raise WorkspaceError("Notifications are disabled. Enable and save notification sending before testing.")
 				if ConfigDocument(str(document.directory), document.path.name).version != document.version:
 					raise WorkspaceError("Configuration changed during startup. Reload before retrying.")
+				assignment_backup = None
+				if operation is not None and OPERATIONS[operation].backup_work:
+					assignment_backup = snapshot_assignments(str(document.directory), document.path.name, operation, parameters)
+					if ConfigDocument(str(document.directory), document.path.name).version != document.version:
+						raise WorkspaceError("Configuration changed during assignment backup. Reload before retrying.")
 				# The unmodified CLI may normalize comments/formatting when writing
 				# state. Preserve one private original snapshot before each Start.
 				with tempfile.NamedTemporaryFile(prefix=document.path.name + ".gui-monitor-backup-", suffix=".bak", dir=document.directory, delete=False) as backup:
@@ -176,10 +199,10 @@ def main():
 			threading.Thread(target=control.read, args=(control_stream,), name="MonitorControl", daemon=True).start()
 			def report(message):
 				if message["event"] == "ready":
-					message = {**message, "backup_created": True}
+					message = {**message, "backup_created": True, "assignment_backup": assignment_backup}
 				emit(message)
 			if operation is not None:
-				return run_operation(document.directory, document.path.name, operation, control, report)
+				return run_operation(document.directory, document.path.name, operation, control, report, parameters=parameters)
 			return run_schedule(document.directory, document.path.name, settings["checkin_hours"] * 3600, control, report)
 	except (BackendError, WorkspaceError, ControllerError) as error:
 		emit({"event": "failed", "error": str(error)})

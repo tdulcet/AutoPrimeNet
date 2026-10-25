@@ -22,7 +22,7 @@ from gui_monitor import StopControl, _cli_once, cli_cycle, run_schedule
 def fake_monitor_process(_command, **kwargs):
 	"""Use the real supervisor/preflight/control protocol with a fake CLI cycle."""
 	code = textwrap.dedent('''
-		import gui_monitor, sys, time
+		import gui_monitor, sys, time, json
 		from pathlib import Path
 		def fake_cycle(directory, config_name, control):
 			with (Path(directory) / 'cycles.record').open('a') as stream:
@@ -31,8 +31,9 @@ def fake_monitor_process(_command, **kwargs):
 			(Path(directory) / 'cycle.completed').write_text('completed')
 			return 0, False
 		gui_monitor.cli_cycle = fake_cycle
-		def fake_once(directory, config_name, control, operation=None):
+		def fake_once(directory, config_name, control, operation=None, parameters=None):
 			(Path(directory) / 'operation.record').write_text(str(operation))
+			(Path(directory) / 'parameters.record').write_text(json.dumps(parameters or {}))
 			return fake_cycle(directory, config_name, control)
 		gui_monitor._cli_once = fake_once
 		sys.exit(gui_monitor.main())

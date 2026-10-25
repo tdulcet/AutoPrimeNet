@@ -311,7 +311,7 @@ class WindowTests(unittest.TestCase):
 				self.app.run_operation("test_email")
 			self.assertIsNone(self.app.monitor.process)
 			self.assertFalse(list(Path(directory).glob("*.bak")))
-			for key in OPERATIONS:
+			for key in ("ping", "test_email", "report_results", "upload_proofs"):
 				with self.subTest(operation=key), patch("autoprimenet_gui.messagebox.askyesno", return_value=True) as confirm:
 					self.app.run_operation(key)
 					process = self.app.monitor.process
@@ -345,6 +345,52 @@ class WindowTests(unittest.TestCase):
 				self.app.run_operation("report_results")
 				confirm.assert_not_called()
 			self.assertIn("unsaved", self.app.status.get())
+
+	def test_assignment_management_requires_typed_confirmation_and_snapshots(self):
+		from gui_controller import MonitorController
+		from test_gui_monitor import fake_monitor_process
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			(base / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\nComputerGUID=" + "a" * 32 + "\n")
+			work = b"Test=127,70,1\n"
+			(base / "worktodo.txt").write_bytes(work)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.monitor = MonitorController(process_factory=fake_monitor_process)
+			self.app.assignments.selection_set(self.app.assignments.get_children()[0])
+			with patch("autoprimenet_gui.simpledialog.askinteger", return_value=127) as exponent, patch("autoprimenet_gui.simpledialog.askstring", return_value="wrong phrase"):
+				self.app.run_operation("unreserve")
+				self.assertEqual(exponent.call_args.kwargs["initialvalue"], 127)
+			self.assertIsNone(self.app.monitor.process)
+			self.assertFalse(list(base.glob(".gui-assignment-backup-*")))
+			# Exercise and cancel the actual Tk confirmation, including its layout.
+			dimensions = []
+			def cancel_confirmation():
+				for window in self.root.winfo_children():
+					if hasattr(window, "cancel"):
+						dimensions.append((window.winfo_reqwidth(), window.winfo_reqheight()))
+						window.cancel()
+			self.root.after(150, cancel_confirmation)
+			self.app.run_operation("recover_all")
+			self.assertEqual(len(dimensions), 1)
+			self.assertLessEqual(dimensions[0][0], self.root.winfo_screenwidth())
+			self.assertLessEqual(dimensions[0][1], self.root.winfo_screenheight())
+			self.assertIsNone(self.app.monitor.process)
+			with patch("autoprimenet_gui.simpledialog.askinteger", return_value=127), patch("autoprimenet_gui.simpledialog.askstring", return_value="UNRESERVE 127") as confirm:
+				self.app.run_operation("unreserve")
+				self.assertIn("FIRST matching exponent", confirm.call_args.args[1].replace("\n", " "))
+				self.wait_until(lambda: not self.app.monitor.active and self.app.monitor.state == "Stopped")
+			self.assertEqual((base / "worktodo.txt").read_bytes(), work)
+			folders = list(base.glob(".gui-assignment-backup-*"))
+			self.assertEqual(len(folders), 1)
+			self.assertEqual((folders[0] / "worker-1-work.bin").read_bytes(), work)
+			self.assertIn("Private work/certification snapshot", self.app.activity.get("1.0", "end"))
+			with patch("autoprimenet_gui.simpledialog.askstring", return_value="RECOVER ALL"):
+				self.app.run_operation("recover_all")
+				self.wait_until(lambda: not self.app.monitor.active and self.app.monitor.state == "Stopped")
+			self.assertEqual(len(list(base.glob(".gui-assignment-backup-*"))), 2)
+			self.assertEqual((base / "operation.record").read_text(), "recover_all")
 
 	def test_unsaved_changes_can_cancel_reload_and_quit(self):
 		with tempfile.TemporaryDirectory() as directory:

@@ -13,7 +13,7 @@ from unittest.mock import patch
 from gui_config import ConfigDocument, WorkspaceError, save_configuration
 from gui_controller import ControllerError, MonitorController
 from gui_monitor import StopControl, _cli_once, run_operation
-from gui_operations import OPERATIONS
+from gui_operations import OPERATIONS, operation_arguments
 from test_gui_monitor import fake_monitor_process, fixture, wait_event
 
 
@@ -24,9 +24,13 @@ class OperationTests(unittest.TestCase):
 				control = StopControl()
 				control.begin.set()
 				events = []
+				parameters = {"exponent": 127} if OPERATIONS[operation].requires_exponent else {}
+				options = {"operation": operation}
+				if parameters:
+					options["parameters"] = parameters
 				with patch("gui_monitor._cli_once", return_value=(0, False)) as once:
-					self.assertEqual(run_operation("unused", "prime.ini", operation, control, events.append), 0)
-					once.assert_called_once_with("unused", "prime.ini", control, operation=operation)
+					self.assertEqual(run_operation("unused", "prime.ini", operation, control, events.append, parameters=parameters), 0)
+					once.assert_called_once_with("unused", "prime.ini", control, **options)
 				self.assertEqual([event["event"] for event in events], ["ready", "cycle_started", "operation_finished", "stopped"])
 				self.assertEqual(events[-2]["server_confirmation"], "unverified")
 
@@ -57,9 +61,10 @@ class OperationTests(unittest.TestCase):
 		for key, operation in OPERATIONS.items():
 			with self.subTest(operation=key), patch("gui_monitor.subprocess.Popen") as popen:
 				popen.return_value.wait.return_value = 0
-				self.assertEqual(_cli_once("fixture workspace", "private.ini", StopControl(), operation=key), (0, False))
+				parameters = {"exponent": 127} if operation.requires_exponent else {}
+				self.assertEqual(_cli_once("fixture workspace", "private.ini", StopControl(), operation=key, parameters=parameters), (0, False))
 				arguments = popen.call_args.args[0]
-				self.assertEqual(arguments[3:], ["--workdir", "fixture workspace", "--config-file", "private.ini", "--timeout", "0", *operation.flags])
+				self.assertEqual(arguments[3:], ["--workdir", "fixture workspace", "--config-file", "private.ini", "--timeout", "0", *operation_arguments(key, parameters)])
 				self.assertEqual(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
 				self.assertEqual(popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
 				self.assertNotIn("shell", popen.call_args.kwargs)

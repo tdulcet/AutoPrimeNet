@@ -168,7 +168,7 @@ class MonitorController:
 	def active(self):
 		return self.process is not None and self.process.poll() is None
 
-	def start(self, document, operation=None):
+	def start(self, document, operation=None, parameters=None):
 		if self.active:
 			raise ControllerError("A GUI-owned AutoPrimeNet runner is already active.")
 		if document.version is None:
@@ -178,10 +178,16 @@ class MonitorController:
 			"config_sha256": hashlib.sha256(document.data).hexdigest(),
 		}
 		if operation is not None:
-			from gui_operations import OPERATIONS
-			if operation not in OPERATIONS:
-				raise ControllerError("Unsupported one-shot operation.")
+			from gui_operations import operation_arguments
+			try:
+				operation_arguments(operation, parameters)
+			except ValueError as error:
+				raise ControllerError(str(error)) from error
 			request["operation"] = operation
+			if parameters:
+				request["parameters"] = parameters
+		elif parameters:
+			raise ControllerError("Scheduled monitoring does not accept operation parameters.")
 		try:
 			process = self._process_factory(
 				[sys.executable, "-B", str(ROOT / "gui_monitor.py")],

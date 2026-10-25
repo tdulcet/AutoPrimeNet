@@ -5,8 +5,8 @@ AutoPrimeNet. The current desktop foundation provides local previews, initial
 configuration forms with validated saving, scheduled CLI monitoring, confirmed
 one-shot commands and experimental macOS/Windows tray integration. Starting
 monitoring or confirming a server/email command performs real external
-operations. Immediate file watching, assignment recovery/unreservation and
-exponent registration remain unfinished. This is not a complete GUI release.
+operations. Immediate file watching and exponent registration remain unfinished.
+This is not a complete GUI release.
 See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
 
 ## Python requirements
@@ -441,6 +441,12 @@ for confirmation, describing its effects and showing its fixed CLI flags:
 | Notifications → Send test email… | `--test-email` | Sends the backend's test message to configured recipients |
 | Assignments → Report results… | `--report-results` | Submits pending results for all configured workers |
 | Assignments → Report results and upload proofs… | `--upload-proofs` | Reports results and uploads available PRP proofs, using configured archive/delete behavior |
+| Assignments → Pause new-work requests… | `--no-more-work` | Sets local QuitGIMPS policy; existing computation/reservations continue |
+| Assignments → Resume new-work requests… | `--resume-work` | Removes QuitGIMPS policy; future cycles may request new assignments |
+| Assignments → Recover assignments… | `--recover` | Reports results and overwrites work/certification files with recovered assignments |
+| Assignments → Recover all assignments… | `--recover-all` | Also includes expired PrimeNet work and broader TF1G recovery |
+| Assignments → Unreserve an exponent… | `--unreserve EXPONENT` | Releases/removes the first locally matching exponent across workers |
+| Assignments → Unreserve all assignments… | `--unreserve-all` | Reports results and releases assignments represented by configured workers |
 
 The email test requires a saved SMTP server, From address and notification
 sending enabled. Its message contains version, username, computer name and GUID
@@ -471,8 +477,63 @@ into the GUI. A zero exit code records local completion only; some CLI paths
 log server errors without returning failure. The GUI therefore leaves server
 acceptance and message delivery unverified. Review the log and refresh local
 snapshots after completion. CLI-reference navigation focuses the corresponding
-button without running it. Experimental v6 ping, full debug reports, assignment
-recovery/unreservation and exponent registration are not implemented yet.
+button without running it. Experimental v6 ping, full debug reports and exponent
+registration are not implemented yet.
+
+### Recovery, unreservation and new-work policy
+
+**Pause new-work requests** and **Resume new-work requests** are local policy
+commands. They do not stop computation, stop monitoring, release reservations,
+or fetch work immediately. Refresh the preview afterward to see the configured
+request state. Stop an active GUI runner before changing this policy.
+
+Pause affected computation engines before recovery or unreservation. The GUI
+does not pause them for you. Recovery replaces the work and certification files
+for the active worker configuration and requires an existing computer GUID.
+**Recover all** additionally includes expired PrimeNet assignments and can
+recover TF1G reservations from all systems/workers into the first worker, under
+the original backend's rules. Recovery may report pending results first.
+
+**Unreserve an exponent** opens an integer form, prefilled from the selected
+local table row when available. The CLI operates on the **first matching
+exponent across configured workers**, regardless of which worker/AID row was
+selected. The helper verifies that the exponent still appears in the current
+local work files before launch. This is not confirmation of a server reservation.
+Use it only when you will not finish that assignment. **Unreserve all** reports
+pending results and releases assignments represented by the active workers;
+for TF1G it can release all assignments associated with a worker.
+
+These four commands require an exact typed confirmation:
+
+| Command | Required phrase |
+| --- | --- |
+| Recover assignments | `RECOVER` |
+| Recover all assignments | `RECOVER ALL` |
+| Unreserve exponent 127 (example) | `UNRESERVE 127` |
+| Unreserve all assignments | `UNRESERVE ALL` |
+
+Before launch, the helper creates an owner-private directory named
+`.gui-assignment-backup-<unique-id>` in the workspace. It snapshots each active
+worker's work and certification files byte-for-byte, including PRPLL's indexed
+filenames, and records absent files in `manifest.json`. The manifest identifies
+original paths, backup filenames, sizes and SHA-256 hashes. GUI activity records
+the snapshot directory. Finder and other file managers may hide dot directories;
+on macOS, Command–Shift–Period shows them.
+
+Snapshots refuse symlinks, nonregular files, files over 2 MiB, combined contents
+over 16 MiB, or detected concurrent changes. A snapshot failure prevents launch
+and removes its incomplete directory. The native CLI instance lock is held
+during this preflight, but computation engines can still alter files afterward.
+These are point-in-time copies, not a transaction or an engine checkpoint.
+
+Snapshots do not include result files, proof/checkpoint data or server state.
+Do not blindly restore work files after unreservation: copying an old file back
+cannot restore a released reservation and can cause invalid/duplicate work.
+For any manual recovery, stop AutoPrimeNet and the computation engine, inspect
+the private manifest and current reservations, and restore only files appropriate
+to the current state. No automatic restore or server rollback is implemented.
+Recovery/unreservation have been tested with simulated command bodies only;
+never change real reservations merely to test these controls.
 
 ### Scheduled monitoring
 

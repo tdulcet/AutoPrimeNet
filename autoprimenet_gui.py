@@ -14,11 +14,12 @@ if sys.version_info < (3, 15):
 import argparse
 from pathlib import Path
 import queue
+import textwrap
 import time
 
 try:
 	import tkinter as tk
-	from tkinter import filedialog, messagebox, ttk
+	from tkinter import filedialog, messagebox, simpledialog, ttk
 except ImportError:
 	print("Tkinter is unavailable. Install the Tk bindings matching this Python; see GUI.md.", file=sys.stderr)
 	sys.exit(2)
@@ -27,7 +28,7 @@ from gui_config import WorkspaceError, load_editor_workspace, save_configuration
 from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request
 from gui_forms import ConfigurationForms
 from gui_options import field_for_destination
-from gui_operations import OPERATIONS, operation_for_destination
+from gui_operations import OPERATIONS, operation_arguments, operation_for_destination
 
 
 TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
@@ -106,9 +107,16 @@ class Application:
 			self.tabs[name] = frame
 		self.editor = ConfigurationForms(self)
 		self.operation_buttons = {}
+		operation_frames, operation_counts = {}, {}
 		for key, operation in OPERATIONS.items():
-			button = ttk.Button(self.tabs[operation.tab], text=operation.title + "…", command=lambda key=key: self.run_operation(key))
-			button.pack(anchor="w", pady=(0, 6))
+			if operation.tab not in operation_frames:
+				frame = operation_frames[operation.tab] = ttk.Frame(self.tabs[operation.tab])
+				frame.pack(anchor="w", fill="x", pady=(0, 6))
+				operation_counts[operation.tab] = 0
+			index = operation_counts[operation.tab]
+			button = ttk.Button(operation_frames[operation.tab], text=operation.title + "…", command=lambda key=key: self.run_operation(key))
+			button.grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 8), pady=(0, 6))
+			operation_counts[operation.tab] += 1
 			self.operation_buttons[key] = button
 		ttk.Label(self.tabs["Dashboard"], text="Local workspace", font=("TkDefaultFont", 16)).pack(anchor="w")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.summary, justify="left", wraplength=720).pack(anchor="w", pady=12)
@@ -268,11 +276,32 @@ class Application:
 		if document.version is None:
 			self.status.set("Save the configuration before running an operation.")
 			return
-		command = " ".join((*operation.flags, "--timeout", "0"))
-		if not messagebox.askyesno(operation.title, operation.effects + "\n\nRun once for the selected workspace? The CLI can update its configuration and runtime files. A private configuration backup is created first; it does not roll back server actions or proof/result changes.\n\nCLI options: " + command + "\n\nCompletion alone does not confirm server acceptance or message delivery. Check the AutoPrimeNet log. Stop waits for this command to finish; computation engines are not started or stopped.", parent=self.root):
+		parameters = {}
+		if operation.requires_exponent:
+			initial = None
+			selected = self.assignments.selection()
+			if selected:
+				try:
+					initial = int(self.assignments.item(selected[0], "values")[1])
+				except (ValueError, TypeError):
+					pass
+			exponent = simpledialog.askinteger(operation.title, "Exponent to unreserve (the CLI uses the first match across workers, not a selected AID):", initialvalue=initial, minvalue=2, maxvalue=9999999999, parent=self.root)
+			if exponent is None:
+				return
+			parameters["exponent"] = exponent
+		command = " ".join((*operation_arguments(key, parameters), "--timeout", "0"))
+		prompt = operation.effects + "\n\nRun once for the selected workspace? The CLI can update its configuration and runtime files. A private configuration backup is created first; it does not roll back server actions or proof/result changes.\n\nCLI options: " + command + "\n\nCompletion alone does not confirm server acceptance or message delivery. Check the AutoPrimeNet log. Stop waits for this command to finish; computation engines are not started or stopped."
+		if operation.confirmation:
+			phrase = operation.confirmation + (" " + str(parameters["exponent"]) if operation.requires_exponent else "")
+			prompt += "\n\nPrivate snapshots of work/certification files are required before launch. Pause affected computation engines; snapshots cannot prevent later file changes or undo reservation releases.\n\nType " + phrase + " to proceed:"
+			wrapped = "\n".join(textwrap.fill(line, width=88) for line in prompt.splitlines())
+			confirmed = simpledialog.askstring(operation.title, wrapped, parent=self.root) == phrase
+		else:
+			confirmed = messagebox.askyesno(operation.title, prompt, parent=self.root)
+		if not confirmed:
 			return
 		try:
-			self.monitor.start(document, operation=key)
+			self.monitor.start(document, operation=key, parameters=parameters)
 		except ControllerError as error:
 			self.status.set(str(error))
 			return
@@ -391,6 +420,8 @@ class Application:
 				self.log("One-shot operation ready." if self.active_operation else "Scheduled runner ready; interval {} seconds.".format(message["interval"]))
 				if message.get("backup_created"):
 					self.log("A private configuration backup was created before starting AutoPrimeNet.")
+				if message.get("assignment_backup"):
+					self.log("Private work/certification snapshot: " + message["assignment_backup"])
 			elif event == "cycle_started":
 				if self.monitor.state != "Stopping":
 					self.update_monitor_state("Running cycle")
