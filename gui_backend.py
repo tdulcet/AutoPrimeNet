@@ -169,6 +169,10 @@ def _validate_config(namespace, tree, boundary, request):
 
 	parser.error = reject
 	namespace["check_options"](parser, args)
+	for attribute in ("work_file", "results_file", "logfile", "archive_dir"):
+		value = getattr(args, attribute, None)
+		if value and Path(value).name.casefold() in {"~lock", "~gui-monitor.lock", ".gui-runner.guard"}:
+			raise BackendError("Work/results/log/archive paths must not use reserved instance-lock filenames.")
 	if not 1 <= args.num_workers <= 128:
 		raise BackendError("GUI configuration supports 1–128 workers.")
 	if args.timeout < 0 or 0 < args.timeout < 1800 or args.timeout > args.hours_between_checkins * 3600:
@@ -183,7 +187,7 @@ def _validate_config(namespace, tree, boundary, request):
 		"work_preferences": args.work_preference, "supported_preferences": sorted(namespace["SUPPORTED"]),
 		"results_file": args.results_file, "days_of_work": args.days_of_work,
 		"timeout": args.timeout, "checkin_hours": args.hours_between_checkins,
-		"watch": args.watch is not False, "debug_level": args.debug,
+		"watch": args.watch is not False, "debug_level": args.debug, "require_lock": args.lock is not False,
 		"network_enabled": False, "configuration_written": False,
 	}
 

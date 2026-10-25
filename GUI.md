@@ -725,13 +725,42 @@ If the GUI process disappears unexpectedly, pipe EOF requests a graceful runner
 shutdown; it may still wait for the active cycle. This is not a guarantee of
 immediate shutdown when files or network operations are blocked.
 
-The GUI holds `~gui-monitor.lock` across cycles to prevent duplicate GUI runners
-and configuration saves. Each CLI pass holds its own normal `~lock`. An independent
-CLI can start between passes; a subsequent conflicting pass fails its native
-lock and the GUI runner stops, without terminating the independent process.
-Lock files can remain after exit; existence alone does not mean an OS lock is
-held. Do not delete them to bypass a live process. Refresh after stopping before
-editing/restarting, because the CLI may have updated configuration/state.
+The GUI holds `.gui-runner.guard` across monitoring/actions/saves and also
+attempts `~gui-monitor.lock`. The continuous CLI child holds its own normal
+`~lock` for its lifetime; one-shot/one-pass children acquire it for each process.
+Native lock files can remain after exit; their existence alone does not mean an
+OS lock is held. Do not delete them to bypass a live process. Refresh after
+stopping before editing/restarting, because backend state may have changed.
+
+### Native instance-lock policy
+
+**Settings → Edit connection settings → Require successful native instance
+locking** maps to the original `[PrimeNet] require_lock` / `--lock` / `--no-lock`
+policy. Blank or True is strict (default). False still attempts native locks and
+refuses known live-owner errors (`EAGAIN`/`EACCES`); like the original CLI, it can
+continue after other native-lock acquisition errors. Opening a lock file and
+creating the GUI ownership guard must still succeed. Symbolic-link native lock
+paths remain refused. Per-work-file `.lck` synchronization is unchanged.
+
+The atomic GUI guard is mandatory in both policies. It coordinates GUI runners
+and configuration saves independently of native lock support. Optional native
+locking does not protect against an independent CLI that cannot be detected by
+the filesystem's locking mechanism. Verify no independent AutoPrimeNet uses the
+workspace before Save/Start/actions. Existing confirmations describe this when
+False is selected. The GUI logs when preflight native locking was unverified;
+the backend log records any later original CLI lock warnings. This mode is for
+filesystems with native-lock problems, not for running concurrent handlers.
+
+The guard is an exclusively created owner-private file containing host, PID and
+a random owner token. It is removed on normal context exit only if its original
+file identity and owner token still match. It is not automatically removed when
+already present, including after an abnormal process exit. If startup reports a
+stale `.gui-runner.guard`, inspect it in a text editor and verify that no GUI,
+supervisor, CLI child or independent AutoPrimeNet uses the workspace, then remove
+only that stale guard with your file manager. A dead recorded PID alone is not
+proof that its child has finished draining active work. Never remove a guard
+belonging to an active run. Locking behavior on real network/unsupported
+filesystems remains part of deferred manual acceptance testing.
 
 Automated tests use disposable workspaces and simulated cycles. A live monitoring
 trial has not been performed. Starting against a real workspace is an operational

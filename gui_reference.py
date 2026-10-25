@@ -17,7 +17,6 @@ EXTRA = {
 	"debug_info": ("Logs & Status", "Export private diagnostics", "Available"),
 	"help": ("Advanced", "Original CLI help / searchable reference", "Available"),
 	"version": ("Advanced", "Help → About", "Available"),
-	"lock": (None, "GUI requires locks; disabling locking is unsupported", "CLI only"),
 	"prime95": (None, "Hidden experimental Prime95 mode is not exposed", "Hidden / CLI only"),
 	"password": (None, "Legacy account-password feature was removed upstream", "Removed upstream"),
 }

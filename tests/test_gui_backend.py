@@ -43,6 +43,8 @@ class BackendTests(unittest.TestCase):
 		self.assertEqual(reference_info("timeout")[2], "Available")
 		self.assertEqual(reference_info("setup")[2], "Available")
 		self.assertEqual(reference_info("watch")[2], "Available")
+		self.assertEqual(reference_info("lock")[2], "Available")
+		self.assertEqual(sum(reference_info(item["dest"])[2] == "Available" for item in result["cli_options"]), 94)
 	def run_bridge(self, request, source=None):
 		with tempfile.TemporaryDirectory() as directory:
 			command = [sys.executable, "-B", str(BRIDGE)]

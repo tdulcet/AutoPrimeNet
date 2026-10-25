@@ -14,11 +14,10 @@ Generated from the same option inventory and coverage metadata used by the GUI r
 - **Hidden / CLI only**: hidden experimental upstream behavior is not exposed.
 - **Removed upstream**: the original backend rejects this legacy feature.
 
-Current parser-entry coverage: 92 Available, 0 Partial, 2 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
+Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
 
 ## Remaining workflow gaps
 
-- `--lock` / `--no-lock`: GUI startup always requires its runner lease and the native instance lock. It cannot bypass locking on unsupported filesystems.
 - Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
 - Live registration, assignment changes, email, proof/result operations and v6 ping remain unvalidated. Tests use offline probes or simulated API responses. Python 3.15.0 itself and Windows/Linux/FreeBSD runtime coverage remain pending.
 
@@ -99,8 +98,8 @@ Batch registration supports one configured worker and up to 100 entries per oper
 | `--no-version-check` | `version_check` | Available | Settings → Behavior → Check for AutoPrimeNet/engine updates |
 | `--version-check` | `version_check` | Available | Settings → Behavior → Check for AutoPrimeNet/engine updates |
 | `--version-check-channel` | `version_check_channel` | Available | Settings → Behavior → Preferred update channel (blank: stable) |
-| `--no-lock` | `lock` | CLI only | GUI requires locks; disabling locking is unsupported |
-| `--lock` | `lock` | CLI only | GUI requires locks; disabling locking is unsupported |
+| `--no-lock` | `lock` | Available | Settings → Connection → Require successful native instance locking |
+| `--lock` | `lock` | Available | Settings → Connection → Require successful native instance locking |
 | `--no-watch` | `watch` | Available | Settings → Behavior → Watch results/proof files immediately |
 | `--watch` | `watch` | Available | Settings → Behavior → Watch results/proof files immediately |
 | `--no-encrypt` | `encrypt` | Available | Settings → Connection → Backend password encryption policy |

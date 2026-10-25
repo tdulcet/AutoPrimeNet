@@ -234,6 +234,33 @@ class WindowTests(unittest.TestCase):
 				self.assertIn("debug verbosity", self.app.status.get())
 				confirm.assert_not_called()
 
+	def test_native_lock_policy_controls_save_and_confirmation(self):
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			(base / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.search.set("--no-lock")
+			row = self.app.reference.get_children()[0]
+			self.assertEqual(self.app.reference.item(row, "values")[-1], "Available")
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			self.app.editor.options_values["require_lock"].set("False")
+			self.assertTrue(self.app.editor.apply_options())
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True) as confirm:
+				self.app.save()
+				self.assertIn("Native-lock success is not required", confirm.call_args.args[1])
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertFalse(self.app.editor.document.config.getboolean("PrimeNet", "require_lock"))
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False) as confirm:
+				self.app.start_monitoring()
+				self.assertIn("independent CLI", confirm.call_args.args[1])
+				self.app.run_operation("status")
+				self.assertIn("atomic ownership guard", confirm.call_args.args[1])
+			self.assertFalse(self.app.monitor.active)
+			self.assertFalse((base / ".gui-runner.guard").exists())
+
 	def test_navigation_search_workspace_and_repeated_refresh(self):
 		self.assertEqual(len(self.app.notebook.tabs()), 8)
 		for frame in self.app.tabs.values():
@@ -476,7 +503,7 @@ class WindowTests(unittest.TestCase):
 			self.app.reference.selection_set(row)
 			self.app.open_reference_setting()
 			editor = self.app.editor
-			self.assertEqual(set(editor.options_values), {"proxy_type", "ProxyHost", "ProxyUser", "encrypt"})
+			self.assertEqual(set(editor.options_values), {"proxy_type", "ProxyHost", "ProxyUser", "encrypt", "require_lock"})
 			editor.options_values["proxy_type"].set("http")
 			editor.options_values["ProxyHost"].set("localhost:8080")
 			editor.options_values["ProxyUser"].set("fixture-proxy-user")

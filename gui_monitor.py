@@ -272,10 +272,11 @@ def main():
 			raise WorkspaceError("The original CLI cannot read UTF-8 BOM configurations. Keep a backup and save the INI as UTF-8 without BOM in your text editor, then refresh.")
 		if document.version is None or hashlib.sha256(document.data).hexdigest() != request["config_sha256"]:
 			raise WorkspaceError("Configuration changed. Reload before starting monitoring.")
-		with instance_lease(document.directory, "~gui-monitor.lock"):
+		require_lock = document.config.getboolean("PrimeNet", "require_lock", fallback=True)
+		with instance_lease(document.directory, "~gui-monitor.lock", require_lock=require_lock) as gui_locked:
 			# Check the CLI lock once before launch. Its own startup locks each
 			# subsequent cycle, protecting against an independent CLI instance.
-			with instance_lease(document.directory):
+			with instance_lease(document.directory, require_lock=require_lock) as cli_locked:
 				settings = backend_request("validate_config", directory=str(document.directory), config_name=document.path.name, text=document.text)
 				if operation in {"recover", "recover_all", "register_exponents"} and not document.config.get("PrimeNet", "ComputerGUID", fallback=""):
 					raise WorkspaceError("This operation requires an existing computer registration. No assignments were requested.")
@@ -307,7 +308,7 @@ def main():
 			threading.Thread(target=control.read, args=(control_stream,), name="MonitorControl", daemon=True).start()
 			def report(message):
 				if message["event"] == "ready":
-					message = {**message, "backup_created": True, "assignment_backup": assignment_backup}
+					message = {**message, "backup_created": True, "assignment_backup": assignment_backup, "native_lock_unverified": not (gui_locked and cli_locked)}
 				emit(message)
 			if operation is not None:
 				return run_operation(document.directory, document.path.name, operation, control, report, parameters=parameters, expected_hash=hashlib.sha256(document.data).hexdigest())

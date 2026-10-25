@@ -134,7 +134,7 @@ class ConfigurationForms:
 			widget.bind("<FocusIn>", lambda event: canvas.yview_moveto(max(0, (event.widget.winfo_y() - 20) / max(1, frame.winfo_height()))))
 		help_text = ("Total physical memory (memory) and maximum stage 2 memory (Memory) are separate settings. Maximum memory cannot exceed total memory.\nUse Detect GPUs to review local devices. Blank hardware overrides use CPU detection/defaults." if hardware else "P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.")
 		if connection:
-			help_text = "SOCKS proxies require the optional PySocks package. Encryption True is strict; blank uses opportunistic encryption in the CLI.\nThe GUI always requires encryption for new passwords. Existing encrypted passwords require encryption enabled or inherited."
+			help_text = "SOCKS proxies require the optional PySocks package. Encryption True is strict; blank uses opportunistic encryption in the CLI.\nThe GUI always requires encryption for new passwords. Existing encrypted passwords require encryption enabled or inherited.\nLock policy blank/True is strict. False still refuses known live owners; it tolerates other native-lock errors. The atomic GUI guard is always required."
 		elif behavior:
 			help_text = "Polling: 0 for one pass, or ≥1800 seconds and no longer than check-ins. Blank watch policy enables watching.\nDebug 0: normal; 1: detailed log; 2: HTTP/SMTP trace; 3: all logging. Raw traces may contain passwords/tokens/message bodies.\nPolling/debug are GUI preferences; the standalone CLI needs --timeout/--debug. View private traces in Logs & Status."
 		elif not hardware:

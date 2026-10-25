@@ -45,6 +45,8 @@ def fake_monitor_process(_command, **kwargs):
 		gui_monitor._cli_once = fake_once
 		sys.exit(gui_monitor.main())
 	''')
+	if kwargs.pop("simulate_lock_failure", False):
+		code = code.replace("sys.exit(gui_monitor.main())", "import gui_config, errno\ndef unavailable(stream):\n    raise OSError(errno.ENOSYS, 'fixture unsupported locking')\ngui_config._lock_stream = unavailable\nsys.exit(gui_monitor.main())")
 	return subprocess.Popen([sys.executable, "-B", "-c", code], **kwargs)
 
 

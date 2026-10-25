@@ -5,13 +5,17 @@ SPDX-License-Identifier: GPL-3.0-only
 """
 
 from configparser import ConfigParser, Error as ConfigError
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+import errno
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import stat
+import socket
+import uuid
 import tempfile
 
 from gui_controller import backend_request
@@ -110,33 +114,99 @@ def inspect_workspace(directory, config_name="prime.ini"):
 	return snapshot
 
 
+GUI_GUARD = ".gui-runner.guard"
+
+
+def lock_policy_notice(config):
+	if config.getboolean("PrimeNet", "require_lock", fallback=True):
+		return ""
+	return "\n\nNative lock success is not required. Known live owners are still refused, and the GUI retains its atomic ownership guard. If native locking fails, an independent CLI instance may not be detectable. Verify no independent AutoPrimeNet uses this workspace."
+
+
+def _lock_stream(stream):
+	if os.name == "nt":
+		import msvcrt
+		msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+	else:
+		import fcntl
+		fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 @contextmanager
-def instance_lease(directory, filename="~lock"):
-	"""Use the same byte/flock lock as the CLI, without truncating its file."""
-	if filename not in {"~lock", "~gui-monitor.lock"}:
-		raise ValueError("Unsupported instance lock name")
-	path = Path(directory) / filename
-	if path.is_symlink():
-		raise WorkspaceError("Refusing a symbolic-link instance lock.")
+def _gui_guard(directory):
+	"""Atomic cooperative ownership, independent of native locking support."""
+	path = Path(directory) / GUI_GUARD
+	contents = json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "token": uuid.uuid4().hex}).encode("utf-8")
 	try:
-		descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
-		stream = os.fdopen(descriptor, "r+b")
+		descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+	except FileExistsError as error:
+		raise WorkspaceError("The GUI instance lock guard already exists. Stop its owner; inspect a stale .gui-runner.guard manually before retrying.") from error
 	except OSError as error:
-			raise WorkspaceError("Cannot open the AutoPrimeNet instance lock for this workspace.") from error
+		raise WorkspaceError("Cannot create the GUI instance lock guard in this workspace.") from error
+	opened = os.fstat(descriptor)
+	identity = None
 	try:
-		try:
-			if os.name == "nt":
-				import msvcrt
-				msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-			else:
-				import fcntl
-				fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-		except OSError as error:
-			raise WorkspaceError("AutoPrimeNet or its scheduled runner is running, or its instance lock cannot be acquired. Stop it before changing the workspace.") from error
-		yield
+		with os.fdopen(descriptor, "wb") as stream:
+			stream.write(contents)
+			stream.flush()
+			os.fsync(stream.fileno())
+			info = os.fstat(stream.fileno())
+			identity = (info.st_dev, info.st_ino)
+			yield
 	finally:
-		# Closing releases the OS lock. Never unlink the shared lock inode.
-		stream.close()
+		# The descriptor closes before unlink on Windows. Never remove a guard
+		# that was replaced/modified. Windows can update mtime on handle close,
+		# so verify the owner token and inode rather than timestamps.
+		try:
+			current = path.lstat()
+			owned = stat.S_ISREG(current.st_mode) and (current.st_dev, current.st_ino) == (opened.st_dev, opened.st_ino)
+			if owned and identity is not None:
+				with os.fdopen(os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)), "rb") as check:
+					info = os.fstat(check.fileno())
+					owned = stat.S_ISREG(info.st_mode) and (info.st_dev, info.st_ino) == identity and check.read(len(contents) + 1) == contents
+				current = path.lstat()
+				owned = owned and stat.S_ISREG(current.st_mode) and (current.st_dev, current.st_ino) == identity
+			if owned:
+				path.unlink()
+		except FileNotFoundError:
+			pass
+
+
+@contextmanager
+def instance_lease(directory, filename="~lock", require_lock=True):
+	"""Attempt original native locking; never bypass a known live owner."""
+	if filename not in {"~lock", "~gui-monitor.lock"} or type(require_lock) is not bool:
+		raise ValueError("Unsupported instance lock request")
+	with _gui_guard(directory) if filename == "~gui-monitor.lock" else nullcontext():
+		path = Path(directory) / filename
+		if path.is_symlink():
+			raise WorkspaceError("Refusing a symbolic-link instance lock.")
+		try:
+			descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0), 0o600)
+			try:
+				if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+					raise WorkspaceError("Instance lock paths must be regular files.")
+				stream = os.fdopen(descriptor, "r+b")
+			except BaseException:
+				try:
+					os.close(descriptor)
+				except OSError:
+					pass
+				raise
+		except OSError as error:
+			raise WorkspaceError("Cannot open the AutoPrimeNet instance lock for this workspace.") from error
+		try:
+			locked = True
+			try:
+				_lock_stream(stream)
+			except OSError as error:
+				if require_lock or error.errno in {errno.EAGAIN, errno.EACCES}:
+					raise WorkspaceError("AutoPrimeNet or its scheduled runner is running, or its instance lock cannot be acquired. Stop it before changing the workspace.") from error
+				locked = False
+			yield locked
+		finally:
+			# Closing releases the OS lock. Never unlink the shared native inode.
+			stream.close()
 
 
 def _file_version(path):
@@ -230,7 +300,7 @@ class ConfigDocument:
 
 	def __init__(self, directory, config_name="prime.ini"):
 		self.directory = Path(directory).expanduser().resolve()
-		if not self.directory.is_dir() or not config_name or Path(config_name).name != config_name or config_name in {".", "..", "~lock", "~gui-monitor.lock"}:
+		if not self.directory.is_dir() or not config_name or Path(config_name).name != config_name or config_name.casefold() in {".", "..", "~lock", "~gui-monitor.lock", GUI_GUARD}:
 			raise WorkspaceError("Select an existing working directory and valid configuration filename.")
 		if config_name.lower().endswith((".lck", ".proof", ".proof.tmp", ".add")):
 			raise WorkspaceError("Configuration filename must not be a lock, proof or work-import file.")
@@ -368,7 +438,11 @@ def _credential_patch(text, document, changes):
 
 
 def save_configuration(document, values, engine, workers, credentials=None):
-	with instance_lease(document.directory, "~gui-monitor.lock"), instance_lease(document.directory):
+	try:
+		require_lock = validate_fields(values)["require_lock"] != "False"
+	except ValueError as error:
+		raise WorkspaceError(str(error)) from error
+	with instance_lease(document.directory, "~gui-monitor.lock", require_lock=require_lock), instance_lease(document.directory, require_lock=require_lock):
 		if _file_version(document.path)[0] != document.version:
 			raise WorkspaceError("Configuration changed outside the GUI. Reload before saving.")
 		if document.version is not None and (not document.path.stat().st_mode & 0o222 or not os.access(document.path, os.W_OK)):

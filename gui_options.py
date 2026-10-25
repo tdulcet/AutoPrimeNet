@@ -55,6 +55,7 @@ FIELDS = (
 	Field("ProxyHost", "Proxy server (optional hostname:port)", "Settings", destination="proxy", dialog="Connection"),
 	Field("ProxyUser", "Proxy username (optional)", "Settings", destination="proxy_username", dialog="Connection"),
 	Field("encrypt", "Backend password encryption policy", "Settings", kind="boolean", dialog="Connection"),
+	Field("require_lock", "Require successful native instance locking", "Settings", kind="boolean", destination="lock", dialog="Connection"),
 	Field("version_check", "Check for AutoPrimeNet/engine updates", "Settings", kind="boolean", dialog="Behavior"),
 	Field("version_check_channel", "Preferred update channel (blank: stable)", "Settings", kind="choice", choices=("", "alpha", "beta", "stable"), dialog="Behavior"),
 	Field("color", "Native CLI console color", "Settings", kind="boolean", dialog="Behavior"),

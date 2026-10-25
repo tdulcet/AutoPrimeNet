@@ -24,7 +24,7 @@ except ImportError:
 	print("Tkinter is unavailable. Install the Tk bindings matching this Python; see GUI.md.", file=sys.stderr)
 	sys.exit(2)
 
-from gui_config import WorkspaceError, load_editor_workspace, save_configuration
+from gui_config import WorkspaceError, load_editor_workspace, save_configuration, lock_policy_notice
 from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request
 from gui_forms import ConfigurationForms
 from gui_options import field_for_destination
@@ -246,7 +246,7 @@ class Application:
 		except ValueError as error:
 			self.status.set(str(error))
 			return
-		if not messagebox.askyesno("Save local configuration", "Validate and save the displayed settings locally? An existing configuration will be backed up. No server will be contacted. Stop any independently running AutoPrimeNet before saving.", parent=self.root):
+		if not messagebox.askyesno("Save local configuration", ("" if values["require_lock"] != "False" else "Native-lock success is not required for this save. Verify no independent AutoPrimeNet uses this workspace.\n\n") + "Validate and save the displayed settings locally? An existing configuration will be backed up. No server will be contacted. Stop any independently running AutoPrimeNet before saving.", parent=self.root):
 			return
 		if self.jobs.submit("save", save_configuration, document, values, engine, workers, credentials):
 			self.status.set("Validating and saving local configuration…")
@@ -285,9 +285,9 @@ class Application:
 			self.status.set("Polling must be 0 or at least 1800 seconds, and no longer than the progress check-in interval.")
 			return
 		try:
-			trace_text = trace_notice(document)
+			trace_text = trace_notice(document) + lock_policy_notice(document.config)
 		except ValueError:
-			self.status.set("Correct and save debug verbosity before running AutoPrimeNet.")
+			self.status.set("Correct and save debug verbosity or instance-lock policy before running AutoPrimeNet.")
 			return
 		cadence = "Run one complete pass, then stop." if interval == 0 else f"Poll every {interval} seconds; report progress every {hours} hour(s). " + ("Watch results and proof files immediately." if watch else "Check results and proofs at each poll.")
 		if not messagebox.askyesno("Start monitoring", cadence + trace_text + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. Computation engines are never started or stopped.", parent=self.root):
@@ -337,9 +337,9 @@ class Application:
 		command = " ".join((*operation_arguments(key, parameters), "--timeout", "0"))
 		prompt = operation.effects + "\n\nRun once for the selected workspace? The CLI can update its configuration and runtime files. A private configuration backup is created first; it does not roll back server actions or proof/result changes.\n\nCLI options: " + command + "\n\nCompletion alone does not confirm server acceptance or message delivery. Check the AutoPrimeNet log. Stop waits for this command to finish; computation engines are not started or stopped."
 		try:
-			prompt += trace_notice(document)
+			prompt += trace_notice(document) + lock_policy_notice(document.config)
 		except ValueError:
-			self.status.set("Correct and save debug verbosity before running AutoPrimeNet.")
+			self.status.set("Correct and save debug verbosity or instance-lock policy before running AutoPrimeNet.")
 			return
 		if key == "register_exponents":
 			prompt += "\n\nWorker: {}. Batch size: {}. Review the offline work-line preview before continuing.".format(parameters["worker"], len(parameters["entries"]))
@@ -539,6 +539,8 @@ class Application:
 				self.native_monitor = message.get("native_scheduler", False)
 				self.monitor_watch = message.get("watch", False)
 				self.log("One-shot operation ready." if self.active_operation else "Monitoring runner ready; polling interval {} seconds.".format(message["interval"]))
+				if message.get("native_lock_unverified"):
+					self.log("Native lock acquisition was not verified. The atomic GUI ownership guard is active; independent CLI exclusion cannot be guaranteed.")
 				if message.get("backup_created"):
 					self.log("A private configuration backup was created before starting AutoPrimeNet.")
 				if message.get("assignment_backup"):
