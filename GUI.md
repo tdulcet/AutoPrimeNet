@@ -1,0 +1,218 @@
+# AutoPrimeNet GUI
+
+The planned optional Tkinter/ttk GUI will provide a graphical interface to
+AutoPrimeNet. Development has started with an offline backend prototype; the
+desktop GUI is not available yet. This document records the agreed requirements
+and environment setup rather than installation instructions for a finished GUI.
+See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
+
+## Python requirements
+
+**The GUI requires Python 3.15.0 or later.** This minimum supersedes the original
+Python 3.4 compatibility requirement for the GUI, its supporting modules, and
+GUI-specific tests. New GUI code may use features available in Python 3.15.0.
+
+Use a current maintenance release of Python 3.15 or a later supported version.
+Python 3.15.0 is the compatibility floor, not a requirement to install that exact
+patch release. GUI validation must include Python 3.15.0; support for later
+versions must be verified rather than assumed.
+
+The GUI interpreter must have working Tkinter and ttk bindings. AutoPrimeNet's
+existing Requests dependency must also be available to the backend interpreter.
+A virtual environment does not supply missing native Tk bindings.
+
+The intended default is to run the GUI and its AutoPrimeNet backend with the same
+Python 3.15.0-or-later interpreter, in an isolated development environment.
+
+## Independent CLI compatibility
+
+The GUI-only minimum does not change the CLI's declared Python 3.4 minimum.
+Existing CLI source, dependency declarations, and startup paths remain unchanged.
+CLI users will not need Tkinter or the GUI modules.
+
+The source audit found an existing unconditional `EmailMessage` import in
+`autoprimenet.py` that is incompatible with stock Python 3.4. Raising the GUI
+minimum removes that issue as a GUI prerequisite; it does not repair or verify
+the CLI's historical compatibility claim.
+
+## Background operation and window closing
+
+The intended default is **close to tray/menu bar and keep monitoring**. Closing
+the main window hides it while both the GUI and its managed AutoPrimeNet backend
+remain running. This differs from exiting the GUI and leaving a detached backend.
+
+- Windows: use the notification area (system tray).
+- macOS: use a menu bar status item.
+- Linux and FreeBSD desktops: use an available compatible tray/status-item host.
+  Availability depends on the desktop session, not just the operating system.
+
+The tray/menu-bar menu should offer **Open AutoPrimeNet GUI**, monitoring status,
+start/stop controls for the GUI-managed backend, and **Quit**. Callbacks must
+dispatch GUI updates onto Tk's main thread. Hiding and reopening must not start
+duplicate backend processes.
+
+Hide the window only after establishing a working restore control. If no usable
+tray host exists, minimize to the taskbar/Dock instead and explain the fallback.
+If tray support fails while hidden, restore the window or another reachable
+control. Do not leave an inaccessible hidden application.
+
+**Quit** is separate from closing the window. When monitoring is active, Quit
+should explain that it will stop the GUI-managed AutoPrimeNet backend and confirm
+that action. An AutoPrimeNet instance launched independently remains outside the
+GUI's shutdown control. Hiding or quitting the GUI must never terminate Mlucas,
+Prime95, or another computation engine, unreserve assignments, or change the
+stop/resume-new-work setting as a side effect.
+
+Tkinter does not directly provide a portable tray API. A small tray integration
+dependency or platform adapter may be necessary and must be justified and
+documented before adoption. The library choice, Python 3.15 compatibility, native
+dependencies, and Tk event-loop integration still need validation. In particular,
+[pystray's integration documentation](https://pystray.readthedocs.io/en/latest/faq.html)
+describes macOS main-loop and Linux desktop/backend constraints; it is a candidate,
+not an established dependency. Tray functionality is not implemented yet.
+
+## Environment setup for users and testers
+
+These instructions prepare an environment. The GUI launcher does not exist yet;
+the offline backend test suite is documented in
+[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). There is no full GUI test claim at this
+stage. All GUI-specific dependency declarations and documentation are new
+files; existing CLI installation instructions remain unchanged.
+
+### Required components
+
+| Location | Required component | Purpose |
+| --- | --- | --- |
+| System/interpreter installation | Python 3.15.0 or later | Runs the GUI and, by default, its backend |
+| System/interpreter installation | Matching Tcl/Tk and working `tkinter`/`ttk` bindings | Provides the graphical toolkit; cannot be supplied by a venv alone |
+| User session | Graphical desktop/display | Displays Tk windows; headless CLI operation is separate |
+| Project `.venv` | Packages from `requirements-gui.txt` (currently Requests and its resolved dependencies) | Existing backend HTTP support |
+| Optional `.venv` extra | Requests SOCKS extra, only for SOCKS proxy users | Adds PySocks support |
+| Desktop/system and possibly `.venv` | Tray integration components, to be determined by prototype | Native background controls; dependency list is not final |
+| Separate working directory | Computation engine and its existing work/configuration files | Actual computation; engines are not Python GUI dependencies |
+
+Users and testers need the same runtime environment. The initial automated tests
+use standard-library `unittest` and disposable fixtures; no pytest,
+Ruff, or Pylint installation is currently required. Backend dependencies should
+be installed even for mocked integration tests that load backend definitions.
+No real account, assignments, proof upload, or email send is needed for isolated
+tests. Future dependency additions must update this table and the requirements
+files in the same change.
+
+### macOS with Homebrew
+
+From the repository root (on this development machine,
+`/Users/jacobpollicove/Git-Projects/autoprimenet`):
+
+```sh
+cd /Users/jacobpollicove/Git-Projects/autoprimenet
+brew install python@3.15 python-tk@3.15
+python3.15 --version
+python3.15 -m venv .venv
+.venv/bin/python -m pip install -r requirements-gui.txt
+.venv/bin/python -m pip check
+.venv/bin/python -m tkinter
+```
+
+Other contributors should replace the `cd` path with their checkout's actual
+location. Homebrew installs native interpreter/Tk components outside `.venv`;
+pip installs project packages inside it. Do not use `sudo pip` or modify Apple's
+system Python. The final command should open a small Tk demonstration window;
+close it after checking. If `_tkinter` is missing, fix the matching interpreter's
+Tk installation rather than attempting `pip install tkinter`.
+
+[Homebrew's Python 3.15 Tk formula](https://formulae.brew.sh/formula/python-tk@3.15)
+documents the matching package. The
+[python.org macOS installers](https://www.python.org/download/mac/tcltk/) provide
+another route with bundled Tk; choose one interpreter and create the venv from it.
+If `.venv` already exists, inspect its interpreter before reusing it; do not
+overwrite an existing environment blindly.
+
+### Windows (PowerShell)
+
+Install Python 3.15 or later with Tcl/Tk support, then enter your checkout's root.
+For a Python installation registered with the `py` launcher:
+
+```powershell
+py -3.15 --version
+py -3.15 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-gui.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m tkinter
+```
+
+If `py` is unavailable, use the full path of your chosen Python executable for
+the first two commands. Calling the venv executable directly avoids activation
+and PowerShell execution-policy changes.
+
+### Linux and FreeBSD
+
+Install Python 3.15 or later, its matching Tk bindings, venv support, and Tcl/Tk
+through your distribution's supported installation method. Package names and
+availability vary; a default `python3-tk` package may target an older Python and
+must not be assumed to work with Python 3.15. A tray host or desktop extension
+may also be needed once a tray backend is selected.
+
+From the checkout root, for an interpreter available as `python3.15`:
+
+```sh
+python3.15 --version
+python3.15 -m venv .venv
+.venv/bin/python -m pip install -r requirements-gui.txt
+.venv/bin/python -m pip check
+.venv/bin/python -m tkinter
+```
+
+Use the actual interpreter path if it has another name. A failed display test
+may indicate a missing graphical session or display access, not a missing pip
+dependency. Linux/FreeBSD setup and tray behavior have not yet been tested.
+
+### Optional SOCKS proxies and environment records
+
+On macOS/Linux/FreeBSD, install SOCKS support only if needed:
+
+```sh
+.venv/bin/python -m pip install 'requests[socks]'
+```
+
+On Windows, use `.\.venv\Scripts\python.exe` in place of `.venv/bin/python`.
+For a test report, record the OS, desktop session, Python version, Tcl/Tk versions,
+and installed package versions (`python -m pip list` using the venv interpreter).
+Redact usernames, credentials, proxy URLs, and private paths before sharing.
+The current requirements file declares runtime dependencies, not a tested lockfile.
+
+### Local files and Git hygiene
+
+The new `.gitignore` excludes local environments, bytecode/tool caches, build and
+test output, editor/OS state, local `.env` secrets, and common root-level
+AutoPrimeNet runtime files. Keep real computation workspaces outside the source
+checkout. Use `.local-work/` for disposable local fixtures and `test-output/` for
+generated reports; these directories are ignored. Intentional reusable test
+fixtures belong under `tests/` and should remain eligible for version control.
+
+Custom configuration filenames, arbitrary worker directories, proof archives,
+and engine checkpoints cannot all be safely identified by broad ignore rules.
+Keep them outside the checkout or add local-only patterns to `.git/info/exclude`
+yourself. Review `git status --short` before staging. `.gitignore` does not protect
+tracked upstream files from edits or prevent changes to files already tracked.
+The GUI additions leave the original CLI files unchanged.
+
+## Validation and tooling
+
+- Test GUI startup, forms, background operations, configuration handling, and
+  backend integration on Python 3.15.0, then on selected later releases.
+- Reject older interpreters with a clear version message before importing
+  supporting GUI modules. The small launcher version check must itself use
+  syntax understood by the older interpreters it is intended to diagnose.
+- Scope future GUI linting and test configuration to the GUI's minimum version.
+  The existing repository-wide Ruff and Pylint settings target older versions;
+  changing them globally could affect the independent CLI and requires review.
+- Preserve the CLI's independence by avoiding imports of GUI code from existing
+  CLI entry points.
+- Target macOS, Windows, Linux, and FreeBSD where practically testable. Record
+  actual runtime/platform results; intended support is not evidence of testing.
+
+The development environment now has Python 3.15.1, working Tcl/Tk 9.1.0 bindings,
+and Requests inside `.venv`. A real Tk window smoke check has passed on macOS.
+Full GUI, tray, Python 3.15.0-floor, and cross-platform validation remain pending;
+see [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for the scope of actual checks.

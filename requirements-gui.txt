@@ -1,0 +1,3 @@
+# Current GUI/backend Python dependency. Native Tcl/Tk is installed separately.
+# Tray dependencies will be added only after integration validation; see GUI.md.
+requests
