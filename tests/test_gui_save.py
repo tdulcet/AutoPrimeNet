@@ -28,6 +28,29 @@ def form(document, **changes):
 
 
 class SaveTests(unittest.TestCase):
+	def test_advanced_options_round_trip_through_real_backend(self):
+		with tempfile.TemporaryDirectory() as directory:
+			document = ConfigDocument(directory)
+			changes = dict(min_bit="70", max_bit="75", force_target_bits="True", tests_saved="1.5", pm1_multiplier="0.8", pm1_bounds="MID", ECMBoundsMultiplier="1.25", MaxECMCurves="12", convert_ll_to_prp="False", convert_prp_to_ll="True")
+			result = save_configuration(document, form(document, **changes), "mlucas", [{"directory": "", "preference": ""}])
+			for key, value in changes.items():
+				self.assertEqual(result["document"].values()[key], value)
+			loaded = load_editor_workspace(directory)
+			self.assertIsNotNone(loaded)
+			unchanged = save_configuration(result["document"], result["document"].values(), "mlucas", [{"directory": "", "preference": ""}])
+			self.assertIsNone(unchanged["backup"])
+
+	def test_invalid_advanced_combination_preserves_original(self):
+		for changes in (dict(min_bit="75", max_bit="70"), dict(convert_ll_to_prp="True", convert_prp_to_ll="True"), dict(pm1_bounds="INVALID"), dict(ECMBoundsMultiplier="nan")):
+			with self.subTest(changes=changes), tempfile.TemporaryDirectory() as directory:
+				path = Path(directory) / "prime.ini"
+				path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+				document = ConfigDocument(directory)
+				with self.assertRaises((ControllerError, WorkspaceError)):
+					save_configuration(document, form(document, **changes), "mlucas", [{"directory": "", "preference": ""}])
+				self.assertEqual(path.read_bytes(), document.data)
+				self.assertFalse(list(Path(directory).glob("*.bak")))
+
 	def test_new_configuration_is_validated_and_private(self):
 		with tempfile.TemporaryDirectory() as directory:
 			document = ConfigDocument(directory)

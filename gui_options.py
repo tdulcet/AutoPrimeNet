@@ -18,6 +18,8 @@ class Field:
 	kind: str = "text"
 	minimum: float | None = None
 	maximum: float | None = None
+	choices: tuple[str, ...] = ()
+	destination: str = ""
 
 
 FIELDS = (
@@ -35,7 +37,29 @@ FIELDS = (
 	Field("GetMaxExponent", "Maximum assignment exponent", "Advanced", "", "integer", 2, 9999999999),
 	Field("CertWork", "Receive certification work (PRPLL only)", "Advanced", "", "boolean"),
 	Field("CertDailyCPULimit", "Certification time limit (%)", "Advanced", "10", "integer", 1, 100),
+	Field("min_bit", "Minimum trial-factoring bit level", "Advanced", kind="integer"),
+	Field("max_bit", "Maximum trial-factoring bit level", "Advanced", kind="integer"),
+	Field("force_target_bits", "Factor to target bit level (depth first)", "Advanced", kind="boolean"),
+	Field("tests_saved", "P−1 tests saved / force P−1", "Advanced", kind="decimal"),
+	Field("pm1_multiplier", "P−1 retry threshold multiplier", "Advanced", kind="decimal"),
+	Field("pm1_bounds", "Optimal P−1 bounds", "Advanced", kind="choice", choices=("", "MIN", "MID", "MAX")),
+	Field("ECMBoundsMultiplier", "ECM bounds multiplier", "Advanced", kind="decimal", destination="ecm_multiplier"),
+	Field("MaxECMCurves", "Maximum ECM curves", "Advanced", kind="integer", destination="max_ecm_curves"),
+	Field("convert_ll_to_prp", "Convert LL assignments to PRP", "Advanced", kind="boolean"),
+	Field("convert_prp_to_ll", "Convert PRP assignments to LL", "Advanced", kind="boolean"),
 )
+
+# Upstream argparse destinations whose names differ from their INI keys.
+DESTINATIONS = {
+	"username": "user_id", "ComputerID": "computer_id", "HoursBetweenCheckins": "hours_between_checkins",
+	"CPUHours": "cpu_hours", "DaysOfWork": "days_of_work", "ProofArchiveDir": "archive_dir",
+	"GetMinExponent": "min_exp", "GetMaxExponent": "max_exp", "CertWork": "cert_work",
+	"CertDailyCPULimit": "cert_cpu_limit",
+}
+
+
+def field_for_destination(destination):
+	return next((field for field in FIELDS if (field.destination or DESTINATIONS.get(field.key, field.key)) == destination), None)
 
 
 def validate_fields(values):
@@ -60,5 +84,7 @@ def validate_fields(values):
 			raise ValueError(field.label + ": enter a filename without a directory.")
 		if field.kind == "boolean" and value not in {"", "True", "False"}:
 			raise ValueError(field.label + ": choose inherit, True or False.")
+		if field.kind == "choice" and value not in field.choices:
+			raise ValueError(field.label + ": choose one of the listed values.")
 		result[field.key] = value or None
 	return result

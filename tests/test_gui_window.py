@@ -60,6 +60,44 @@ class WindowTests(unittest.TestCase):
 			self.assertIn("Unverified", self.app.assignments.item(self.app.assignments.get_children()[0])["values"])
 			self.assertEqual({path.name for path in base.iterdir()}, {"prime.ini", "worktodo.txt"})
 
+	def test_advanced_dialog_cancel_apply_validation_and_reference(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			original = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n"
+			path.write_text(original)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			window = editor.edit_advanced()
+			editor.advanced_values["pm1_bounds"].set("MAX")
+			window.destroy()
+			self.assertFalse(editor.dirty)
+			self.assertEqual(editor.values["pm1_bounds"].get(), "")
+			self.app.search.set("--force-pminus1-bounds")
+			row = self.app.reference.get_children()[0]
+			self.assertIn("Optimal P−1 bounds", self.app.reference.item(row, "values")[2])
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			editor.advanced_values["convert_ll_to_prp"].set("True")
+			editor.advanced_values["convert_prp_to_ll"].set("True")
+			with patch("gui_forms.messagebox.showerror") as error:
+				self.assertFalse(editor.apply_advanced())
+				error.assert_called_once()
+			self.assertFalse(editor.dirty)
+			editor.advanced_values["convert_ll_to_prp"].set("False")
+			editor.advanced_values["pm1_bounds"].set("MAX")
+			self.assertTrue(editor.apply_advanced())
+			self.assertTrue(editor.dirty)
+			self.assertEqual(path.read_text(), original)
+			with patch("autoprimenet_gui.messagebox.showinfo"), patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertFalse(editor.dirty)
+			self.assertIn("pm1_bounds=MAX", path.read_text())
+			self.app.search.set("ECM bounds multiplier")
+			self.assertEqual(len(self.app.reference.get_children()), 1)
+
 	def test_without_tray_close_keeps_reachable_minimized_window(self):
 		self.root.update()
 		self.app.hide()

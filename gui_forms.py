@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from gui_config import ENGINES
-from gui_options import FIELDS
+from gui_options import FIELDS, validate_fields
 
 
 class ConfigurationForms:
@@ -22,7 +22,19 @@ class ConfigurationForms:
 		self.engine = tk.StringVar()
 		self.count = tk.StringVar(value="1")
 		self.worker_values = []
+		self.advanced_window = None
+		self.advanced_values = {}
 		for tab in dict.fromkeys(field.tab for field in FIELDS):
+			if tab == "Advanced":
+				for field in FIELDS:
+					if field.tab == tab:
+						variable = tk.StringVar(value=field.default)
+						variable.trace_add("write", self.changed)
+						self.values[field.key] = variable
+				button = ttk.Button(app.tabs[tab], text="Edit advanced assignment settings…", command=self.edit_advanced)
+				button.pack(anchor="w", pady=(0, 8))
+				self.widgets.append(button)
+				continue
 			frame = ttk.LabelFrame(app.tabs[tab], text="Local configuration", padding=8)
 			frame.pack(fill="x", pady=(0, 8))
 			frame.columnconfigure(1, weight=1)
@@ -53,6 +65,74 @@ class ConfigurationForms:
 		self.engine.trace_add("write", self.changed)
 		self.count.trace_add("write", self.changed)
 		self.set_enabled(False)
+
+	def edit_advanced(self, key=None):
+		if self.document is None or self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			return
+		if self.advanced_window is not None and self.advanced_window.winfo_exists():
+			self.advanced_window.lift()
+			return
+		window = self.advanced_window = tk.Toplevel(self.app.root)
+		window.title("Advanced assignment settings")
+		window.transient(self.app.root)
+		window.geometry("740x600")
+		outer = ttk.Frame(window, padding=12)
+		outer.pack(fill="both", expand=True)
+		ttk.Label(outer, text="Blank uses the backend default. True/False explicitly overrides it.\nThese settings can change assignment selection or rewrite assignments during monitoring.", wraplength=680).pack(anchor="w", pady=(0, 8))
+		body = ttk.Frame(outer)
+		body.pack(fill="both", expand=True)
+		canvas = tk.Canvas(body, highlightthickness=0)
+		scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+		canvas.configure(yscrollcommand=scrollbar.set)
+		scrollbar.pack(side="right", fill="y")
+		canvas.pack(side="left", fill="both", expand=True)
+		frame = ttk.Frame(canvas)
+		item = canvas.create_window(0, 0, window=frame, anchor="nw")
+		frame.columnconfigure(1, weight=1)
+		frame.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+		canvas.bind("<Configure>", lambda event: canvas.itemconfigure(item, width=event.width))
+		self.advanced_values = {}
+		controls = {}
+		for row, field in enumerate(field for field in FIELDS if field.tab == "Advanced"):
+			variable = tk.StringVar(value=self.values[field.key].get())
+			self.advanced_values[field.key] = variable
+			ttk.Label(frame, text=field.label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=5)
+			choices = ("", "True", "False") if field.kind == "boolean" else field.choices
+			widget = ttk.Combobox(frame, textvariable=variable, values=choices, state="readonly") if choices else ttk.Entry(frame, textvariable=variable)
+			widget.grid(row=row, column=1, sticky="ew", pady=5)
+			controls[field.key] = widget
+			# Keyboard traversal keeps the focused field reachable on short displays.
+			widget.bind("<FocusIn>", lambda event: canvas.yview_moveto(max(0, (event.widget.winfo_y() - 20) / max(1, frame.winfo_height()))))
+		ttk.Label(outer, text="P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.", wraplength=680).pack(anchor="w", pady=8)
+		buttons = ttk.Frame(outer)
+		buttons.pack(fill="x")
+		ttk.Button(buttons, text="Apply to form", command=self.apply_advanced).pack(side="left")
+		ttk.Button(buttons, text="Cancel", command=window.destroy).pack(side="right")
+		window.bind("<Escape>", lambda _: window.destroy())
+		window.grab_set()
+		if key in controls:
+			window.update_idletasks()
+			controls[key].focus_set()
+		return window
+
+	def apply_advanced(self):
+		if self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			messagebox.showerror("Advanced settings", "Wait for local operations and monitoring to stop before applying changes.", parent=self.advanced_window)
+			return False
+		values = {key: variable.get() for key, variable in self.values.items()}
+		values.update({key: variable.get() for key, variable in self.advanced_values.items()})
+		try:
+			validate_fields(values)
+			if values["convert_ll_to_prp"] == values["convert_prp_to_ll"] == "True":
+				raise ValueError("Choose only one LL/PRP conversion direction.")
+		except ValueError as error:
+			messagebox.showerror("Advanced settings", str(error), parent=self.advanced_window)
+			return False
+		for key, variable in self.advanced_values.items():
+			if self.values[key].get() != variable.get():
+				self.values[key].set(variable.get())
+		self.advanced_window.destroy()
+		return True
 
 	def changed(self, *_):
 		if not self.loading and self.document is not None:

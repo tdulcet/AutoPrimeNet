@@ -26,6 +26,7 @@ except ImportError:
 from gui_config import WorkspaceError, load_editor_workspace, save_configuration
 from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request
 from gui_forms import ConfigurationForms
+from gui_options import field_for_destination
 
 
 TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
@@ -126,7 +127,9 @@ class Application:
 		entry = ttk.Entry(self.tabs["Advanced"], textvariable=self.search)
 		entry.pack(fill="x", pady=8)
 		self.search.trace_add("write", lambda *_: self.filter_options())
-		self.reference = self._table(self.tabs["Advanced"], ("CLI flags", "Destination"))
+		self.reference = self._table(self.tabs["Advanced"], ("CLI flags", "Destination", "GUI location"))
+		self.reference.bind("<Double-1>", self.open_reference_setting)
+		self.reference.bind("<Return>", self.open_reference_setting)
 		self.activity = tk.Text(self.tabs["Logs & Status"], wrap="word", state="disabled", height=12)
 		self.activity.pack(fill="both", expand=True)
 		ttk.Label(self.tabs["Logs & Status"], text="GUI activity only. Existing logs and credentials are not loaded.").pack(anchor="w", pady=8)
@@ -284,8 +287,20 @@ class Application:
 		term = self.search.get().casefold()
 		for option in self.options:
 			flags = ", ".join(option["flags"])
-			if term in (flags + " " + option["dest"]).casefold():
-				self.reference.insert("", "end", values=(flags, option["dest"]))
+			field = field_for_destination(option["dest"])
+			location = field.tab + " → " + field.label if field else "Not mapped in this reference"
+			if term in (flags + " " + option["dest"] + " " + location).casefold():
+				self.reference.insert("", "end", values=(flags, option["dest"], location))
+
+	def open_reference_setting(self, _event=None):
+		selected = self.reference.selection()
+		if not selected:
+			return
+		field = field_for_destination(self.reference.item(selected[0], "values")[1])
+		if field:
+			self.notebook.select(self.tabs[field.tab])
+			if field.tab == "Advanced":
+				self.editor.edit_advanced(field.key)
 
 	def poll(self):
 		if self.closed:

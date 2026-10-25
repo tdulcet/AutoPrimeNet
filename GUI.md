@@ -229,8 +229,8 @@ local snapshot rather than a synchronized view of an active computation engine.
 
 Use **File → Quit** or the tray menu's Quit item to exit. If a bounded local
 preview is still running, wait for it to finish and choose Quit again. The
-Advanced tab provides a searchable flag reference and the initial exponent and
-certification settings described below. Notifications remains unavailable;
+Advanced tab provides a searchable flag reference and an advanced assignment
+settings dialog described below. Notifications remains unavailable;
 Logs & Status displays GUI activity only.
 
 ### Configuring AutoPrimeNet locally
@@ -246,7 +246,22 @@ backend defaults. Choose a computation program and provide a GIMPS username or
 | Workers | One of the eight supported computation programs, worker count, per-worker directories and preference codes |
 | Assignments | Days of queued work and legacy extra-assignment cache |
 | Settings | Work/results filenames, activity-log path, optional proof-archive directory |
-| Advanced | Minimum/maximum exponent, PRPLL certification enablement and daily time limit |
+| Advanced | Minimum/maximum exponent and factoring bit level, target factoring bits, P−1 tests saved/retry threshold/optimal bounds, ECM bounds multiplier/curve limit, LL↔PRP conversions, PRPLL certification enablement and daily time limit |
+
+Choose **Edit advanced assignment settings…** to open the scrollable dialog.
+Blank values use the backend default; boolean fields also offer explicit True
+and False. **Apply to form** retains edits in the GUI; **Cancel** discards that
+dialog's edits. **Save settings** performs offline backend validation and writes
+the configuration. Merely opening or applying the dialog does not write files
+or contact a server. These settings can affect assignment selection and rewrite
+assignments when monitoring next runs. Opposite LL/PRP conversion directions
+cannot both be enabled. The P−1 retry threshold applies with force P−1; optimal
+bounds can also be used independently, following the CLI's semantics.
+
+The searchable CLI reference includes a **GUI location** column for the current
+configuration fields. Double-click a mapped row or press Return to select its
+tab; advanced settings open with the relevant control focused. Unmapped rows
+remain reference entries and do not imply implemented graphical parity.
 
 Use **Apply worker count** after changing the count. Select a worker in the table
 and choose **Edit selected worker…** to set its directory and preference. A blank
