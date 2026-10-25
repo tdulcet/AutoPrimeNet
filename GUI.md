@@ -165,7 +165,7 @@ Install Python 3.15 or later, its matching Tk bindings, venv support, and Tcl/Tk
 through your distribution's supported installation method. Package names and
 availability vary; a default `python3-tk` package may target an older Python and
 must not be assumed to work with Python 3.15. A tray host or desktop extension
-may also be needed for future Linux/FreeBSD tray support; it is not enabled yet.
+may also be needed for optional Linux/FreeBSD tray support (see below).
 
 From the checkout root, for an interpreter available as `python3.15`:
 
@@ -209,7 +209,7 @@ On Windows PowerShell:
 .\.venv\Scripts\python.exe -B autoprimenet_gui.py
 ```
 
-For the experimental native tray/menu-bar helper on macOS or Windows, install
+For the optional native tray/menu-bar helper on macOS or Windows, install
 the optional dependency file in the same environment first:
 
 ```sh
@@ -220,6 +220,8 @@ On Windows substitute `.\.venv\Scripts\python.exe`. Without these packages, or
 with the `--no-tray` launcher flag, close minimizes to the taskbar/Dock. The tray
 menu shows the scheduled runner's current state and provides Start/Stop actions.
 Closing the window keeps the GUI and any active scheduled monitoring running.
+Use **Settings → Retry tray integration** after fixing optional dependencies or
+re-enabling a desktop tray host. Retry does not restart monitoring.
 Start requires confirmation because it performs real server operations; simply
 opening the GUI or refreshing a local preview does not.
 
@@ -903,3 +905,57 @@ errors after launch do not interrupt an active backend write/upload; the pipe
 continues draining and a generic incomplete-capture warning appears after the
 process ends. Raw errors and trace contents are not emitted on the GUI event
 channel. Trace files created in the repository root are ignored by Git.
+
+
+### Optional Linux/FreeBSD GTK tray integration
+
+The optional helper now attempts menu-capable GTK 3/AppIndicator backends on
+Linux and FreeBSD. Native toolkit work runs in its own process, separate from
+Tkinter. Base GUI use still needs only requirements-gui.txt and matching Tk;
+GTK/GObject dependencies are optional. Real Linux/FreeBSD desktop acceptance is
+pending; current tests simulate GTK/D-Bus behavior on the macOS development host.
+
+For this optional feature, the **system** needs GTK **3**, GLib/GIO/GObject
+introspection runtime data, Cairo and any build tools/headers required by the
+chosen PyGObject build, including headers for the chosen Python 3.15+ interpreter.
+The desktop must provide a tray host. For AppIndicator menus, install compatible
+AppIndicator3 or AyatanaAppIndicator3 libraries and their introspection data.
+Packages and desktop extensions vary by distribution; use its supported package
+manager and the [PyGObject installation guide](https://pygobject.gnome.org/getting_started.html)
+for build prerequisites. That guide's GTK 4 example does not replace this helper's
+GTK 3 requirement. A system Python's `gi` module may not match your 3.15 venv;
+do not copy or symlink another interpreter's extension modules into it.
+
+Install the **venv** packages after the native prerequisites are available:
+
+```sh
+.venv/bin/python -m pip install -r requirements-gui-tray-gtk.txt
+.venv/bin/python -m pip check
+.venv/bin/python -c "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk; print(Gtk.get_major_version())"
+```
+
+This adds pystray/Pillow and PyGObject to the selected venv; pip may build native
+Python bindings locally. See [pystray's virtualenv guidance](https://pystray.readthedocs.io/en/latest/faq.html).
+For a running session with a registered StatusNotifier visualization host, the
+helper prefers AppIndicator and falls back to GTK if its typelib is unavailable.
+Otherwise it tries GTK's legacy status icon. An explicit `PYSTRAY_BACKEND`
+selection is respected. XOrg-only pystray backends without menus are refused so
+the window cannot be hidden behind an icon lacking the required menu controls.
+
+Readiness requires a menu and a detected host: GTK uses its
+[embedded status-icon check](https://docs.gtk.org/gtk3/method.StatusIcon.is_embedded.html),
+while AppIndicator checks the local session bus's
+[registered StatusNotifier host](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-watcher.html).
+A watcher service alone is insufficient. The D-Bus property call has a one-second
+timeout and does not request watcher-service autostart. The helper allows five
+seconds for initial embedding, then checks host availability every two seconds.
+If no host appears, a backend fails, or a host disappears later, the tray helper
+stops and the GUI returns to its reachable window/taskbar behavior. These checks
+cannot guarantee that a desktop visibly exposes an icon hidden by user policy.
+
+The GUI aborts a helper that has not become ready within 15 seconds. Menu events
+from stopped/replaced helpers are ignored; their shutdown targets only their own
+process. Use **Settings → Retry tray integration** after the panel, extension or
+libraries are ready. A retry during startup does not create a duplicate helper.
+As before, `--no-tray` disables automatic startup; Retry is an explicit opt-in.
+No tray lookup contacts PrimeNet or a mail provider, or changes assignments.

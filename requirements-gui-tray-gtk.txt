@@ -1,0 +1,5 @@
+# Optional Linux/FreeBSD GTK/AppIndicator tray bindings, installed into the venv.
+# Native GTK 3/GObject introspection/build libraries are installed separately.
+# See GUI.md and the PyGObject installation guide for your distribution.
+-r requirements-gui-tray.txt
+PyGObject

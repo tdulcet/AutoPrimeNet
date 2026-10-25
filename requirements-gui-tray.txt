@@ -1,4 +1,4 @@
-# Optional tray integration currently enabled only on macOS and Windows.
-# Linux/FreeBSD retain a reachable taskbar fallback pending host validation.
+# Optional menu-bar/tray integration. Linux/FreeBSD additionally require GTK
+# bindings and a compatible tray host; see requirements-gui-tray-gtk.txt and GUI.md.
 -r requirements-gui.txt
-pystray==0.19.5; sys_platform == "darwin" or sys_platform == "win32"
+pystray==0.19.5

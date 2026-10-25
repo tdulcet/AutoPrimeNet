@@ -13,6 +13,8 @@ import subprocess
 import sys
 import threading
 
+from gui_tray_host import tray_platform
+
 
 ROOT = Path(__file__).resolve().parent
 
@@ -82,42 +84,47 @@ def backend_request(operation, **parameters):
 class TrayController:
 	"""Own a separate native tray event loop and receive its menu events."""
 
-	def __init__(self):
+	def __init__(self, process_factory=None):
 		self.events = queue.Queue()
 		self.process = None
 		self.ready = False
 		self.state = "Stopped"
+		self.generation = 0
+		self._process_factory = process_factory or subprocess.Popen
+		self._stopping_process = None
 
 	def start(self):
 		if self.process is not None and self.process.poll() is None:
 			return
-		if sys.platform not in {"darwin", "win32"}:
-			self.events.put("unavailable")
+		self.generation += 1
+		self.ready = False
+		if not tray_platform():
+			self.events.put({"event": "unavailable", "generation": self.generation})
 			return
 		try:
-			self.process = subprocess.Popen(
+			self.process = self._process_factory(
 				[sys.executable, "-B", str(ROOT / "gui_tray.py")],
 				stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
 				text=True, encoding="utf-8", cwd=ROOT,
 			)
 		except OSError:
-			self.events.put("unavailable")
+			self.events.put({"event": "unavailable", "generation": self.generation})
 			return
-		threading.Thread(target=self._read, name="TrayEvents", daemon=True).start()
+		threading.Thread(target=self._read, args=(self.process, self.generation), name="TrayEvents", daemon=True).start()
 
-	def _read(self):
+	def _read(self, process, generation):
 		try:
-			for line in self.process.stdout:
+			for line in process.stdout:
 				try:
 					event = json.loads(line).get("event")
 				except (ValueError, AttributeError):
 					continue
 				if event in {"ready", "open", "quit", "start", "stop", "unavailable"}:
-					self.events.put(event)
+					self.events.put({"event": event, "generation": generation})
 		except (OSError, ValueError):
 			pass
 		finally:
-			self.events.put("unavailable")
+			self.events.put({"event": "unavailable", "generation": generation})
 
 	def set_state(self, state):
 		self.state = state
@@ -130,6 +137,10 @@ class TrayController:
 
 	def stop(self):
 		self.ready = False
+		if self.process is None or self._stopping_process is self.process:
+			return
+		self._stopping_process = self.process
+		self.generation += 1  # Ignore late readiness/menu events from this attempt.
 		if self.process is not None and self.process.stdin is not None:
 			try:
 				self.process.stdin.close()
@@ -137,20 +148,20 @@ class TrayController:
 				pass
 		# Reap only our helper in a background thread; never block Tk's event loop.
 		if self.process is not None:
-			threading.Thread(target=self._reap, name="TrayShutdown").start()
+			threading.Thread(target=self._reap, args=(self.process,), name="TrayShutdown").start()
 
-	def _reap(self):
+	def _reap(self, process):
 		try:
-			self.process.wait(timeout=3)
+			process.wait(timeout=3)
 		except subprocess.TimeoutExpired:
-			self.process.terminate()
+			process.terminate()
 			try:
-				self.process.wait(timeout=2)
+				process.wait(timeout=2)
 			except subprocess.TimeoutExpired:
-				self.process.kill()
-				self.process.wait()
+				process.kill()
+				process.wait()
 		finally:
-			self.process.stdout.close()
+			process.stdout.close()
 
 
 class MonitorController:

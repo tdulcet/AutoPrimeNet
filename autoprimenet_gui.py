@@ -168,6 +168,8 @@ class Application:
 		ttk.Label(self.tabs["Settings"], text="Configuration filename (reload after changing)").pack(anchor="w")
 		self.config_entry = ttk.Entry(self.tabs["Settings"], textvariable=self.config_name, width=40)
 		self.config_entry.pack(anchor="w", pady=8)
+		self.retry_tray_button = ttk.Button(self.tabs["Settings"], text="Retry tray integration", command=self.retry_tray)
+		self.retry_tray_button.pack(anchor="w", pady=8)
 		ttk.Label(self.tabs["Settings"], text="Closing hides to the tray/menu bar when ready; otherwise it minimizes.\nUse File → Quit to exit.\nSee GUI.md and GUI_DEVELOPMENT.md for requirements and current limitations.", justify="left", wraplength=720).pack(anchor="w", pady=12)
 		ttk.Label(self.root, textvariable=self.status, relief="sunken", anchor="w", padding=5).pack(fill="x", side="bottom")
 
@@ -574,9 +576,15 @@ class Application:
 			return
 		while True:
 			try:
-				event = self.tray.events.get_nowait()
+				tray_message = self.tray.events.get_nowait()
 			except queue.Empty:
 				break
+			if isinstance(tray_message, dict):
+				if tray_message.get("generation") != self.tray.generation:
+					continue
+				event = tray_message["event"]
+			else:
+				event = tray_message
 			if event == "ready":
 				self.tray.ready = True
 				self.tray.set_state(self.monitor.state)
@@ -591,6 +599,7 @@ class Application:
 				self.stop_monitoring()
 			else:
 				self.tray.ready = False
+				self.tray.stop()
 				self.tray_status.set("Tray unavailable. Close minimizes to the taskbar/Dock.")
 				if self.hidden:
 					self.show()
@@ -598,8 +607,22 @@ class Application:
 				return
 		if not self.tray.ready and time.monotonic() > self.tray_deadline:
 			self.tray_status.set("Tray unavailable. Close minimizes to the taskbar/Dock.")
+			self.tray.stop()
 		if not self.closed:
 			self.root.after(100, self.poll)
+
+	def retry_tray(self):
+		if self.quit_pending or self.closed:
+			return
+		if self.tray.process is not None and self.tray.process.poll() is None:
+			if self.tray.ready:
+				self.tray_status.set("Tray/menu bar is already available.")
+			else:
+				self.tray_status.set("Tray helper is still starting. Close the GUI only after tray readiness is confirmed.")
+			return
+		self.tray_deadline = time.monotonic() + 15
+		self.tray_status.set("Retrying tray integration; the window remains reachable until ready.")
+		self.tray.start()
 
 	def hide(self):
 		if self.tray.ready and self.tray.process is not None and self.tray.process.poll() is None:

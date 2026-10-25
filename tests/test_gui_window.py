@@ -261,6 +261,52 @@ class WindowTests(unittest.TestCase):
 			self.assertFalse(self.app.monitor.active)
 			self.assertFalse((base / ".gui-runner.guard").exists())
 
+	def test_tray_retry_filters_stale_events_and_restores_window(self):
+		import subprocess
+		from gui_controller import TrayController
+		code = "import json,sys; print(json.dumps({'event':'ready'}),flush=True); sys.stdin.read()"
+		def factory(_command, **kwargs):
+			return subprocess.Popen([sys.executable, "-B", "-c", code], **kwargs)
+		self.app.tray = TrayController(process_factory=factory)
+		self.app.retry_tray()
+		self.wait_until(lambda: self.app.tray.ready)
+		first, generation = self.app.tray.process, self.app.tray.generation
+		self.app.hide()
+		self.assertTrue(self.app.hidden)
+		first.terminate()
+		self.wait_until(lambda: not self.app.hidden and not self.app.tray.ready)
+		first.wait(timeout=5)
+		self.app.retry_tray()
+		self.wait_until(lambda: self.app.tray.ready)
+		second = self.app.tray.process
+		self.assertIsNot(first, second)
+		self.app.retry_tray()
+		self.assertIs(self.app.tray.process, second)
+		for event in ("unavailable", "quit", "ready"):
+			self.app.tray.events.put({"event": event, "generation": generation})
+		delivered = []
+		self.root.after(250, lambda: delivered.append(True))
+		self.wait_until(lambda: bool(delivered))
+		self.assertTrue(self.app.tray.ready)
+		self.assertFalse(self.app.closed)
+		self.assertIsNone(second.poll())
+
+	def test_stalled_tray_startup_is_reaped_with_taskbar_fallback(self):
+		import subprocess
+		from gui_controller import TrayController
+		def factory(_command, **kwargs):
+			return subprocess.Popen([sys.executable, "-B", "-c", "import time; time.sleep(30)"], **kwargs)
+		self.app.tray = TrayController(process_factory=factory)
+		self.app.retry_tray()
+		process = self.app.tray.process
+		generation = self.app.tray.generation
+		self.app.tray_deadline = time.monotonic() - 1
+		self.wait_until(lambda: process.poll() is not None, timeout=7)
+		self.assertGreater(self.app.tray.generation, generation)
+		self.assertFalse(self.app.tray.ready)
+		self.assertFalse(self.app.hidden)
+		self.assertIn("taskbar", self.app.tray_status.get())
+
 	def test_navigation_search_workspace_and_repeated_refresh(self):
 		self.assertEqual(len(self.app.notebook.tabs()), 8)
 		for frame in self.app.tabs.values():
