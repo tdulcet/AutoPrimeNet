@@ -517,8 +517,8 @@ startup, then enters its setup-completion branch with saved graphical values.
 It calls the original computer-registration and program-options routines,
 including their configuration updates and server overrides, without running the
 terminal setup questions, automatically sending test email or fetching work.
-Refresh afterward. Automatic GPU selection and SMTP-provider discovery from
-terminal setup remain unfinished; supply those settings manually in the forms.
+Refresh afterward. GPU discovery is available in the hardware dialog (see below). SMTP-provider
+discovery remains unfinished; supply mail settings manually in the forms.
 
 For explicit exponents, choose **Assignments → Register exponent batch…**:
 
@@ -750,3 +750,23 @@ and Requests inside `.venv`. A real Tk window smoke check has passed on macOS.
 The user also confirmed the manual macOS hide/reopen/Quit test passed.
 Complete GUI, Python 3.15.0-floor, and cross-platform validation remain pending;
 see [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for the scope of actual checks.
+
+
+### Discovering GPUs
+
+In **PrimeNet → Edit hardware and resource settings → Detect GPUs**, the GUI
+calls the original local OpenCL/CUDA/NVML discovery functions in its isolated,
+network-blocked helper. Installed vendor drivers determine what can be detected;
+no additional Python package is required. Discovery may show duplicate devices.
+Choose the device used by your computation program, review the proposed values,
+and select **Use in hardware dialog**, then **Apply to form** and **Save settings**.
+Cancel leaves the form unchanged. Nothing is saved or sent during discovery.
+
+The selected GPU changes hardware reported to PrimeNet; it does not select a
+GPU for your computation engine. The mapping follows original setup: processor
+name/features/frequency, total memory and 90% stage 2 memory, cores and one thread
+per core when available, and cache overrides when both caches are available.
+Unknown cores/caches retain existing values; review these before saving. No GPUs
+or a driver failure leaves manual editing available. CPU defaults still apply
+when no hardware overrides are supplied. Native driver behavior on Windows,
+Linux and FreeBSD still requires platform testing.

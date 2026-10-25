@@ -470,6 +470,8 @@ class Application:
 			self.set_busy(False)
 			if name == "registration_preview":
 				self.registration.complete_preview(value, error)
+			elif name == "discover_gpus":
+				self.editor.complete_gpus(value, error)
 			elif name == "backend_log":
 				self.backend_log.complete(value, error)
 			elif error:

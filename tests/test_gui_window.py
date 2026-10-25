@@ -41,6 +41,76 @@ class WindowTests(unittest.TestCase):
 			self.app.registration.close()
 			self.app.quit()
 
+	def test_gpu_discovery_review_cancel_and_staged_apply(self):
+		from gui_hardware import gpu_settings
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			original = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n"
+			path.write_text(original)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			target = editor.edit_options(group="Hardware")
+			settings = gpu_settings(("Fixture GPU", 24, 1500, 64, 512, 8192, "ARCH=SM80", "CUDA"))
+			result = {"devices": [{"name": "Fixture GPU", "source": "CUDA", "settings": settings}]}
+			with patch("gui_forms.backend_request", return_value=result):
+				editor.discover_gpus()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			picker = next(child for child in target.winfo_children() if child.winfo_class() == "Toplevel")
+			def descendants(widget):
+				return [child for child in widget.winfo_children() for child in [child, *descendants(child)]]
+			controls = descendants(picker)
+			selector = next(widget for widget in controls if widget.winfo_class() == "TCombobox")
+			selector.current(0)
+			selector.event_generate("<<ComboboxSelected>>")
+			next(widget for widget in controls if widget.winfo_class() == "TButton" and widget.cget("text") == "Use in hardware dialog").invoke()
+			self.assertEqual(editor.options_values["CpuBrand"].get(), "Fixture GPU")
+			self.assertEqual(editor.values["CpuBrand"].get(), "")
+			self.assertFalse(editor.dirty)
+			self.assertTrue(editor.apply_options())
+			self.assertEqual(editor.values["CpuBrand"].get(), "Fixture GPU")
+			self.assertTrue(editor.dirty)
+			self.assertEqual(path.read_text(), original)
+			# A result arriving after its target closes must not touch a new dialog.
+			old = editor.edit_options(group="Hardware")
+			editor.gpu_target = old
+			old.destroy()
+			new = editor.edit_options(group="Hardware")
+			editor.complete_gpus(result, None)
+			self.assertFalse(any(child.winfo_class() == "Toplevel" for child in new.winfo_children()))
+			new.destroy()
+
+	def test_gpu_discovery_empty_failure_and_picker_cancel_preserve_settings(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			original = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\nCpuBrand=Existing CPU\n"
+			path.write_text(original)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			target = editor.edit_options(group="Hardware")
+			with patch("gui_forms.messagebox.showinfo") as info:
+				editor.gpu_target = target
+				editor.complete_gpus({"devices": []}, None)
+				info.assert_called_once()
+			with patch("gui_forms.messagebox.showerror") as error:
+				editor.gpu_target = target
+				editor.complete_gpus(None, RuntimeError("private driver output"))
+				error.assert_called_once()
+				self.assertNotIn("private driver output", str(error.call_args))
+			editor.gpu_target = target
+			editor.complete_gpus({"devices": [{"name": "GPU", "source": "CUDA", "settings": {"CpuBrand": "GPU"}}]}, None)
+			picker = next(child for child in target.winfo_children() if child.winfo_class() == "Toplevel")
+			picker.event_generate("<Escape>")
+			self.root.update()
+			# Closing either dialog does not apply discovered values.
+			target.destroy()
+			self.assertEqual(editor.values["CpuBrand"].get(), "Existing CPU")
+			self.assertFalse(editor.dirty)
+			self.assertEqual(path.read_text(), original)
+
 	def test_navigation_search_workspace_and_repeated_refresh(self):
 		self.assertEqual(len(self.app.notebook.tabs()), 8)
 		for frame in self.app.tabs.values():

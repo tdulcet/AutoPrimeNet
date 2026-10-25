@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from gui_config import ENGINES
 from gui_options import FIELDS, validate_fields
+from gui_controller import backend_request
 
 
 class ConfigurationForms:
@@ -24,6 +25,7 @@ class ConfigurationForms:
 		self.worker_values = []
 		self.options_window = None
 		self.options_values = {}
+		self.gpu_target = None
 		self.credentials = {}
 		self.password_window = None
 		for field in FIELDS:
@@ -124,7 +126,7 @@ class ConfigurationForms:
 			controls[field.key] = widget
 			# Keyboard traversal keeps the focused field reachable on short displays.
 			widget.bind("<FocusIn>", lambda event: canvas.yview_moveto(max(0, (event.widget.winfo_y() - 20) / max(1, frame.winfo_height()))))
-		help_text = ("Total physical memory (memory) and maximum stage 2 memory (Memory) are separate settings. Maximum memory cannot exceed total memory.\nBlank GPU-related fields use CPU detection, not automatic GPU selection." if hardware else "P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.")
+		help_text = ("Total physical memory (memory) and maximum stage 2 memory (Memory) are separate settings. Maximum memory cannot exceed total memory.\nUse Detect GPUs to review local devices. Blank hardware overrides use CPU detection/defaults." if hardware else "P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.")
 		if connection:
 			help_text = "SOCKS proxies require the optional PySocks package. Encryption True is strict; blank uses opportunistic encryption in the CLI.\nThe GUI always requires encryption for new passwords. Existing encrypted passwords require encryption enabled or inherited."
 		elif behavior:
@@ -135,6 +137,8 @@ class ConfigurationForms:
 		buttons = ttk.Frame(outer)
 		buttons.pack(fill="x")
 		ttk.Button(buttons, text="Apply to form", command=self.apply_options).pack(side="left")
+		if hardware:
+			ttk.Button(buttons, text="Detect GPUs…", command=self.discover_gpus).pack(side="left", padx=8)
 		ttk.Button(buttons, text="Cancel", command=window.destroy).pack(side="right")
 		window.bind("<Escape>", lambda _: window.destroy())
 		window.grab_set()
@@ -142,6 +146,63 @@ class ConfigurationForms:
 			window.update_idletasks()
 			controls[key].focus_set()
 		return window
+
+	def discover_gpus(self):
+		if self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			return
+		self.gpu_target = self.options_window
+		if self.app.jobs.submit("discover_gpus", backend_request, "discover_gpus"):
+			self.app.set_busy(True)
+			self.app.status.set("Detecting local GPUs; no server contacted…")
+
+	def complete_gpus(self, value, error):
+		target = self.gpu_target
+		self.gpu_target = None
+		if target is None or not target.winfo_exists() or target is not self.options_window or self.app.quit_pending:
+			return
+		if error:
+			messagebox.showerror("GPU discovery", "Local GPU discovery failed. Check GPU drivers or enter hardware manually.", parent=target)
+			return
+		devices = value["devices"]
+		self.app.status.set("GPU discovery finished; settings remain unsaved.")
+		if not devices:
+			messagebox.showinfo("GPU discovery", "No supported GPUs were detected. You can enter hardware manually.", parent=target)
+			return
+		window = tk.Toplevel(target)
+		window.title("Select GPU to report to PrimeNet")
+		window.transient(target)
+		frame = ttk.Frame(window, padding=12)
+		frame.pack(fill="both", expand=True)
+		ttk.Label(frame, text="Choose the GPU used by your computation program. Duplicate devices may appear.\nThis changes reported hardware only; it does not select an engine device.").pack(anchor="w")
+		choice = tk.StringVar(value="")
+		selector = ttk.Combobox(frame, textvariable=choice, state="readonly", width=65,
+			values=[f"{i + 1}. {device['name']} ({device['source']})" for i, device in enumerate(devices)])
+		selector.pack(fill="x", pady=8)
+		details = tk.StringVar(value="Select a device to review its settings.")
+		ttk.Label(frame, textvariable=details, wraplength=620).pack(anchor="w", pady=8)
+		def review(_event=None):
+			index = selector.current()
+			if index >= 0:
+				details.set("\n".join(f"{key}: {text}" for key, text in devices[index]["settings"].items()))
+		selector.bind("<<ComboboxSelected>>", review)
+		def apply():
+			index = selector.current()
+			if index < 0 or self.app.jobs.busy or self.app.monitor.active:
+				return
+			for key, text in devices[index]["settings"].items():
+				self.options_values[key].set(text)
+			window.destroy()
+			target.grab_set()
+		buttons = ttk.Frame(frame)
+		buttons.pack(fill="x", pady=8)
+		ttk.Button(buttons, text="Use in hardware dialog", command=apply).pack(side="left")
+		def cancel():
+			window.destroy()
+			target.grab_set()
+		ttk.Button(buttons, text="Cancel", command=cancel).pack(side="right")
+		window.protocol("WM_DELETE_WINDOW", cancel)
+		window.bind("<Escape>", lambda _: cancel())
+		window.grab_set()
 
 	def apply_options(self):
 		if self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:

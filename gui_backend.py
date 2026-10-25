@@ -224,14 +224,14 @@ def _dispatch(request, path):
 	if not isinstance(request, dict) or request.get("protocol") != PROTOCOL_VERSION:
 		raise BackendError("Unsupported GUI backend protocol.")
 	operation = request.get("operation")
-	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help"}:
+	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus"}:
 		raise BackendError("Unsupported offline bridge operation.")
 	_source, tree, boundary = _read_source(path)
 	if operation == "capabilities":
 		return {
 			"backend_version": ast.literal_eval(next(node.value for node in tree.body if _assignment_target(node, "VERSION"))),
 			"source_sha256": AUDITED_SOURCE_SHA256,
-			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help"],
+			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus"],
 			"network_enabled": False,
 			"cli_options": _parser_inventory(tree),
 		}
@@ -241,6 +241,16 @@ def _dispatch(request, path):
 		raise BackendError("Work preview requires a list of at most 1000 text lines.")
 	namespace = _load_definitions(path, tree, boundary)
 	try:
+		if operation == "discover_gpus":
+			from gui_hardware import gpu_settings
+			devices = []
+			for record in namespace["get_gpus"]():
+				try:
+					settings = gpu_settings(record)
+				except ValueError:
+					continue
+				devices.append({"name": record[0], "source": record[7], "settings": settings})
+			return {"devices": devices, "network_enabled": False, "files_written": False}
 		if operation == "cli_help":
 			end = next(index for index in range(boundary, len(tree.body)) if _assignment_target(tree.body[index], "args"))
 			exec(compile(ast.Module(body=tree.body[boundary:end], type_ignores=[]), str(path), "exec"), namespace)

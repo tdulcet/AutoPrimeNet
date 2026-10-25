@@ -20,6 +20,13 @@ BASELINE_SHA256 = "05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7e
 
 
 class BackendTests(unittest.TestCase):
+	def test_gpu_discovery_is_offline_and_creates_no_runtime_files(self):
+		response = self.run_bridge({"protocol": 1, "operation": "discover_gpus"})
+		self.assertTrue(response["ok"], response)
+		self.assertIsInstance(response["result"]["devices"], list)
+		self.assertFalse(response["result"]["network_enabled"])
+		self.assertFalse(response["result"]["files_written"])
+
 	def test_original_cli_help_needs_no_configuration_and_writes_no_files(self):
 		response = self.run_bridge({"protocol": 1, "operation": "cli_help"})
 		self.assertTrue(response["ok"])
