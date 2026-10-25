@@ -51,6 +51,9 @@ class ConfigurationForms:
 		button = ttk.Button(app.tabs["PrimeNet"], text="Edit hardware and resource settings…", command=lambda: self.edit_options(group="Hardware"))
 		button.pack(anchor="w", pady=(0, 8))
 		self.widgets.append(button)
+		button = ttk.Button(app.tabs["Settings"], text="Edit update and output preferences…", command=lambda: self.edit_options(group="Behavior"))
+		button.pack(anchor="w", pady=(0, 8))
+		self.widgets.append(button)
 		button = ttk.Button(app.tabs["Settings"], text="Edit connection settings…", command=lambda: self.edit_options(group="Connection"))
 		button.pack(anchor="w", pady=(0, 8))
 		self.widgets.append(button)
@@ -84,7 +87,8 @@ class ConfigurationForms:
 		window = self.options_window = tk.Toplevel(self.app.root)
 		hardware = group == "Hardware"
 		connection = group == "Connection"
-		title = "Connection settings" if connection else "Hardware and resource settings" if hardware else "Advanced assignment settings"
+		behavior = group == "Behavior"
+		title = "Update and output preferences" if behavior else "Connection settings" if connection else "Hardware and resource settings" if hardware else "Advanced assignment settings"
 		window.title(title)
 		window.transient(self.app.root)
 		window.geometry("740x600")
@@ -93,6 +97,8 @@ class ConfigurationForms:
 		intro = ("Blank retains INI inheritance or the backend's automatic CPU detection/defaults.\nThese values are reported to PrimeNet during registration or computer updates. They do not configure your computation program." if hardware else "Blank uses the backend default. True/False explicitly overrides it.\nThese settings can change assignment selection or rewrite assignments during monitoring.")
 		if connection:
 			intro = "Blank uses INI/backend defaults. Proxy settings apply when monitoring communicates with servers.\nUse Manage SMTP and proxy passwords to change passwords."
+		if behavior:
+			intro = "Blank uses INI/backend defaults. These preferences are saved locally; no update check runs during Save."
 		ttk.Label(outer, text=intro, wraplength=680).pack(anchor="w", pady=(0, 8))
 		body = ttk.Frame(outer)
 		body.pack(fill="both", expand=True)
@@ -121,6 +127,10 @@ class ConfigurationForms:
 		help_text = ("Total physical memory (memory) and maximum stage 2 memory (Memory) are separate settings. Maximum memory cannot exceed total memory.\nBlank GPU-related fields use CPU detection, not automatic GPU selection." if hardware else "P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.")
 		if connection:
 			help_text = "SOCKS proxies require the optional PySocks package. Encryption True is strict; blank uses opportunistic encryption in the CLI.\nThe GUI always requires encryption for new passwords. Existing encrypted passwords require encryption enabled or inherited."
+		elif behavior:
+			help_text = "Update checks occur during normal backend monitoring. Native console-color preferences do not change the GUI or plain backend log."
+		elif not hardware:
+			help_text += "\nWithholding ≥100M-digit prime results requires another notification method, as in the CLI."
 		ttk.Label(outer, text=help_text, wraplength=680).pack(anchor="w", pady=8)
 		buttons = ttk.Frame(outer)
 		buttons.pack(fill="x")

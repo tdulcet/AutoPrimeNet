@@ -28,6 +28,18 @@ def form(document, **changes):
 
 
 class SaveTests(unittest.TestCase):
+	def test_update_output_and_large_prime_preferences_round_trip(self):
+		with tempfile.TemporaryDirectory() as directory:
+			document = ConfigDocument(directory)
+			values = form(document, version_check="False", version_check_channel="beta", color="False", no_report_100m="True", SilentVictory="True")
+			result = save_configuration(document, values, "mlucas", [{"directory": "", "preference": ""}])["document"]
+			self.assertFalse(result.config.getboolean("PrimeNet", "version_check"))
+			self.assertEqual(result.config.get("PrimeNet", "version_check_channel"), "beta")
+			self.assertTrue(result.config.getboolean("PrimeNet", "no_report_100m"))
+			self.assertTrue(result.config.getboolean("PrimeNet", "SilentVictory"))
+			with self.assertRaises(WorkspaceError):
+				save_configuration(result, form(result, version_check_channel="invalid"), "mlucas", [{"directory": "", "preference": ""}])
+			self.assertEqual(result.path.read_bytes(), result.data)
 	def test_hardware_fields_round_trip_without_changing_estimates(self):
 		with tempfile.TemporaryDirectory() as directory:
 			path = Path(directory) / "prime.ini"

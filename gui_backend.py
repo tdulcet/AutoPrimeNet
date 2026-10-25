@@ -224,13 +224,14 @@ def _dispatch(request, path):
 	if not isinstance(request, dict) or request.get("protocol") != PROTOCOL_VERSION:
 		raise BackendError("Unsupported GUI backend protocol.")
 	operation = request.get("operation")
-	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials"}:
+	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help"}:
 		raise BackendError("Unsupported offline bridge operation.")
 	_source, tree, boundary = _read_source(path)
 	if operation == "capabilities":
 		return {
+			"backend_version": ast.literal_eval(next(node.value for node in tree.body if _assignment_target(node, "VERSION"))),
 			"source_sha256": AUDITED_SOURCE_SHA256,
-			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials"],
+			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help"],
 			"network_enabled": False,
 			"cli_options": _parser_inventory(tree),
 		}
@@ -240,6 +241,31 @@ def _dispatch(request, path):
 		raise BackendError("Work preview requires a list of at most 1000 text lines.")
 	namespace = _load_definitions(path, tree, boundary)
 	try:
+		if operation == "cli_help":
+			end = next(index for index in range(boundary, len(tree.body)) if _assignment_target(tree.body[index], "args"))
+			exec(compile(ast.Module(body=tree.body[boundary:end], type_ignores=[]), str(path), "exec"), namespace)
+			namespace["parser"].prog = path.name
+			return {"text": namespace["parser"].format_help(), "network_enabled": False, "files_written": False}
+		if operation == "debug_report":
+			_validate_config(namespace, tree, boundary, request)
+			buffer = io.StringIO()
+			with contextlib.redirect_stdout(buffer):
+				namespace["debug_info"](namespace["config"], namespace["args"])
+			text = buffer.getvalue()
+			for attribute in ("password", "proxy_password", "email_password"):
+				secret = getattr(namespace["args"], attribute, None)
+				if secret:
+					text = text.replace(secret, "[redacted]")
+			if len(text.encode("utf-8")) > 256 * 1024:
+				raise BackendError("The diagnostic report exceeds the 256 KiB limit.")
+			return {"text": text, "private": True, "network_enabled": False, "files_written": False}
+		if operation == "preview_registration":
+			from gui_registration_plan import preview_plan
+			_validate_config(namespace, tree, boundary, request)
+			try:
+				return preview_plan(namespace, request.get("parameters"), request["directory"])
+			except ValueError as error:
+				raise BackendError(str(error)) from error
 		if operation == "protect_credentials":
 			return _protect_credentials(namespace, tree, boundary, request)
 		if operation == "validate_config":

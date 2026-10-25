@@ -5,8 +5,10 @@ AutoPrimeNet. The current desktop foundation provides local previews, initial
 configuration forms with validated saving, scheduled CLI monitoring, confirmed
 one-shot commands and experimental macOS/Windows tray integration. Starting
 monitoring or confirming a server/email command performs real external
-operations. Immediate file watching and exponent registration remain unfinished.
-This is not a complete GUI release.
+operations. Graphical computer/exponent registration and private reports are
+available; immediate file watching and other parity gaps remain unfinished.
+This is not a complete GUI release. See [GUI_PARITY.md](GUI_PARITY.md) for the
+complete audited flag inventory and explicit coverage limits.
 See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
 
 ## Python requirements
@@ -233,7 +235,8 @@ Use **File → Quit** or the tray menu's Quit item to exit. If a bounded local
 preview is still running, wait for it to finish and choose Quit again. The
 Advanced tab provides a searchable flag reference and an advanced assignment
 settings dialog described below. Notifications provides local SMTP configuration;
-Logs & Status displays GUI activity only.
+Logs & Status includes GUI activity, a separate private native-log viewer,
+original work-status reporting and offline diagnostic export.
 
 ### Configuring AutoPrimeNet locally
 
@@ -247,9 +250,9 @@ backend defaults. Choose a computation program and provide a GIMPS username or
 | PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day; hardware/resource settings dialog |
 | Workers | One of the eight supported computation programs, worker count, per-worker directories and preference codes |
 | Assignments | Days of queued work and legacy extra-assignment cache |
-| Settings | Work/results filenames, activity-log path, optional proof-archive directory; connection settings and password management |
-| Advanced | Minimum/maximum exponent and factoring bit level, target factoring bits, P−1 tests saved/retry threshold/optimal bounds, ECM bounds multiplier/curve limit, LL↔PRP conversions, PRPLL certification enablement and daily time limit |
-| Notifications | Send enablement, sender, recipients, SMTP server/username, SSL/TLS and StartTLS |
+| Settings | Work/results filenames, activity-log path, optional proof-archive directory; connection/password management; version-check channel/enablement and native console-color preference |
+| Advanced | Minimum/maximum exponent and factoring bit level, target factoring bits, P−1 tests saved/retry threshold/optimal bounds, ECM bounds multiplier/curve limit, LL↔PRP conversions, ≥100M-digit prime reporting policy, PRPLL certification enablement and daily time limit |
+| Notifications | Send enablement, sender, recipients, SMTP server/username, SSL/TLS, StartTLS and new-prime sound suppression |
 
 Choose **Edit advanced assignment settings…** to open the scrollable dialog.
 Blank values use the backend default; boolean fields also offer explicit True
@@ -261,10 +264,20 @@ assignments when monitoring next runs. Opposite LL/PRP conversion directions
 cannot both be enabled. The P−1 retry threshold applies with force P−1; optimal
 bounds can also be used independently, following the CLI's semantics.
 
-The searchable CLI reference includes a **GUI location** column for the current
-configuration fields. Double-click a mapped row or press Return to select its
-tab; advanced settings open with the relevant control focused. Unmapped rows
-remain reference entries and do not imply implemented graphical parity.
+The searchable CLI reference includes **GUI location** and **Coverage** columns
+for every audited parser entry. Double-click a mapped row or press Return to
+select its tab; dialog settings open with the relevant control focused, while
+operation rows focus their button without executing it. Partial/CLI-only entries
+describe remaining limitations. **Help → Original CLI help** displays the
+original parser's complete visible help offline without needing a workspace.
+**Help → About** includes the audited backend version.
+
+Use **Settings → Edit update and output preferences…** for version checks,
+alpha/beta/stable preference and native CLI console color. Saving performs no
+update check. These settings apply when the original backend next runs; console
+color does not style the GUI or plain backend log. The Advanced reporting policy
+can withhold prime results at or above 100 million digits, matching the CLI's
+`--no-report-100m` option; configure another notification method if enabling it.
 
 Use **Apply worker count** after changing the count. Select a worker in the table
 and choose **Edit selected worker…** to set its directory and preference. A blank
@@ -287,6 +300,14 @@ are escaped automatically for the INI format. Clearing an optional field removes
 its explicit override so backend defaults or INI inheritance apply. Edited
 multiline values are refused rather than flattened. Saved passwords are never
 shown in the forms; use the password-management dialog to replace or remove them.
+
+The GUI preserves an existing UTF-8 byte-order mark during local editing, but
+the audited original CLI cannot read BOM-prefixed INI files. Runner startup
+therefore refuses them before launching a CLI command. Keep a private backup,
+use your text editor to save the INI as **UTF-8 without BOM**, then refresh the
+GUI. This limitation was verified with the original CLI; no upstream source was
+changed to alter its encoding behavior. New GUI-created configurations already
+use UTF-8 without BOM.
 
 ### Hardware and resource settings
 
@@ -433,11 +454,13 @@ operations. Full graphical CLI parity remains later work.
 ### One-shot commands
 
 Save or reload unsaved edits before running these commands. Each button asks
-for confirmation, describing its effects and showing its fixed CLI flags:
+for confirmation, describing its effects and showing the related CLI flags:
 
 | Tab and action | Original CLI flags | Effect |
 | --- | --- | --- |
 | PrimeNet → Ping PrimeNet… | `--ping` | Contacts the normal PrimeNet API and logs its response/version information |
+| PrimeNet → Ping experimental v6 API… | `--ping --v6` | Pings the experimental endpoint; does not switch assignment operations to v6 |
+| PrimeNet → Register or update computer… | Graphical `--setup` completion | Sends saved registration/program settings without terminal prompts or automatic work fetching |
 | Notifications → Send test email… | `--test-email` | Sends the backend's test message to configured recipients |
 | Assignments → Report results… | `--report-results` | Submits pending results for all configured workers |
 | Assignments → Report results and upload proofs… | `--upload-proofs` | Reports results and uploads available PRP proofs, using configured archive/delete behavior |
@@ -447,6 +470,8 @@ for confirmation, describing its effects and showing its fixed CLI flags:
 | Assignments → Recover all assignments… | `--recover-all` | Also includes expired PrimeNet work and broader TF1G recovery |
 | Assignments → Unreserve an exponent… | `--unreserve EXPONENT` | Releases/removes the first locally matching exponent across workers |
 | Assignments → Unreserve all assignments… | `--unreserve-all` | Reports results and releases assignments represented by configured workers |
+| Assignments → Register exponent batch… | Graphical `--register-exponents` | Opens a batch form and offline preview; contacts PrimeNet only after typed confirmation |
+| Logs & Status → Write work status to backend log… | `--status` | Writes the original queued-work/ETA report to the configured native log |
 
 The email test requires a saved SMTP server, From address and notification
 sending enabled. Its message contains version, username, computer name and GUID
@@ -456,9 +481,11 @@ actions can update local state, result files and server reservations, and send
 configured notifications. Do not run them against real assignments merely to
 exercise the GUI.
 
-These commands run the original CLI once with `--timeout 0`; they do not start a
-scheduled loop or add the new-computer registration follow-up used by scheduled
-monitoring. The helper checks the saved configuration fingerprint, validates
+These commands use the original backend once with `--timeout 0`; they do not
+start a scheduled loop or add the new-computer registration follow-up used by
+scheduled monitoring. Registration uses private graphical-input adapters around
+the original startup/main functions, described below. Other actions use the
+unchanged CLI entry point. The helper checks the saved fingerprint, validates
 offline and creates the same private `.gui-monitor-backup-*.bak` configuration
 snapshot used by monitoring. This backup does not undo server actions or recover
 deleted/archived proofs or changed result files. Original CLI configuration
@@ -473,12 +500,98 @@ before execution. **Force stop…** can interrupt writes/uploads and requires a
 separate confirmation. **Quit** waits asynchronously for the owned command.
 
 CLI output remains in the configured AutoPrimeNet log rather than being copied
-into the GUI. A zero exit code records local completion only; some CLI paths
+into GUI activity; open the separate private log viewer to read it. A zero exit
+code records local completion only; some CLI paths
 log server errors without returning failure. The GUI therefore leaves server
 acceptance and message delivery unverified. Review the log and refresh local
 snapshots after completion. CLI-reference navigation focuses the corresponding
-button without running it. Experimental v6 ping, full debug reports and exponent
-registration are not implemented yet.
+button without running it. Server acceptance remains unverified until you review
+the original log and relevant server state.
+
+### Graphical computer and exponent registration
+
+Configure username, program, workers and optional hardware/notification settings,
+then **Save settings**. Choose **PrimeNet → Register or update computer…** when
+ready to send them to PrimeNet. The private adapter executes the original CLI's
+startup, then enters its setup-completion branch with saved graphical values.
+It calls the original computer-registration and program-options routines,
+including their configuration updates and server overrides, without running the
+terminal setup questions, automatically sending test email or fetching work.
+Refresh afterward. Automatic GPU selection and SMTP-provider discovery from
+terminal setup remain unfinished; supply those settings manually in the forms.
+
+For explicit exponents, choose **Assignments → Register exponent batch…**:
+
+1. Select one configured worker and a supported work type.
+2. Enter the explicit parameters, then **Add row**. Select a queued row to load
+   its values; use **Replace selected row** or **Remove selected row** as needed.
+   Editing draft fields alone does not change a queued row.
+3. Choose **Validate and preview offline**. The original registration constructor
+   and formatter generate canonical work lines in memory, with no files written
+   or network access. Composite exponents and invalid known factors are rejected
+   using the original backend's checks. Changing the worker or queued rows
+   invalidates the preview.
+4. Review the queued rows and scrollable work-line preview. Choose **Register
+   validated batch…** only when ready, pause the affected computation engine,
+   and type `REGISTER N`, where N is the batch size.
+
+The eight original work types are trial factoring, P−1 with bounds, P−1 factoring,
+ECM, LL, LL double-check, PRP and PRP double-check. Fields enable according to the
+selected type and engine: TF bits/end bits, prior P−1 state, tests saved, P−1/ECM
+B1/B2, ECM curves, PRP base/residue type and known prime factors. The dialog does
+not infer these values from mersenne.ca; enter them explicitly. Known factors
+are comma-separated and must divide the Mersenne number with their supplied
+multiplicity. PRP double-check known factors require residue type 5, matching
+the original workflow. Use work types supported by your computation engine;
+offline preview is not a server capability or acceptance check.
+
+GUI resource limits are one worker, 1–100 queued rows, a normalized plan up to
+48 KiB, at most 32 known factors per row, and integer inputs/factors up to 1024
+bits. Exponents and other type-specific ranges follow the original prompts;
+nonfinite numeric values and duplicate work-type/exponent pairs within a batch
+are refused. Cancel discards the in-memory queue. Reload/Quit asks before
+discarding queued rows. A preview result arriving after the dialog closes is
+discarded safely. Queues are not persisted across application restarts.
+
+Live registration requires an existing computer GUID and reruns offline
+validation in the supervisor before creating private work/certification
+snapshots. The adapter supplies only reviewed, validated answers to the original
+registration prompts; unexpected/repeated prompts fail rather than opening a
+terminal. It appends the batch to the selected worker and then registers **all
+unregistered work already in that worker's file**, as the original command does.
+Configured conversions/factoring adjustments can rewrite work lines. Selected
+worker directories and PRPLL indexed files follow the original CLI's behavior.
+
+The adapter executes the hash-guarded original source without editing it. Plan
+data travels through stdin rather than command-line arguments, and the child
+rechecks the saved configuration fingerprint. Failures can leave appended or
+partially registered work, just as the original workflow can; snapshots do not
+undo server changes. Stop/Force/Quit retain the existing owned-process semantics.
+Inspect the original log and refresh after completion. Automated tests use
+simulated registration API responses; no live registration has been validated.
+
+### Native logs, work status and private diagnostics
+
+**Logs & Status → Write work status to backend log…** runs the original
+`--status` workflow once, reading available computation progress and estimates.
+It can normalize configuration during CLI startup but does not fetch assignments
+or submit results. Choose **View private backend log…** to read the configured
+log in a separate, read-only window. Refresh reads at most the latest 128 KiB and
+2000 lines, without loading the whole file. Missing, symlink or nonregular logs
+are refused. Log viewing can remain available during monitoring; it is a snapshot
+of changing output, not a synchronized live feed. Native log contents can include
+private account/path details or verbose diagnostics and are not copied into GUI
+activity.
+
+**Export private diagnostics…** asks before running the original `debug_info`
+function in the network-blocked offline bridge. It creates a new owner-private
+`.gui-debug-report-<id>.txt` in the workspace, showing its path in GUI activity.
+The report includes software/runtime, detected hardware and private identifiers,
+including username/computer GUID; review and redact before sharing. Configured
+password values are redacted from the returned report. Configuration, work and
+checkpoint files are not changed. A changing configuration or an oversized
+report prevents export. Existing files are never overwritten. The file is local
+only; there is no automatic upload, email or public bug-report submission.
 
 ### Recovery, unreservation and new-work policy
 

@@ -38,6 +38,7 @@ class WindowTests(unittest.TestCase):
 				self.wait_until(lambda: not self.app.monitor.active, timeout=10)
 			self.wait_until(lambda: not self.app.jobs.busy, timeout=35)
 			self.app.editor.dirty = False
+			self.app.registration.close()
 			self.app.quit()
 
 	def test_navigation_search_workspace_and_repeated_refresh(self):
@@ -391,6 +392,101 @@ class WindowTests(unittest.TestCase):
 				self.wait_until(lambda: not self.app.monitor.active and self.app.monitor.state == "Stopped")
 			self.assertEqual(len(list(base.glob(".gui-assignment-backup-*"))), 2)
 			self.assertEqual((base / "operation.record").read_text(), "recover_all")
+
+	def test_registration_batch_offline_preview_edit_and_simulated_registration(self):
+		from gui_controller import MonitorController
+		from test_gui_monitor import fake_monitor_process
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			(base / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\nComputerGUID=" + "a" * 32 + "\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.monitor = MonitorController(process_factory=fake_monitor_process)
+			self.app.run_operation("register_exponents")
+			form = self.app.registration
+			self.assertTrue(form.window.winfo_exists())
+			self.root.update()
+			self.assertLessEqual(form.launch_button.winfo_rooty() + form.launch_button.winfo_height(), form.window.winfo_rooty() + form.window.winfo_height())
+			form.values["exponent"].set("127")
+			self.assertTrue(form.add())
+			form.values["exponent"].set("131")
+			self.assertTrue(form.add())
+			form.request_preview()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertIsNotNone(form.preview)
+			self.assertIn("PRP=1,2,127", form.output.get("1.0", "end"))
+			self.assertFalse((base / "worktodo.txt").exists())
+			form.table.selection_set(form.table.get_children()[0])
+			self.root.update()
+			form.values["exponent"].set("137")
+			self.assertTrue(form.replace())
+			self.assertIsNone(form.preview)
+			self.assertTrue(form.launch_button.instate(["disabled"]))
+			form.request_preview()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			with patch("autoprimenet_gui.simpledialog.askstring", return_value="wrong"):
+				form.launch()
+			self.assertIsNone(self.app.monitor.process)
+			with patch("autoprimenet_gui.simpledialog.askstring", return_value="REGISTER 2"):
+				form.launch()
+			self.assertIsNone(form.window)
+			self.wait_until(lambda: not self.app.monitor.active and self.app.monitor.state == "Stopped")
+			self.assertEqual((base / "operation.record").read_text(), "register_exponents")
+			self.assertTrue(list(base.glob(".gui-assignment-backup-*")))
+			self.assertFalse((base / "worktodo.txt").exists())
+
+	def test_registration_batch_discard_guards_and_closed_preview_result(self):
+		with tempfile.TemporaryDirectory() as directory:
+			(Path(directory) / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.run_operation("register_exponents")
+			form = self.app.registration
+			form.values["exponent"].set("127")
+			form.add()
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False):
+				self.app.refresh()
+				self.app.quit()
+			self.assertFalse(self.app.closed)
+			self.assertTrue(form.dirty)
+			form.request_preview()
+			form.close()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertIsNone(form.window)
+			self.assertFalse((Path(directory) / "worktodo.txt").exists())
+
+	def test_native_log_private_diagnostics_and_original_help(self):
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			(base / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			(base / "autoprimenet.log").write_text("PRIVATE-NATIVE-TEST-CONTENT\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.backend_log.open()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertIn("PRIVATE-NATIVE-TEST-CONTENT", self.app.backend_log.text.get("1.0", "end"))
+			self.assertNotIn("PRIVATE-NATIVE-TEST-CONTENT", self.app.activity.get("1.0", "end"))
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False):
+				self.app.request_diagnostics()
+			self.assertFalse(list(base.glob(".gui-debug-report-*")))
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.request_diagnostics()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertEqual(len(list(base.glob(".gui-debug-report-*"))), 1)
+			self.assertIn("Private diagnostics saved", self.app.status.get())
+			with patch.object(self.app, "show_text_report") as report:
+				self.app.request_cli_help()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				report.assert_called_once()
+				self.assertIn("usage: autoprimenet.py", report.call_args.args[1])
+				self.assertIn("--register-exponents", report.call_args.args[1])
+			with patch("autoprimenet_gui.messagebox.showinfo") as about:
+				self.app.show_about()
+				self.assertIn("2.0.2", about.call_args.args[1])
+			self.app.backend_log.close()
 
 	def test_unsaved_changes_can_cancel_reload_and_quit(self):
 		with tempfile.TemporaryDirectory() as directory:

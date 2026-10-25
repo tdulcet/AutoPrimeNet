@@ -31,7 +31,7 @@ def fake_monitor_process(_command, **kwargs):
 			(Path(directory) / 'cycle.completed').write_text('completed')
 			return 0, False
 		gui_monitor.cli_cycle = fake_cycle
-		def fake_once(directory, config_name, control, operation=None, parameters=None):
+		def fake_once(directory, config_name, control, operation=None, parameters=None, expected_hash=None):
 			(Path(directory) / 'operation.record').write_text(str(operation))
 			(Path(directory) / 'parameters.record').write_text(json.dumps(parameters or {}))
 			return fake_cycle(directory, config_name, control)
@@ -54,6 +54,21 @@ def wait_event(controller, wanted, timeout=10):
 		if message["event"] == wanted:
 			return message
 	raise AssertionError("Missing monitor event: " + wanted)
+
+
+class EncodingTests(unittest.TestCase):
+	def test_original_cli_bom_limit_is_rejected_before_runner_or_backup(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			data = b"\xef\xbb\xbf[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n"
+			path.write_bytes(data)
+			controller = MonitorController(process_factory=fake_monitor_process)
+			controller.start(ConfigDocument(directory), operation="ping")
+			failure = wait_event(controller, "failed")
+			wait_event(controller, "exited")
+			self.assertIn("UTF-8 BOM", failure["error"])
+			self.assertEqual(path.read_bytes(), data)
+			self.assertEqual({file.name for file in Path(directory).iterdir()}, {"prime.ini"})
 
 
 class ScheduleTests(unittest.TestCase):

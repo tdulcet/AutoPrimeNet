@@ -20,6 +20,22 @@ BASELINE_SHA256 = "05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7e
 
 
 class BackendTests(unittest.TestCase):
+	def test_original_cli_help_needs_no_configuration_and_writes_no_files(self):
+		response = self.run_bridge({"protocol": 1, "operation": "cli_help"})
+		self.assertTrue(response["ok"])
+		self.assertIn("usage: autoprimenet.py", response["result"]["text"])
+		self.assertIn("--register-exponents", response["result"]["text"])
+		self.assertFalse(response["result"]["files_written"])
+		self.assertFalse(response["result"]["network_enabled"])
+
+	def test_all_audited_cli_entries_have_explicit_coverage_classification(self):
+		from gui_reference import reference_info
+		result = self.run_bridge({"protocol": 1, "operation": "capabilities"})["result"]
+		self.assertEqual(result["backend_version"], "2.0.2")
+		self.assertFalse([item for item in result["cli_options"] if reference_info(item["dest"])[2] == "Unmapped"])
+		self.assertEqual(reference_info("timeout")[2], "Partial")
+		self.assertEqual(reference_info("setup")[2], "Partial")
+		self.assertEqual(reference_info("watch")[2], "CLI only")
 	def run_bridge(self, request, source=None):
 		with tempfile.TemporaryDirectory() as directory:
 			command = [sys.executable, "-B", str(BRIDGE)]

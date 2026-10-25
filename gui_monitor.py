@@ -45,7 +45,7 @@ class StopControl:
 		self.stop.set()
 
 
-def _cli_once(directory, config_name, control, operation=None, parameters=None):
+def _cli_once(directory, config_name, control, operation=None, parameters=None, expected_hash=None):
 	"""Run only our CLI child; forced termination requires a separate command."""
 	if operation is None and parameters:
 		raise ValueError("Scheduled cycles do not accept operation parameters.")
@@ -54,11 +54,29 @@ def _cli_once(directory, config_name, control, operation=None, parameters=None):
 	environment["NO_COLOR"] = "1"
 	environment.pop("FORCE_COLOR", None)
 	flags = () if operation is None else operation_arguments(operation, parameters)
+	registration = operation in {"register_computer", "register_exponents"}
+	command = [sys.executable, "-B", str(ROOT / "gui_registration.py")] if registration else [sys.executable, "-B", str(ROOT / "autoprimenet.py"), "--workdir", str(directory), "--config-file", config_name, "--timeout", "0", *flags]
+	payload = None
+	if registration:
+		request = {"operation": operation, "directory": str(directory), "config_name": config_name, "parameters": parameters or {}, "config_sha256": expected_hash or hashlib.sha256(ConfigDocument(directory, config_name).data).hexdigest()}
+		payload = json.dumps(request).encode("utf-8")
+		if len(payload) > 65536:
+			raise WorkspaceError("Registration request exceeds the 64 KiB execution limit.")
 	process = subprocess.Popen(
-		[sys.executable, "-B", str(ROOT / "autoprimenet.py"), "--workdir", str(directory), "--config-file", config_name, "--timeout", "0", *flags],
-		stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+		command,
+		stdin=subprocess.PIPE if registration else subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
 		cwd=ROOT, env=environment,
 	)
+	if registration:
+		try:
+			process.stdin.write(payload)
+		except OSError:
+			pass  # Reap the child and report its exit status below.
+		finally:
+			try:
+				process.stdin.close()
+			except OSError:
+				pass
 	while True:
 		try:
 			return process.wait(timeout=0.2), False
@@ -117,7 +135,7 @@ def emit(message):
 	print(json.dumps(message), flush=True)
 
 
-def run_operation(directory, config_name, operation, control, emit, cycle=None, parameters=None):
+def run_operation(directory, config_name, operation, control, emit, cycle=None, parameters=None, expected_hash=None):
 	"""A confirmed action executes exactly once, without registration follow-up."""
 	if operation not in OPERATIONS:
 		raise WorkspaceError("Unsupported one-shot operation.")
@@ -132,6 +150,8 @@ def run_operation(directory, config_name, operation, control, emit, cycle=None, 
 	options = {"operation": operation}
 	if parameters:
 		options["parameters"] = parameters
+	if expected_hash is not None and operation in {"register_computer", "register_exponents"}:
+		options["expected_hash"] = expected_hash
 	code, forced = (cycle or _cli_once)(directory, config_name, control, **options)
 	if forced:
 		emit({"event": "stopped", "forced": True})
@@ -164,6 +184,8 @@ def main():
 		elif parameters:
 			raise WorkspaceError("Scheduled monitoring does not accept operation parameters.")
 		document = ConfigDocument(request["directory"], request["config_name"])
+		if document.bom:
+			raise WorkspaceError("The original CLI cannot read UTF-8 BOM configurations. Keep a backup and save the INI as UTF-8 without BOM in your text editor, then refresh.")
 		if document.version is None or hashlib.sha256(document.data).hexdigest() != request["config_sha256"]:
 			raise WorkspaceError("Configuration changed. Reload before starting monitoring.")
 		with instance_lease(document.directory, "~gui-monitor.lock"):
@@ -171,8 +193,10 @@ def main():
 			# subsequent cycle, protecting against an independent CLI instance.
 			with instance_lease(document.directory):
 				settings = backend_request("validate_config", directory=str(document.directory), config_name=document.path.name, text=document.text)
-				if operation in {"recover", "recover_all"} and not document.config.get("PrimeNet", "ComputerGUID", fallback=""):
-					raise WorkspaceError("Recovery requires an existing computer registration. No assignments were requested.")
+				if operation in {"recover", "recover_all", "register_exponents"} and not document.config.get("PrimeNet", "ComputerGUID", fallback=""):
+					raise WorkspaceError("This operation requires an existing computer registration. No assignments were requested.")
+				if operation == "register_exponents":
+					parameters = backend_request("preview_registration", directory=str(document.directory), config_name=document.path.name, text=document.text, parameters=parameters)["plan"]
 				if operation == "unreserve":
 					assignments = inspect_workspace(str(document.directory), document.path.name)["assignments"]
 					if not any(item.get("fields", {}).get("n") == parameters["exponent"] for item in assignments):
@@ -202,7 +226,7 @@ def main():
 					message = {**message, "backup_created": True, "assignment_backup": assignment_backup}
 				emit(message)
 			if operation is not None:
-				return run_operation(document.directory, document.path.name, operation, control, report, parameters=parameters)
+				return run_operation(document.directory, document.path.name, operation, control, report, parameters=parameters, expected_hash=hashlib.sha256(document.data).hexdigest())
 			return run_schedule(document.directory, document.path.name, settings["checkin_hours"] * 3600, control, report)
 	except (BackendError, WorkspaceError, ControllerError) as error:
 		emit({"event": "failed", "error": str(error)})

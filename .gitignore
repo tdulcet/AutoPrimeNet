@@ -43,6 +43,7 @@ Desktop.ini
 /~lock
 /~gui-monitor.lock
 /.gui-assignment-backup-*/
+/.gui-debug-report-*.txt
 /*.lck
 /worktodo*.txt
 /worktodo*.add

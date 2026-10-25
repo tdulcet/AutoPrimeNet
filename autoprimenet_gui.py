@@ -29,6 +29,9 @@ from gui_controller import BackgroundJobs, ControllerError, MonitorController, T
 from gui_forms import ConfigurationForms
 from gui_options import field_for_destination
 from gui_operations import OPERATIONS, operation_arguments, operation_for_destination
+from gui_registration_form import RegistrationForm
+from gui_reports import BackendLogWindow, export_debug_report
+from gui_reference import reference_info
 
 
 TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
@@ -46,6 +49,7 @@ class Application:
 		self.hidden = False
 		self.closed = False
 		self.options = []
+		self.backend_version = "not loaded"
 		self.tray_deadline = time.monotonic() + 15
 		self.directory = tk.StringVar()
 		self.config_name = tk.StringVar(value="prime.ini")
@@ -83,8 +87,8 @@ class Application:
 		menu.add_cascade(label="View", menu=view)
 		help_menu = tk.Menu(menu, tearoff=False)
 		help_menu.add_command(label="CLI reference", command=lambda: self.notebook.select(self.tabs["Advanced"]))
-		help_menu.add_command(label="About", command=lambda: messagebox.showinfo(
-			"About AutoPrimeNet GUI", "Optional GUI foundation\nPython 3.15.0 or later\nGPL-3.0\n\nLocal configuration and scheduled CLI monitoring. Immediate file watching and full graphical parity are not available yet.", parent=self.root))
+		help_menu.add_command(label="Original CLI help", command=self.request_cli_help)
+		help_menu.add_command(label="About", command=self.show_about)
 		menu.add_cascade(label="Help", menu=help_menu)
 		self.root.config(menu=menu)
 		bar = ttk.Frame(self.root, padding=10)
@@ -106,6 +110,8 @@ class Application:
 			self.notebook.add(frame, text=name)
 			self.tabs[name] = frame
 		self.editor = ConfigurationForms(self)
+		self.registration = RegistrationForm(self)
+		self.backend_log = BackendLogWindow(self)
 		self.operation_buttons = {}
 		operation_frames, operation_counts = {}, {}
 		for key, operation in OPERATIONS.items():
@@ -131,23 +137,29 @@ class Application:
 		self.force_button.pack(side="left")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.tray_status, wraplength=720).pack(anchor="w", pady=16)
 		self.assignments = self._table(self.tabs["Assignments"], ("Worker", "Exponent", "Work type", "Local AID", "Server confirmation"))
-		ttk.Label(self.tabs["Assignments"], text="The table is a read-only preview. Parsed work lines and local AIDs do not confirm current server reservations. Reporting/upload actions above require confirmation.", wraplength=720).pack(anchor="w", pady=8)
+		ttk.Label(self.tabs["Assignments"], text="The table is a read-only preview. Parsed work lines and local AIDs do not confirm current server reservations. Actions above require confirmation.", wraplength=720).pack(anchor="w", pady=8)
 		self.workers = self._table(self.tabs["Workers"], ("Worker", "Directory", "Preference", "Work file"))
 		for name, explanation in (
-			("PrimeNet", "Save changes locally with Save settings. Ping contacts PrimeNet once; Dashboard starts scheduled monitoring. Standalone registration and full debugging reports remain unfinished."),
+			("PrimeNet", "Save settings before registering/updating this computer. Ping and v6 ping contact the selected API once; Dashboard starts scheduled monitoring. Computer registration synchronizes program options without requesting work."),
 			("Notifications", "Save notification settings locally with Save settings. Blank boolean values use the backend default. Monitoring and confirmed test-email actions can send messages. Manage passwords to replace or remove SMTP/proxy passwords; replacements require encryption. Set Send configured notifications to False to suppress sending."),
 		):
 			ttk.Label(self.tabs[name], text=explanation, wraplength=720, justify="left").pack(anchor="w")
-		ttk.Label(self.tabs["Advanced"], text="Search the existing CLI options (reference only; graphical controls are still being implemented).").pack(anchor="w")
+		ttk.Label(self.tabs["Advanced"], text="Search CLI flags, graphical locations and coverage. Full parity remains unfinished; see GUI_PARITY.md.").pack(anchor="w")
 		entry = ttk.Entry(self.tabs["Advanced"], textvariable=self.search)
 		entry.pack(fill="x", pady=8)
 		self.search.trace_add("write", lambda *_: self.filter_options())
-		self.reference = self._table(self.tabs["Advanced"], ("CLI flags", "Destination", "GUI location"))
+		self.reference = self._table(self.tabs["Advanced"], ("CLI flags", "Destination", "GUI location", "Coverage"))
 		self.reference.bind("<Double-1>", self.open_reference_setting)
 		self.reference.bind("<Return>", self.open_reference_setting)
+		reports = ttk.Frame(self.tabs["Logs & Status"])
+		reports.pack(fill="x", pady=(0, 8))
+		self.backend_log_button = ttk.Button(reports, text="View private backend log…", command=self.backend_log.open)
+		self.backend_log_button.pack(side="left")
+		self.diagnostics_button = ttk.Button(reports, text="Export private diagnostics…", command=self.request_diagnostics)
+		self.diagnostics_button.pack(side="left", padx=8)
 		self.activity = tk.Text(self.tabs["Logs & Status"], wrap="word", state="disabled", height=12)
 		self.activity.pack(fill="both", expand=True)
-		ttk.Label(self.tabs["Logs & Status"], text="GUI activity only. Existing logs and credentials are not loaded.").pack(anchor="w", pady=8)
+		ttk.Label(self.tabs["Logs & Status"], text="GUI activity below. Native logs open separately and may contain private details; diagnostic exports require review before sharing.", wraplength=900).pack(anchor="w", pady=8)
 		ttk.Label(self.tabs["Settings"], text="Configuration filename (reload after changing)").pack(anchor="w")
 		self.config_entry = ttk.Entry(self.tabs["Settings"], textvariable=self.config_name, width=40)
 		self.config_entry.pack(anchor="w", pady=8)
@@ -190,7 +202,7 @@ class Application:
 			self.refresh()
 
 	def discard_changes(self):
-		return not self.editor.dirty or messagebox.askyesno("Unsaved configuration", "Discard the unsaved form changes?", parent=self.root)
+		return not (self.editor.dirty or self.registration.dirty) or messagebox.askyesno("Unsaved changes", "Discard unsaved configuration or queued registration edits?", parent=self.root)
 
 	def set_busy(self, busy):
 		active = self.monitor.active
@@ -198,6 +210,10 @@ class Application:
 		for widget in (self.browse_button, self.directory_entry, self.config_entry):
 			widget.state(["disabled"] if busy or active or self.quit_pending else ["!disabled"])
 		self.editor.set_enabled(not busy and not active and not self.quit_pending and self.editor.document is not None)
+		self.registration.set_busy(busy or active or self.quit_pending)
+		self.backend_log.set_busy(busy or self.quit_pending)
+		self.backend_log_button.state(["disabled"] if busy or self.quit_pending or self.editor.document is None else ["!disabled"])
+		self.diagnostics_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.save_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.start_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		for button in self.operation_buttons.values():
@@ -237,6 +253,9 @@ class Application:
 		if self.editor.dirty:
 			self.status.set("Save or reload unsaved changes before starting monitoring.")
 			return
+		if self.registration.dirty:
+			self.status.set("Finish or discard the queued registration batch before starting monitoring.")
+			return
 		document = self.editor.document
 		if Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
 			self.status.set("Reload the selected workspace before starting monitoring.")
@@ -261,13 +280,16 @@ class Application:
 		self.active_operation = None
 		self.update_monitor_state("Starting")
 
-	def run_operation(self, key):
+	def run_operation(self, key, parameters=None):
 		operation = OPERATIONS.get(key)
 		if operation is None or self.jobs.busy or self.monitor.active or self.quit_pending or self.editor.document is None:
 			return
 		self.show()
 		if self.editor.dirty:
 			self.status.set("Save or reload unsaved changes before running an operation.")
+			return
+		if key != "register_exponents" and self.registration.dirty:
+			self.status.set("Finish or discard the queued registration batch before running another operation.")
 			return
 		document = self.editor.document
 		if Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
@@ -276,7 +298,10 @@ class Application:
 		if document.version is None:
 			self.status.set("Save the configuration before running an operation.")
 			return
-		parameters = {}
+		if key == "register_exponents" and parameters is None:
+			self.registration.open()
+			return
+		parameters = {} if parameters is None else parameters
 		if operation.requires_exponent:
 			initial = None
 			selected = self.assignments.selection()
@@ -291,8 +316,12 @@ class Application:
 			parameters["exponent"] = exponent
 		command = " ".join((*operation_arguments(key, parameters), "--timeout", "0"))
 		prompt = operation.effects + "\n\nRun once for the selected workspace? The CLI can update its configuration and runtime files. A private configuration backup is created first; it does not roll back server actions or proof/result changes.\n\nCLI options: " + command + "\n\nCompletion alone does not confirm server acceptance or message delivery. Check the AutoPrimeNet log. Stop waits for this command to finish; computation engines are not started or stopped."
+		if key == "register_exponents":
+			prompt += "\n\nWorker: {}. Batch size: {}. Review the offline work-line preview before continuing.".format(parameters["worker"], len(parameters["entries"]))
 		if operation.confirmation:
 			phrase = operation.confirmation + (" " + str(parameters["exponent"]) if operation.requires_exponent else "")
+			if key == "register_exponents":
+				phrase += " " + str(len(parameters["entries"]))
 			prompt += "\n\nPrivate snapshots of work/certification files are required before launch. Pause affected computation engines; snapshots cannot prevent later file changes or undo reservation releases.\n\nType " + phrase + " to proceed:"
 			wrapped = "\n".join(textwrap.fill(line, width=88) for line in prompt.splitlines())
 			confirmed = simpledialog.askstring(operation.title, wrapped, parent=self.root) == phrase
@@ -307,6 +336,7 @@ class Application:
 			return
 		self.active_operation = key
 		self.update_monitor_state("Starting")
+		return True
 
 	def update_monitor_state(self, state, detail=""):
 		self.monitor.state = state
@@ -315,6 +345,41 @@ class Application:
 		self.monitor_status.set(label + ": " + state + ("\n" + detail if detail else "") + "\nServer acceptance/connectivity: unverified")
 		self.tray.set_state(state)
 		self.set_busy(self.jobs.busy)
+
+	def request_diagnostics(self):
+		if self.jobs.busy or self.monitor.active or self.quit_pending or self.editor.document is None:
+			return
+		document = self.editor.document
+		if self.editor.dirty or Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
+			self.status.set("Save/reload the selected configuration before exporting diagnostics.")
+			return
+		if not messagebox.askyesno("Private diagnostic report", "Create a private diagnostic file in this workspace using the original backend? It contains account, computer and hardware identifiers. Review/redact before sharing.\n\nNo network access is permitted. Configuration, assignment and engine files are not changed.", parent=self.root):
+			return
+		if self.jobs.submit("debug_report", export_debug_report, document):
+			self.set_busy(True)
+			self.status.set("Generating private diagnostics offline…")
+
+	def show_about(self):
+		messagebox.showinfo("About AutoPrimeNet GUI", "Optional GUI foundation\nBackend AutoPrimeNet {}\nPython 3.15.0 or later\nGPL-3.0\n\nSee GUI_PARITY.md for implemented controls and remaining gaps.".format(self.backend_version), parent=self.root)
+
+	def request_cli_help(self):
+		if not self.jobs.busy and not self.quit_pending and self.jobs.submit("cli_help", backend_request, "cli_help"):
+			self.set_busy(True)
+
+	def show_text_report(self, title, text):
+		window = tk.Toplevel(self.root)
+		window.title(title)
+		window.geometry("900x600")
+		frame = ttk.Frame(window, padding=10)
+		frame.pack(fill="both", expand=True)
+		widget = tk.Text(frame, wrap="word")
+		scrollbar = ttk.Scrollbar(frame, orient="vertical", command=widget.yview)
+		widget.configure(yscrollcommand=scrollbar.set)
+		scrollbar.pack(side="right", fill="y")
+		widget.pack(fill="both", expand=True)
+		widget.insert("end", text)
+		widget.configure(state="disabled")
+		return window
 
 	def stop_monitoring(self):
 		if self.monitor.active:
@@ -353,21 +418,26 @@ class Application:
 		term = self.search.get().casefold()
 		for option in self.options:
 			flags = ", ".join(option["flags"])
-			field = field_for_destination(option["dest"])
-			location = field.tab + " → " + (field.dialog + " → " if field.dialog else "") + field.label if field else "Not mapped in this reference"
-			if option["dest"] in {"email_password", "proxy_password"}:
-				location = "Notifications → Manage passwords" if option["dest"] == "email_password" else "Settings → Manage passwords"
-			operation = operation_for_destination(option["dest"])
-			if operation:
-				location = OPERATIONS[operation].tab + " → " + OPERATIONS[operation].title
-			if term in (flags + " " + option["dest"] + " " + location).casefold():
-				self.reference.insert("", "end", values=(flags, option["dest"], location))
+			tab, label, coverage = reference_info(option["dest"])
+			location = (tab + " → " if tab else "") + label
+			if term in (flags + " " + option["dest"] + " " + location + " " + coverage).casefold():
+				self.reference.insert("", "end", values=(flags, option["dest"], location, coverage))
 
 	def open_reference_setting(self, _event=None):
 		selected = self.reference.selection()
 		if not selected:
 			return
 		destination = self.reference.item(selected[0], "values")[1]
+		if destination == "version":
+			self.show_about()
+			return
+		if destination == "help":
+			self.request_cli_help()
+			return
+		if destination == "debug_info":
+			self.notebook.select(self.tabs["Logs & Status"])
+			self.diagnostics_button.focus_set()
+			return
 		operation = operation_for_destination(destination)
 		if operation:
 			self.notebook.select(self.tabs[OPERATIONS[operation].tab])
@@ -382,6 +452,14 @@ class Application:
 			self.notebook.select(self.tabs[field.tab])
 			if field.tab == "Advanced" or field.dialog:
 				self.editor.edit_options(field.key, group=field.dialog or "Advanced")
+		else:
+			tab, _label, _coverage = reference_info(destination)
+			if tab:
+				self.notebook.select(self.tabs[tab])
+			if destination == "workdir":
+				self.directory_entry.focus_set()
+			elif destination == "localfile":
+				self.config_entry.focus_set()
 
 	def poll(self):
 		if self.closed:
@@ -390,16 +468,23 @@ class Application:
 		if result:
 			name, value, error = result
 			self.set_busy(False)
-			if error:
+			if name == "registration_preview":
+				self.registration.complete_preview(value, error)
+			elif name == "backend_log":
+				self.backend_log.complete(value, error)
+			elif error:
 				# ConfigParser and OS exceptions can contain raw file contents or
 				# private paths. Keep the visible failure generic for this preview.
 				self.status.set(str(error) if isinstance(error, (WorkspaceError, ControllerError)) else "Preview failed; check the directory, configuration and Python environment.")
 				self.log("Local operation failed. Check the status message; reload before retrying a save.")
 			elif name == "capabilities":
+				self.backend_version = value["backend_version"]
 				self.options = value["cli_options"]
 				self.filter_options()
 				self.log("Offline backend ready; CLI reference loaded.")
 			elif name == "workspace":
+				self.registration.close()
+				self.backend_log.close()
 				self.display_workspace(value["snapshot"])
 				self.editor.load(value["document"])
 				self.set_busy(False)
@@ -408,6 +493,11 @@ class Application:
 				self.status.set("Configuration saved locally" + ("; backup created. " if value["backup"] else ". ") + "Refresh preview to update displayed assignments. No server contacted.")
 				self.log("Local configuration saved" + (" with a backup." if value["backup"] else "."))
 				self.set_busy(False)
+			elif name == "debug_report":
+				self.status.set("Private diagnostics saved: " + value["path"])
+				self.log("Private diagnostic report: " + value["path"] + ". Review/redact before sharing.")
+			elif name == "cli_help":
+				self.show_text_report("Original AutoPrimeNet CLI help", value["text"])
 		while True:
 			try:
 				message = self.monitor.events.get_nowait()

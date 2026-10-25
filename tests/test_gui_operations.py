@@ -25,6 +25,8 @@ class OperationTests(unittest.TestCase):
 				control.begin.set()
 				events = []
 				parameters = {"exponent": 127} if OPERATIONS[operation].requires_exponent else {}
+				if operation == "register_exponents":
+					parameters = {"worker": 1, "entries": [{"exponent": 127}]}
 				options = {"operation": operation}
 				if parameters:
 					options["parameters"] = parameters
@@ -59,6 +61,8 @@ class OperationTests(unittest.TestCase):
 
 	def test_cli_flags_are_allowlisted_noninteractive_and_do_not_include_secrets(self):
 		for key, operation in OPERATIONS.items():
+			if key in {"register_computer", "register_exponents"}:
+				continue  # Registration uses the separately tested structured adapter.
 			with self.subTest(operation=key), patch("gui_monitor.subprocess.Popen") as popen:
 				popen.return_value.wait.return_value = 0
 				parameters = {"exponent": 127} if operation.requires_exponent else {}
