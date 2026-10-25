@@ -22,26 +22,23 @@ class ConfigurationForms:
 		self.engine = tk.StringVar()
 		self.count = tk.StringVar(value="1")
 		self.worker_values = []
-		self.advanced_window = None
-		self.advanced_values = {}
+		self.options_window = None
+		self.options_values = {}
+		for field in FIELDS:
+			variable = tk.StringVar(value=field.default)
+			variable.trace_add("write", self.changed)
+			self.values[field.key] = variable
 		for tab in dict.fromkeys(field.tab for field in FIELDS):
 			if tab == "Advanced":
-				for field in FIELDS:
-					if field.tab == tab:
-						variable = tk.StringVar(value=field.default)
-						variable.trace_add("write", self.changed)
-						self.values[field.key] = variable
-				button = ttk.Button(app.tabs[tab], text="Edit advanced assignment settings…", command=self.edit_advanced)
+				button = ttk.Button(app.tabs[tab], text="Edit advanced assignment settings…", command=self.edit_options)
 				button.pack(anchor="w", pady=(0, 8))
 				self.widgets.append(button)
 				continue
 			frame = ttk.LabelFrame(app.tabs[tab], text="Local configuration", padding=8)
 			frame.pack(fill="x", pady=(0, 8))
 			frame.columnconfigure(1, weight=1)
-			for row, field in enumerate(field for field in FIELDS if field.tab == tab):
-				variable = tk.StringVar(value=field.default)
-				variable.trace_add("write", self.changed)
-				self.values[field.key] = variable
+			for row, field in enumerate(field for field in FIELDS if field.tab == tab and not field.dialog):
+				variable = self.values[field.key]
 				ttk.Label(frame, text=field.label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=2)
 				if field.kind == "boolean":
 					widget = ttk.Combobox(frame, textvariable=variable, values=("", "True", "False"), state="readonly", width=12)
@@ -49,6 +46,9 @@ class ConfigurationForms:
 					widget = ttk.Entry(frame, textvariable=variable)
 				widget.grid(row=row, column=1, sticky="ew", pady=2)
 				self.widgets.append(widget)
+		button = ttk.Button(app.tabs["PrimeNet"], text="Edit hardware and resource settings…", command=lambda: self.edit_options(group="Hardware"))
+		button.pack(anchor="w", pady=(0, 8))
+		self.widgets.append(button)
 		frame = ttk.LabelFrame(app.tabs["Workers"], text="Program and worker configuration", padding=8)
 		frame.pack(fill="x", pady=(0, 8))
 		ttk.Label(frame, text="Computation program").grid(row=0, column=0, sticky="w")
@@ -66,19 +66,22 @@ class ConfigurationForms:
 		self.count.trace_add("write", self.changed)
 		self.set_enabled(False)
 
-	def edit_advanced(self, key=None):
+	def edit_options(self, key=None, group="Advanced"):
 		if self.document is None or self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
 			return
-		if self.advanced_window is not None and self.advanced_window.winfo_exists():
-			self.advanced_window.lift()
+		if self.options_window is not None and self.options_window.winfo_exists():
+			self.options_window.lift()
 			return
-		window = self.advanced_window = tk.Toplevel(self.app.root)
-		window.title("Advanced assignment settings")
+		window = self.options_window = tk.Toplevel(self.app.root)
+		hardware = group == "Hardware"
+		title = "Hardware and resource settings" if hardware else "Advanced assignment settings"
+		window.title(title)
 		window.transient(self.app.root)
 		window.geometry("740x600")
 		outer = ttk.Frame(window, padding=12)
 		outer.pack(fill="both", expand=True)
-		ttk.Label(outer, text="Blank uses the backend default. True/False explicitly overrides it.\nThese settings can change assignment selection or rewrite assignments during monitoring.", wraplength=680).pack(anchor="w", pady=(0, 8))
+		intro = ("Blank retains INI inheritance or the backend's automatic CPU detection/defaults.\nThese values are reported to PrimeNet during registration or computer updates. They do not configure your computation program." if hardware else "Blank uses the backend default. True/False explicitly overrides it.\nThese settings can change assignment selection or rewrite assignments during monitoring.")
+		ttk.Label(outer, text=intro, wraplength=680).pack(anchor="w", pady=(0, 8))
 		body = ttk.Frame(outer)
 		body.pack(fill="both", expand=True)
 		canvas = tk.Canvas(body, highlightthickness=0)
@@ -91,11 +94,11 @@ class ConfigurationForms:
 		frame.columnconfigure(1, weight=1)
 		frame.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
 		canvas.bind("<Configure>", lambda event: canvas.itemconfigure(item, width=event.width))
-		self.advanced_values = {}
+		self.options_values = {}
 		controls = {}
-		for row, field in enumerate(field for field in FIELDS if field.tab == "Advanced"):
+		for row, field in enumerate(field for field in FIELDS if (field.dialog or field.tab) == group):
 			variable = tk.StringVar(value=self.values[field.key].get())
-			self.advanced_values[field.key] = variable
+			self.options_values[field.key] = variable
 			ttk.Label(frame, text=field.label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=5)
 			choices = ("", "True", "False") if field.kind == "boolean" else field.choices
 			widget = ttk.Combobox(frame, textvariable=variable, values=choices, state="readonly") if choices else ttk.Entry(frame, textvariable=variable)
@@ -103,10 +106,11 @@ class ConfigurationForms:
 			controls[field.key] = widget
 			# Keyboard traversal keeps the focused field reachable on short displays.
 			widget.bind("<FocusIn>", lambda event: canvas.yview_moveto(max(0, (event.widget.winfo_y() - 20) / max(1, frame.winfo_height()))))
-		ttk.Label(outer, text="P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.", wraplength=680).pack(anchor="w", pady=8)
+		help_text = ("Total physical memory (memory) and maximum stage 2 memory (Memory) are separate settings. Maximum memory cannot exceed total memory.\nBlank GPU-related fields use CPU detection, not automatic GPU selection." if hardware else "P−1 retry threshold is used with force P−1. LL↔PRP conversions are mutually exclusive.\nSave settings validates all options with AutoPrimeNet before writing.")
+		ttk.Label(outer, text=help_text, wraplength=680).pack(anchor="w", pady=8)
 		buttons = ttk.Frame(outer)
 		buttons.pack(fill="x")
-		ttk.Button(buttons, text="Apply to form", command=self.apply_advanced).pack(side="left")
+		ttk.Button(buttons, text="Apply to form", command=self.apply_options).pack(side="left")
 		ttk.Button(buttons, text="Cancel", command=window.destroy).pack(side="right")
 		window.bind("<Escape>", lambda _: window.destroy())
 		window.grab_set()
@@ -115,23 +119,23 @@ class ConfigurationForms:
 			controls[key].focus_set()
 		return window
 
-	def apply_advanced(self):
+	def apply_options(self):
 		if self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
-			messagebox.showerror("Advanced settings", "Wait for local operations and monitoring to stop before applying changes.", parent=self.advanced_window)
+			messagebox.showerror("Configuration settings", "Wait for local operations and monitoring to stop before applying changes.", parent=self.options_window)
 			return False
 		values = {key: variable.get() for key, variable in self.values.items()}
-		values.update({key: variable.get() for key, variable in self.advanced_values.items()})
+		values.update({key: variable.get() for key, variable in self.options_values.items()})
 		try:
 			validate_fields(values)
 			if values["convert_ll_to_prp"] == values["convert_prp_to_ll"] == "True":
 				raise ValueError("Choose only one LL/PRP conversion direction.")
 		except ValueError as error:
-			messagebox.showerror("Advanced settings", str(error), parent=self.advanced_window)
+			messagebox.showerror("Configuration settings", str(error), parent=self.options_window)
 			return False
-		for key, variable in self.advanced_values.items():
+		for key, variable in self.options_values.items():
 			if self.values[key].get() != variable.get():
 				self.values[key].set(variable.get())
-		self.advanced_window.destroy()
+		self.options_window.destroy()
 		return True
 
 	def changed(self, *_):

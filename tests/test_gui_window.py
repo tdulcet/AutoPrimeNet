@@ -69,8 +69,8 @@ class WindowTests(unittest.TestCase):
 			self.app.refresh()
 			self.wait_until(lambda: not self.app.jobs.busy)
 			editor = self.app.editor
-			window = editor.edit_advanced()
-			editor.advanced_values["pm1_bounds"].set("MAX")
+			window = editor.edit_options()
+			editor.options_values["pm1_bounds"].set("MAX")
 			window.destroy()
 			self.assertFalse(editor.dirty)
 			self.assertEqual(editor.values["pm1_bounds"].get(), "")
@@ -79,15 +79,15 @@ class WindowTests(unittest.TestCase):
 			self.assertIn("Optimal P−1 bounds", self.app.reference.item(row, "values")[2])
 			self.app.reference.selection_set(row)
 			self.app.open_reference_setting()
-			editor.advanced_values["convert_ll_to_prp"].set("True")
-			editor.advanced_values["convert_prp_to_ll"].set("True")
+			editor.options_values["convert_ll_to_prp"].set("True")
+			editor.options_values["convert_prp_to_ll"].set("True")
 			with patch("gui_forms.messagebox.showerror") as error:
-				self.assertFalse(editor.apply_advanced())
+				self.assertFalse(editor.apply_options())
 				error.assert_called_once()
 			self.assertFalse(editor.dirty)
-			editor.advanced_values["convert_ll_to_prp"].set("False")
-			editor.advanced_values["pm1_bounds"].set("MAX")
-			self.assertTrue(editor.apply_advanced())
+			editor.options_values["convert_ll_to_prp"].set("False")
+			editor.options_values["pm1_bounds"].set("MAX")
+			self.assertTrue(editor.apply_options())
 			self.assertTrue(editor.dirty)
 			self.assertEqual(path.read_text(), original)
 			with patch("autoprimenet_gui.messagebox.showinfo"), patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
@@ -145,6 +145,7 @@ class WindowTests(unittest.TestCase):
 			self.wait_until(lambda: not self.app.jobs.busy)
 			values = self.app.editor.values
 			self.assertEqual(values["username"].get(), "ANONYMOUS")
+
 			self.assertEqual(values["email_username"].get(), "smtp-account")
 			self.assertEqual(values["tls"].get(), "False")
 			self.assertEqual(values["starttls"].get(), "True")
@@ -172,6 +173,47 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(values["notification_send"].get(), "False")
 			self.assertEqual(values["username"].get(), "ANONYMOUS")
 
+	def test_hardware_dialog_cancel_reference_save_and_memory_conflict(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			window = editor.edit_options(group="Hardware")
+			editor.options_values["memory"].set("8192")
+			window.destroy()
+			self.assertEqual(editor.values["memory"].get(), "")
+			self.assertFalse(editor.dirty)
+			self.app.search.set("--max-memory")
+			row = self.app.reference.get_children()[0]
+			self.assertIn("Hardware", self.app.reference.item(row, "values")[2])
+			self.app.reference.selection_set(row)
+			self.app.open_reference_setting()
+			self.assertEqual(self.app.notebook.select(), str(self.app.tabs["PrimeNet"]))
+			self.root.update()
+			self.assertEqual(len(editor.options_values), 11)
+			editor.options_values["memory"].set("8192")
+			editor.options_values["Memory"].set("16384")
+			self.assertTrue(editor.apply_options())
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				self.assertNotIn("Memory=", path.read_text())
+				self.assertIn("Max memory", self.app.status.get())
+				editor.edit_options(group="Hardware")
+				editor.options_values["Memory"].set("4096")
+				editor.options_values["WorkerDiskSpace"].set("2.5")
+				self.assertTrue(editor.apply_options())
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertFalse(editor.dirty)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertEqual(editor.values["memory"].get(), "8192")
+			self.assertEqual(editor.values["Memory"].get(), "4096")
+			self.assertEqual(editor.values["WorkerDiskSpace"].get(), "2.5")
 	def test_unsaved_changes_can_cancel_reload_and_quit(self):
 		with tempfile.TemporaryDirectory() as directory:
 			self.app.directory.set(directory)

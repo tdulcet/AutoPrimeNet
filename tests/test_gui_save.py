@@ -28,6 +28,38 @@ def form(document, **changes):
 
 
 class SaveTests(unittest.TestCase):
+	def test_hardware_fields_round_trip_without_changing_estimates(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\nCustom=keep\n[Internals]\nRollingAverage=1234\nmsec_per_iter=42\nexponent=127\n")
+			document = ConfigDocument(directory)
+			changes = dict(CpuBrand="Fixture CPU/GPU", cpu_features="avx2 fma", CpuSpeed="3200", memory="8192", Memory="4096", WorkerDiskSpace="2.5", L1="64", L2="1024", L3="0", NumCores="8", CpuNumHyperthreads="0")
+			result = save_configuration(document, form(document, **changes), "mlucas", [{"directory": "", "preference": ""}])
+			for key, value in changes.items():
+				self.assertEqual(result["document"].values()[key], value)
+			config = result["document"].config
+			self.assertEqual(config.getint("PrimeNet", "memory"), 8192)
+			self.assertEqual(config.getint("PrimeNet", "Memory"), 4096)
+			self.assertEqual(config.get("PrimeNet", "Custom"), "keep")
+			self.assertEqual(config.getint("Internals", "RollingAverage"), 1234)
+			self.assertEqual(config.getint("Internals", "msec_per_iter"), 42)
+			unchanged = save_configuration(result["document"], result["document"].values(), "mlucas", [{"directory": "", "preference": ""}])
+			self.assertIsNone(unchanged["backup"])
+			reset = save_configuration(result["document"], form(result["document"], **{key: "" for key in changes}), "mlucas", [{"directory": "", "preference": ""}])
+			for key in changes:
+				self.assertFalse(reset["document"].config.has_option("PrimeNet", key))
+
+	def test_invalid_hardware_fields_never_replace_configuration(self):
+		for changes in (dict(memory="1024", Memory="2048"), dict(CpuSpeed="3.2"), dict(WorkerDiskSpace="nan"), dict(NumCores="eight"), dict(CpuBrand="injected\nMemory=0")):
+			with self.subTest(changes=changes), tempfile.TemporaryDirectory() as directory:
+				path = Path(directory) / "prime.ini"
+				path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+				document = ConfigDocument(directory)
+				with self.assertRaises((WorkspaceError, ControllerError)):
+					save_configuration(document, form(document, **changes), "mlucas", [{"directory": "", "preference": ""}])
+				self.assertEqual(path.read_bytes(), document.data)
+				self.assertFalse(list(Path(directory).glob("*.bak")))
+
 	def test_notification_fields_use_email_section_and_round_trip(self):
 		with tempfile.TemporaryDirectory() as directory:
 			document = ConfigDocument(directory)

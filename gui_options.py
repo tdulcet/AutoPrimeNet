@@ -1,4 +1,4 @@
-"""Typed metadata and validation for the first graphical configuration forms.
+"""Typed metadata and validation for graphical configuration forms.
 
 Copyright (C) 2026 Jacob Pollicove
 SPDX-License-Identifier: GPL-3.0-only
@@ -22,6 +22,7 @@ class Field:
 	destination: str = ""
 	section: str = "PrimeNet"
 	option: str = ""
+	dialog: str = ""
 
 	@property
 	def ini_key(self):
@@ -33,6 +34,17 @@ FIELDS = (
 	Field("ComputerID", "Computer name (optional)", "PrimeNet"),
 	Field("HoursBetweenCheckins", "Progress check-in interval (hours)", "PrimeNet", "1", "integer", 1, 168),
 	Field("CPUHours", "Expected computation hours per day", "PrimeNet", "24", "integer", 1, 24),
+	Field("CpuBrand", "Processor model (CPU or GPU)", "PrimeNet", destination="cpu_brand", dialog="Hardware"),
+	Field("cpu_features", "Processor features", "PrimeNet", dialog="Hardware"),
+	Field("CpuSpeed", "Processor frequency (MHz)", "PrimeNet", kind="integer", destination="cpu_speed", dialog="Hardware"),
+	Field("memory", "Total physical memory (MiB)", "PrimeNet", kind="integer", dialog="Hardware"),
+	Field("Memory", "Maximum stage 2 memory (MiB)", "PrimeNet", kind="integer", destination="day_night_memory", dialog="Hardware"),
+	Field("WorkerDiskSpace", "Proof residue disk limit (GiB per worker; 0: omit)", "PrimeNet", kind="decimal", destination="worker_disk_space", dialog="Hardware"),
+	Field("L1", "L1 data cache (KiB)", "PrimeNet", kind="integer", destination="cpu_l1_cache_size", dialog="Hardware"),
+	Field("L2", "L2 cache (KiB)", "PrimeNet", kind="integer", destination="cpu_l2_cache_size", dialog="Hardware"),
+	Field("L3", "L3 cache (KiB)", "PrimeNet", kind="integer", destination="cpu_l3_cache_size", dialog="Hardware"),
+	Field("NumCores", "Physical processor cores", "PrimeNet", kind="integer", destination="num_cores", dialog="Hardware"),
+	Field("CpuNumHyperthreads", "Threads per core (0: unknown)", "PrimeNet", kind="integer", destination="cpu_hyperthreads", dialog="Hardware"),
 	Field("DaysOfWork", "Days of work to queue", "Assignments", "", "decimal", 0, 180),
 	Field("num_cache", "Legacy extra assignment cache", "Assignments", "0", "integer", 0),
 	Field("work_file", "Work filename", "Settings", "worktodo.txt", "filename"),

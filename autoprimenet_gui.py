@@ -288,7 +288,7 @@ class Application:
 		for option in self.options:
 			flags = ", ".join(option["flags"])
 			field = field_for_destination(option["dest"])
-			location = field.tab + " → " + field.label if field else "Not mapped in this reference"
+			location = field.tab + " → " + (field.dialog + " → " if field.dialog else "") + field.label if field else "Not mapped in this reference"
 			if term in (flags + " " + option["dest"] + " " + location).casefold():
 				self.reference.insert("", "end", values=(flags, option["dest"], location))
 
@@ -299,8 +299,8 @@ class Application:
 		field = field_for_destination(self.reference.item(selected[0], "values")[1])
 		if field:
 			self.notebook.select(self.tabs[field.tab])
-			if field.tab == "Advanced":
-				self.editor.edit_advanced(field.key)
+			if field.tab == "Advanced" or field.dialog:
+				self.editor.edit_options(field.key, group=field.dialog or "Advanced")
 
 	def poll(self):
 		if self.closed:

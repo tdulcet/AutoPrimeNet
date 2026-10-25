@@ -242,7 +242,7 @@ backend defaults. Choose a computation program and provide a GIMPS username or
 
 | Tab | Current graphical settings |
 | --- | --- |
-| PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day |
+| PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day; hardware/resource settings dialog |
 | Workers | One of the eight supported computation programs, worker count, per-worker directories and preference codes |
 | Assignments | Days of queued work and legacy extra-assignment cache |
 | Settings | Work/results filenames, activity-log path, optional proof-archive directory |
@@ -285,6 +285,40 @@ are escaped automatically for the INI format. Clearing an optional field removes
 its explicit override so backend defaults or INI inheritance apply. Edited
 multiline values are refused rather than flattened. Password editing is not yet
 available, and encrypted passwords are never shown in the forms.
+
+### Hardware and resource settings
+
+On **PrimeNet**, choose **Edit hardware and resource settings…** to configure
+the values AutoPrimeNet reports during computer registration and updates:
+
+| Setting | Unit or meaning |
+| --- | --- |
+| Processor model and features | CPU or GPU description and feature text |
+| Processor frequency | MHz |
+| Total physical memory | MiB; stored as the lowercase `memory` option |
+| Maximum stage 2 memory | MiB for P−1/P+1/ECM; stored as the uppercase `Memory` option |
+| Proof residue disk limit | GiB per worker; 0 omits this value from reporting |
+| L1 data, L2 and L3 cache | KiB |
+| Physical cores | Processor core count |
+| Threads per core | 0 means unknown, 1 means no hyperthreading |
+
+Blank fields retain INI inheritance or the original backend's hardware
+detection/defaults. The GUI does not automatically select a GPU. To report GPU
+hardware instead of the detected CPU, enter the relevant values explicitly.
+The dialog does not display an inventory of detected hardware yet.
+
+**Apply to form** retains edits in the main form; **Cancel** discards the
+dialog's edits. **Save settings** validates offline and saves locally. Maximum
+stage 2 memory cannot exceed total physical memory. When reducing total memory,
+also specify a suitable maximum: a blank maximum still uses the backend's
+default based on detected system memory. Numeric fields use the original CLI's
+integer/decimal types, with nonfinite values rejected.
+
+These settings describe the computer to AutoPrimeNet and PrimeNet; they do not
+change operating-system limits or configure Mlucas, PRPLL or another computation
+program. Saving does not register a computer or send a hardware update. A later
+monitoring cycle can report the settings. The CLI may subsequently update its
+configuration, so stop monitoring and refresh before editing again.
 
 ### Notification configuration
 
