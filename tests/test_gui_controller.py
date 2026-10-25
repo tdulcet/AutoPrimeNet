@@ -33,7 +33,7 @@ class ControllerTests(unittest.TestCase):
 		self.assertFalse(jobs.submit("closed", lambda: None))
 
 	def test_backend_failure_is_not_reported_as_success(self):
-		with self.assertRaisesRegex(ControllerError, "only capabilities and parse_work"):
+		with self.assertRaisesRegex(ControllerError, "offline bridge supports only"):
 			backend_request("unreserve_all")
 
 	def test_oversized_request_rejected_before_launch(self):

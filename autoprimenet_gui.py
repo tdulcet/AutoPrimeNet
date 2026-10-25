@@ -12,6 +12,7 @@ if sys.version_info < (3, 15):
 	sys.exit(2)
 
 import argparse
+from pathlib import Path
 import queue
 import time
 
@@ -22,8 +23,9 @@ except ImportError:
 	print("Tkinter is unavailable. Install the Tk bindings matching this Python; see GUI.md.", file=sys.stderr)
 	sys.exit(2)
 
-from gui_config import WorkspaceError, inspect_workspace
+from gui_config import WorkspaceError, load_editor_workspace, save_configuration
 from gui_controller import BackgroundJobs, ControllerError, TrayController, backend_request
+from gui_forms import ConfigurationForms
 
 
 TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
@@ -62,6 +64,7 @@ class Application:
 		file_menu = tk.Menu(menu, tearoff=False)
 		file_menu.add_command(label="Choose working directory…", command=self.choose_directory)
 		file_menu.add_command(label="Reload local preview", command=self.refresh)
+		file_menu.add_command(label="Save local configuration", command=self.save)
 		file_menu.add_separator()
 		file_menu.add_command(label="Hide to tray / minimize", command=self.hide)
 		file_menu.add_command(label="Quit", command=self.quit)
@@ -79,10 +82,14 @@ class Application:
 		bar = ttk.Frame(self.root, padding=10)
 		bar.pack(fill="x")
 		ttk.Label(bar, text="Working directory").pack(side="left")
-		ttk.Entry(bar, textvariable=self.directory).pack(side="left", fill="x", expand=True, padx=8)
-		ttk.Button(bar, text="Browse…", command=self.choose_directory).pack(side="left")
+		self.directory_entry = ttk.Entry(bar, textvariable=self.directory)
+		self.directory_entry.pack(side="left", fill="x", expand=True, padx=8)
+		self.browse_button = ttk.Button(bar, text="Browse…", command=self.choose_directory)
+		self.browse_button.pack(side="left")
 		self.reload_button = ttk.Button(bar, text="Refresh preview", command=self.refresh)
 		self.reload_button.pack(side="left", padx=(8, 0))
+		self.save_button = ttk.Button(bar, text="Save settings", command=self.save, state="disabled")
+		self.save_button.pack(side="left", padx=(8, 0))
 		self.notebook = ttk.Notebook(self.root)
 		self.notebook.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 		self.tabs = {}
@@ -90,6 +97,7 @@ class Application:
 			frame = ttk.Frame(self.notebook, padding=14)
 			self.notebook.add(frame, text=name)
 			self.tabs[name] = frame
+		self.editor = ConfigurationForms(self)
 		ttk.Label(self.tabs["Dashboard"], text="Local workspace", font=("TkDefaultFont", 16)).pack(anchor="w")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.summary, justify="left", wraplength=720).pack(anchor="w", pady=12)
 		ttk.Label(self.tabs["Dashboard"], text="PrimeNet: not checked\nMonitoring: not implemented\nProgress and completion estimates: unavailable", justify="left").pack(anchor="w")
@@ -98,7 +106,7 @@ class Application:
 		ttk.Label(self.tabs["Assignments"], text="Read-only preview. Parsed work lines and local AIDs do not confirm current server reservations.", wraplength=720).pack(anchor="w", pady=8)
 		self.workers = self._table(self.tabs["Workers"], ("Worker", "Directory", "Preference", "Work file"))
 		for name, explanation in (
-			("PrimeNet", "Account editing, registration, scheduling and network diagnostics are not available in this milestone."),
+			("PrimeNet", "Save changes locally with Save settings. Registration, network diagnostics and monitoring remain unavailable."),
 			("Notifications", "Notification settings and test messages are not available in this milestone. No messages are sent."),
 		):
 			ttk.Label(self.tabs[name], text=explanation, wraplength=720, justify="left").pack(anchor="w")
@@ -110,8 +118,9 @@ class Application:
 		self.activity = tk.Text(self.tabs["Logs & Status"], wrap="word", state="disabled", height=12)
 		self.activity.pack(fill="both", expand=True)
 		ttk.Label(self.tabs["Logs & Status"], text="GUI activity only. Existing logs and credentials are not loaded.").pack(anchor="w", pady=8)
-		ttk.Label(self.tabs["Settings"], text="Configuration filename (read only; no changes are saved)").pack(anchor="w")
-		ttk.Entry(self.tabs["Settings"], textvariable=self.config_name, width=40).pack(anchor="w", pady=8)
+		ttk.Label(self.tabs["Settings"], text="Configuration filename (reload after changing)").pack(anchor="w")
+		self.config_entry = ttk.Entry(self.tabs["Settings"], textvariable=self.config_name, width=40)
+		self.config_entry.pack(anchor="w", pady=8)
 		ttk.Label(self.tabs["Settings"], text="Closing hides to the tray/menu bar when ready; otherwise it minimizes.\nUse File → Quit to exit.\nSee GUI.md and GUI_DEVELOPMENT.md for requirements and current limitations.", justify="left", wraplength=720).pack(anchor="w", pady=12)
 		ttk.Label(self.root, textvariable=self.status, relief="sunken", anchor="w", padding=5).pack(fill="x", side="bottom")
 
@@ -139,17 +148,47 @@ class Application:
 		self.activity.config(state="disabled")
 
 	def choose_directory(self):
+		if self.jobs.busy or not self.discard_changes():
+			return
 		directory = filedialog.askdirectory(parent=self.root, title="Choose AutoPrimeNet working directory")
 		if directory:
+			self.editor.dirty = False
 			self.directory.set(directory)
 			self.refresh()
 
+	def discard_changes(self):
+		return not self.editor.dirty or messagebox.askyesno("Unsaved configuration", "Discard the unsaved form changes?", parent=self.root)
+
+	def set_busy(self, busy):
+		for widget in (self.reload_button, self.browse_button, self.directory_entry, self.config_entry):
+			widget.state(["disabled"] if busy else ["!disabled"])
+		self.editor.set_enabled(not busy and self.editor.document is not None)
+		self.save_button.state(["disabled"] if busy or self.editor.document is None else ["!disabled"])
+
 	def refresh(self):
-		if not self.directory.get().strip():
+		if self.jobs.busy or not self.directory.get().strip() or not self.discard_changes():
 			return
-		if self.jobs.submit("workspace", inspect_workspace, self.directory.get(), self.config_name.get()):
+		if self.jobs.submit("workspace", load_editor_workspace, self.directory.get(), self.config_name.get()):
 			self.status.set("Reading local workspace…")
-			self.reload_button.state(["disabled"])
+			self.set_busy(True)
+
+	def save(self):
+		if self.jobs.busy or self.editor.document is None:
+			return
+		document = self.editor.document
+		if Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
+			self.status.set("Reload the selected directory/configuration filename before saving.")
+			return
+		try:
+			values, engine, workers = self.editor.collect()
+		except ValueError as error:
+			self.status.set(str(error))
+			return
+		if not messagebox.askyesno("Save local configuration", "Validate and save the displayed settings locally? An existing configuration will be backed up. No server will be contacted. Stop any independently running AutoPrimeNet before saving.", parent=self.root):
+			return
+		if self.jobs.submit("save", save_configuration, document, values, engine, workers):
+			self.status.set("Validating and saving local configuration…")
+			self.set_busy(True)
 
 	def display_workspace(self, snapshot):
 		identity = snapshot["identity"]
@@ -187,18 +226,25 @@ class Application:
 		result = self.jobs.take()
 		if result:
 			name, value, error = result
-			self.reload_button.state(["!disabled"])
+			self.set_busy(False)
 			if error:
 				# ConfigParser and OS exceptions can contain raw file contents or
 				# private paths. Keep the visible failure generic for this preview.
 				self.status.set(str(error) if isinstance(error, (WorkspaceError, ControllerError)) else "Preview failed; check the directory, configuration and Python environment.")
-				self.log("Preview failed. No changes were made.")
+				self.log("Local operation failed. Check the status message; reload before retrying a save.")
 			elif name == "capabilities":
 				self.options = value["cli_options"]
 				self.filter_options()
 				self.log("Offline backend ready; CLI reference loaded.")
 			elif name == "workspace":
-				self.display_workspace(value)
+				self.display_workspace(value["snapshot"])
+				self.editor.load(value["document"])
+				self.set_busy(False)
+			elif name == "save":
+				self.editor.load(value["document"])
+				self.status.set("Configuration saved locally" + ("; backup created. " if value["backup"] else ". ") + "Refresh preview to update displayed assignments. No server contacted.")
+				self.log("Local configuration saved" + (" with a backup." if value["backup"] else "."))
+				self.set_busy(False)
 		while True:
 			try:
 				event = self.tray.events.get_nowait()
@@ -239,6 +285,8 @@ class Application:
 		if self.jobs.busy:
 			self.show()
 			self.status.set("A local preview is still running; quit when it completes.")
+			return
+		if not self.discard_changes():
 			return
 		self.closed = True
 		self.tray.stop()

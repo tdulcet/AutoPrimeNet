@@ -19,6 +19,7 @@ if sys.version_info < (3, 15):
 import argparse
 import ast
 import contextlib
+from configparser import ConfigParser
 import hashlib
 import io
 import json
@@ -111,26 +112,98 @@ def _parse_work(namespace, lines):
 	return {"assignments": results, "validation": "format parsing only; no server reservation or mathematical validation"}
 
 
+def _validate_config(namespace, tree, boundary, request):
+	"""Initialize parser/configuration in memory; never execute CLI startup."""
+	text = request.get("text")
+	directory = request.get("directory")
+	name = request.get("config_name", "prime.ini")
+	if not isinstance(text, str) or not isinstance(directory, str) or not isinstance(name, str):
+		raise BackendError("Configuration validation requires text, a working directory and filename.")
+	if not name or Path(name).name != name or not Path(directory).is_dir():
+		raise BackendError("Select an existing working directory and a configuration filename without a path.")
+	end = next(index for index in range(boundary, len(tree.body)) if _assignment_target(tree.body[index], "args"))
+	exec(compile(ast.Module(body=tree.body[boundary:end], type_ignores=[]), namespace["__file__"], "exec"), namespace)  # noqa: S102
+	parser = namespace["parser"]
+	arguments = ["--workdir", directory, "--config-file", name]
+	args = parser.parse_args(arguments)
+	explicit = namespace["argparse"].Namespace(**dict.fromkeys(vars(args)))
+	parser.parse_args(arguments, namespace=explicit)
+	namespace["args_no_defaults"] = namespace["argparse"].Namespace(**{key: value for key, value in vars(explicit).items() if value is not None})
+	namespace["args"] = args
+	namespace["workdir"] = directory
+	# Direct dictionary lookup can expose unresolved lazy-import bindings in
+	# Python 3.15; use the standard-library parser imported by this bridge.
+	config = ConfigParser()
+	config.optionxform = str
+	config.read_string(text)
+	for section in ("PrimeNet", "Email", "Internals"):
+		if not config.has_section(section):
+			config.add_section(section)
+	namespace["config"] = config
+	namespace["merge_config_and_options"](config, args)
+	# Work on a private in-memory config: decryption may update its keys/GUID.
+	# No plaintext or encrypted credential is returned in the result.
+	namespace["decrypt"](config, args)
+	args.work_preference = args.work_preference or [12 if args.mfaktc or args.mfakto or args.primepath else 101 if args.cudalucas else 150]
+	if args.results_file is None:
+		args.results_file = "results.json.txt" if args.mfaktc or args.mfakto or args.primepath else "results.txt"
+	if args.days_of_work is None:
+		args.days_of_work = 1.0 if args.mfaktc or args.mfakto or args.primepath else 3.0
+	for variable in ("RE", "PROGRAM", "SUPPORTED"):
+		node = next(item for item in tree.body if _assignment_target(item, variable))
+		exec(compile(ast.Module(body=[node], type_ignores=[]), namespace["__file__"], "exec"), namespace)  # noqa: S102
+
+	def reject(message):
+		# Most parser errors identify fields/ranges. Redact any configured secret
+		# before making the explanation available to the GUI status line.
+		for attr in ("password", "proxy_password", "email_password"):
+			secret = getattr(args, attr, None)
+			if secret:
+				message = message.replace(secret, "[redacted]")
+		raise BackendError(message)
+
+	parser.error = reject
+	namespace["check_options"](parser, args)
+	if not 1 <= args.num_workers <= 128:
+		raise BackendError("GUI configuration supports 1–128 workers.")
+	if args.timeout < 0 or 0 < args.timeout < 1800 or args.timeout > args.hours_between_checkins * 3600:
+		raise BackendError("Update interval must be 0 or at least 1800 seconds and no greater than the check-in interval.")
+	directories = [str((Path(directory) / item).resolve()) for item in args.dirs] if args.dirs else [str(Path(directory).resolve())]
+	if any(not Path(item).is_dir() for item in directories):
+		raise BackendError("A configured worker directory does not exist.")
+	if not args.prpll and len(directories) != len(set(directories)):
+		raise BackendError("Worker directories resolve to the same location.")
+	return {
+		"program": namespace["PROGRAM"]["name"], "num_workers": args.num_workers,
+		"work_preferences": args.work_preference, "supported_preferences": sorted(namespace["SUPPORTED"]),
+		"results_file": args.results_file, "days_of_work": args.days_of_work,
+		"timeout": args.timeout, "checkin_hours": args.hours_between_checkins,
+		"network_enabled": False, "configuration_written": False,
+	}
+
+
 def _dispatch(request, path):
 	if not isinstance(request, dict) or request.get("protocol") != PROTOCOL_VERSION:
 		raise BackendError("Unsupported GUI backend protocol.")
 	operation = request.get("operation")
-	if operation not in {"capabilities", "parse_work"}:
-		raise BackendError("This offline prototype supports only capabilities and parse_work.")
+	if operation not in {"capabilities", "parse_work", "validate_config"}:
+		raise BackendError("This offline bridge supports only capabilities, parse_work and validate_config.")
 	_source, tree, boundary = _read_source(path)
 	if operation == "capabilities":
 		return {
 			"source_sha256": AUDITED_SOURCE_SHA256,
-			"operations": ["capabilities", "parse_work"],
+			"operations": ["capabilities", "parse_work", "validate_config"],
 			"network_enabled": False,
 			"cli_options": _parser_inventory(tree),
 		}
 	# Reject invalid request shape before initializing the upstream prefix.
 	lines = request.get("lines")
-	if not isinstance(lines, list) or len(lines) > 1000 or any(not isinstance(line, str) for line in lines):
+	if operation == "parse_work" and (not isinstance(lines, list) or len(lines) > 1000 or any(not isinstance(line, str) for line in lines)):
 		raise BackendError("Work preview requires a list of at most 1000 text lines.")
 	namespace = _load_definitions(path, tree, boundary)
 	try:
+		if operation == "validate_config":
+			return _validate_config(namespace, tree, boundary, request)
 		return _parse_work(namespace, lines)
 	finally:
 		# The upstream prefix registers this close at exit as well. Requests close

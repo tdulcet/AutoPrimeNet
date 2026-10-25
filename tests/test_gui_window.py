@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 @unittest.skipUnless(os.environ.get("AUTOPRIMENET_GUI_DESKTOP_TESTS") == "1", "Requires an explicitly enabled graphical session")
@@ -64,6 +65,47 @@ class WindowTests(unittest.TestCase):
 		self.app.show()
 		self.root.update()
 		self.assertEqual(self.root.state(), "normal")
+
+	def test_graphical_configuration_save_invalid_input_and_reload(self):
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertIsNotNone(self.app.editor.document)
+			self.app.editor.values["username"].set("ANONYMOUS")
+			self.app.editor.engine.set("mlucas")
+			self.app.editor.values["DaysOfWork"].set("nan")
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				self.assertFalse((base / "prime.ini").exists())
+				self.assertTrue(self.app.editor.dirty)
+				self.app.editor.values["DaysOfWork"].set("2.5")
+				self.app.save()
+				self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertTrue((base / "prime.ini").is_file())
+			self.assertFalse(self.app.editor.dirty)
+			self.assertEqual(self.app.editor.document.config.getfloat("PrimeNet", "DaysOfWork"), 2.5)
+			self.assertIn("saved locally", self.app.status.get())
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertEqual(self.app.editor.values["username"].get(), "ANONYMOUS")
+			self.assertEqual({path.name for path in base.iterdir()}, {"prime.ini", "~lock"})
+
+	def test_unsaved_changes_can_cancel_reload_and_quit(self):
+		with tempfile.TemporaryDirectory() as directory:
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.editor.values["username"].set("pending")
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False):
+				self.app.refresh()
+				self.app.quit()
+			self.assertFalse(self.app.closed)
+			self.assertEqual(self.app.editor.values["username"].get(), "pending")
+			self.assertFalse(self.app.jobs.busy)
+			self.app.editor.dirty = False
 
 	@unittest.skipUnless(sys.platform == "darwin", "macOS application Quit command")
 	def test_native_macos_quit_uses_application_cleanup(self):

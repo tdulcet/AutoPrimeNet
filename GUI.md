@@ -1,9 +1,10 @@
 # AutoPrimeNet GUI
 
 The planned optional Tkinter/ttk GUI will provide a graphical interface to
-AutoPrimeNet. A runnable desktop foundation provides read-only local previews and
-experimental macOS/Windows tray integration. Monitoring, configuration editing,
-and server operations are not implemented yet. This is not a complete GUI release.
+AutoPrimeNet. The current desktop foundation provides local previews, initial
+configuration forms with validated saving, and experimental macOS/Windows tray
+integration. Monitoring and server operations are not implemented yet. This is
+not a complete GUI release.
 See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
 
 ## Python requirements
@@ -219,15 +220,86 @@ Choose a working directory and press **Refresh preview** to inspect identity,
 workers, configured request state, disk space, and local assignments. Settings
 lets you choose a configuration filename within that directory. Preview limits
 are 128 workers, 1000 total work lines, 2 MiB per file and 1 MiB per backend
-request. The GUI does not save or lock these files, start computation software,
+request. Refresh does not save or lock these files, start computation software,
 or contact PrimeNet. If files change while being read, refresh again; this is a
 local snapshot rather than a synchronized view of an active computation engine.
 
 Use **File → Quit** or the tray menu's Quit item to exit. If a bounded local
 preview is still running, wait for it to finish and choose Quit again. The
-Advanced tab currently provides a searchable flag reference, not implemented
-graphical controls for those operations. PrimeNet and Notifications explain
-their unavailable functionality; Logs & Status displays GUI activity only.
+Advanced tab provides a searchable flag reference and the initial exponent and
+certification settings described below. Notifications remains unavailable;
+Logs & Status displays GUI activity only.
+
+### Configuring AutoPrimeNet locally
+
+Load a working directory with **Refresh preview** before editing. An existing
+configuration is loaded without saving; a missing configuration starts with
+backend defaults. Choose a computation program and provide a GIMPS username or
+`ANONYMOUS` before the first save. These forms do not register the computer.
+
+| Tab | Current graphical settings |
+| --- | --- |
+| PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day |
+| Workers | One of the eight supported computation programs, worker count, per-worker directories and preference codes |
+| Assignments | Days of queued work and legacy extra-assignment cache |
+| Settings | Work/results filenames, activity-log path, optional proof-archive directory |
+| Advanced | Minimum/maximum exponent, PRPLL certification enablement and daily time limit |
+
+Use **Apply worker count** after changing the count. Select a worker in the table
+and choose **Edit selected worker…** to set its directory and preference. A blank
+preference uses the backend's program default. A blank single-worker directory
+uses the working directory; multiple non-PRPLL workers require distinct existing
+directories. PRPLL uses one working directory and indexed work files, so its
+worker-directory fields must be blank. This GUI currently supports 1–128 workers.
+
+**Save settings** (also File → Save local configuration) asks for confirmation,
+then validates the proposed values through AutoPrimeNet's parser, configuration
+merge/decryption, and `check_options()` in an isolated, network-blocked process.
+It does not run the CLI startup block or scheduler. Unsupported program/preference
+combinations, conflicting conversions in existing settings, invalid limits,
+missing directories, and other backend errors prevent saving.
+
+Only changed form values are patched; unrelated keys, unknown sections, comments,
+and existing ciphertext remain intact. Untouched interpolation and implicit
+defaults remain as written. Enter literal text in the fields; new percent signs
+are escaped automatically for the INI format. Clearing an optional field removes
+its explicit override so backend defaults or INI inheritance apply. Edited
+multiline values are refused rather than flattened. Password editing is not yet
+available, and encrypted passwords are never shown in the forms.
+
+Before replacement, the GUI acquires the same `~lock` instance lock as the CLI
+and checks that the loaded configuration has not changed. Stop independently
+running AutoPrimeNet before saving. The shared lock file is retained, never
+deleted or truncated. A changed existing file is backed up as
+`<config-name>.gui-backup-<unique-id>.bak` in the working directory, with
+owner-only access where POSIX modes apply. Backups can contain existing
+credentials and should remain private. A new configuration is also owner-only;
+an existing configuration's POSIX mode is preserved. Extended ACLs and filesystem
+metadata preservation have not been verified.
+
+The replacement uses a flushed same-directory temporary file and atomic rename.
+A second version check rejects external edits detected during validation. Editors
+that ignore the shared lock can still race that final check; avoid editing the
+same file concurrently. No-op saves retain exact bytes and do not create backups.
+Read-only and symbolic-link configuration files are refused. Work, results and
+certification files cannot be chosen as conflicting configuration destinations.
+
+Changing program or computation hours resets cached speed/rolling estimates in
+the same way as setup; unrelated state and inactive worker sections remain.
+Reducing the active worker count does not delete any worker files. Refresh after
+saving to update the displayed local snapshot. Reload or Quit asks before
+discarding unsaved form changes; closing to the tray retains them in memory.
+
+For backup recovery, stop the GUI and any AutoPrimeNet instance, review the
+content of the desired `.bak`, and copy it back to the original configuration
+filename using your file manager. Keep its permissions appropriate, then reopen
+and refresh the GUI. Do not copy a backup over a work/results file.
+
+The progress check-in interval is distinct from the scheduler's `--timeout`.
+AutoPrimeNet does not persist `--timeout` through its INI mapping, so this milestone
+does not add an INI field that pretends to control it. A validated saved
+configuration is not evidence of registration, connectivity or successful server
+operations. Full graphical CLI parity and actual monitoring remain later work.
 
 ### Local files and Git hygiene
 
