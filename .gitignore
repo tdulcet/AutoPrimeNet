@@ -41,6 +41,7 @@ Desktop.ini
 /autoprimenet.log
 /autoprimenet.log.*
 /~lock
+/~gui-monitor.lock
 /*.lck
 /worktodo*.txt
 /worktodo*.add

@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only
 """
 
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 from pathlib import Path
 import queue
@@ -85,8 +86,11 @@ class TrayController:
 		self.events = queue.Queue()
 		self.process = None
 		self.ready = False
+		self.state = "Stopped"
 
 	def start(self):
+		if self.process is not None and self.process.poll() is None:
+			return
 		if sys.platform not in {"darwin", "win32"}:
 			self.events.put("unavailable")
 			return
@@ -108,12 +112,21 @@ class TrayController:
 					event = json.loads(line).get("event")
 				except (ValueError, AttributeError):
 					continue
-				if event in {"ready", "open", "quit", "unavailable"}:
+				if event in {"ready", "open", "quit", "start", "stop", "unavailable"}:
 					self.events.put(event)
 		except (OSError, ValueError):
 			pass
 		finally:
 			self.events.put("unavailable")
+
+	def set_state(self, state):
+		self.state = state
+		if self.process is not None and self.process.poll() is None and self.process.stdin is not None:
+			try:
+				self.process.stdin.write(json.dumps({"state": state}) + "\n")
+				self.process.stdin.flush()
+			except (OSError, ValueError):
+				pass
 
 	def stop(self):
 		self.ready = False
@@ -138,3 +151,84 @@ class TrayController:
 				self.process.wait()
 		finally:
 			self.process.stdout.close()
+
+
+class MonitorController:
+	"""Own the scheduled runner and expose sanitized lifecycle events to Tk."""
+
+	def __init__(self, process_factory=None):
+		self.events = queue.Queue()
+		self.process = None
+		self.state = "Stopped"
+		self._control_lock = threading.Lock()
+		self.generation = 0
+		self._process_factory = process_factory or subprocess.Popen
+
+	@property
+	def active(self):
+		return self.process is not None and self.process.poll() is None
+
+	def start(self, document):
+		if self.active:
+			raise ControllerError("Scheduled monitoring is already active.")
+		if document.version is None:
+			raise ControllerError("Save the configuration before starting monitoring.")
+		request = {
+			"protocol": 1, "directory": str(document.directory), "config_name": document.path.name,
+			"config_sha256": hashlib.sha256(document.data).hexdigest(),
+		}
+		try:
+			process = self._process_factory(
+				[sys.executable, "-B", str(ROOT / "gui_monitor.py")],
+				stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+				text=True, encoding="utf-8", cwd=ROOT,
+			)
+			process.stdin.write(json.dumps(request) + "\n")
+			process.stdin.flush()
+		except OSError as error:
+			if "process" in locals():
+				process.stdin.close()
+				process.wait(timeout=5)
+				process.stdout.close()
+			raise ControllerError("Could not launch scheduled monitoring.") from error
+		self.process = process
+		self.state = "Starting"
+		self.generation += 1
+		threading.Thread(target=self._read, args=(process, self.generation), name="MonitoringEvents", daemon=True).start()
+
+	def _read(self, process, generation):
+		try:
+			for line in process.stdout:
+				try:
+					message = json.loads(line)
+				except ValueError:
+					continue
+				if isinstance(message, dict) and message.get("event") in {"ready", "cycle_started", "cycle_finished", "failed", "stopped"}:
+					if message["event"] == "ready":
+						with self._control_lock:
+							if generation == self.generation and self.state == "Starting":
+								process.stdin.write(json.dumps({"command": "begin"}) + "\n")
+								process.stdin.flush()
+					self.events.put({**message, "generation": generation})
+		except (OSError, ValueError):
+			pass
+		finally:
+			code = process.wait()
+			with self._control_lock:
+				try:
+					process.stdin.close()
+				except (OSError, ValueError):
+					pass
+			process.stdout.close()
+			self.events.put({"event": "exited", "exit_code": code, "generation": generation})
+
+	def stop(self, force=False):
+		with self._control_lock:
+			if not self.active:
+				return
+			self.state = "Stopping"
+			try:
+				self.process.stdin.write(json.dumps({"command": "force-stop" if force else "stop"}) + "\n")
+				self.process.stdin.flush()
+			except (OSError, ValueError):
+				pass

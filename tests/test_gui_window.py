@@ -33,7 +33,11 @@ class WindowTests(unittest.TestCase):
 
 	def close_app(self):
 		if not self.app.closed:
+			if self.app.monitor.active:
+				self.app.monitor.stop(force=True)
+				self.wait_until(lambda: not self.app.monitor.active, timeout=10)
 			self.wait_until(lambda: not self.app.jobs.busy, timeout=35)
+			self.app.editor.dirty = False
 			self.app.quit()
 
 	def test_navigation_search_workspace_and_repeated_refresh(self):
@@ -91,7 +95,7 @@ class WindowTests(unittest.TestCase):
 			self.app.refresh()
 			self.wait_until(lambda: not self.app.jobs.busy)
 			self.assertEqual(self.app.editor.values["username"].get(), "ANONYMOUS")
-			self.assertEqual({path.name for path in base.iterdir()}, {"prime.ini", "~lock"})
+			self.assertEqual({path.name for path in base.iterdir()}, {"prime.ini", "~lock", "~gui-monitor.lock"})
 
 	def test_unsaved_changes_can_cancel_reload_and_quit(self):
 		with tempfile.TemporaryDirectory() as directory:
@@ -106,6 +110,43 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(self.app.editor.values["username"].get(), "pending")
 			self.assertFalse(self.app.jobs.busy)
 			self.app.editor.dirty = False
+
+	def test_scheduled_monitoring_controls_hide_and_confirmed_quit(self):
+		from gui_controller import MonitorController
+		from test_gui_monitor import fake_monitor_process
+
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			content = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n"
+			(base / "prime.ini").write_text(content)
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.app.monitor = MonitorController(process_factory=fake_monitor_process)
+			if sys.platform in {"darwin", "win32"}:
+				self.app.tray.start()
+				self.wait_until(lambda: self.app.tray.ready)
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.start_monitoring()
+			self.wait_until(lambda: self.app.monitor.state == "Waiting")
+			self.assertTrue(self.app.editor.widgets[0].instate(["disabled"]))
+			self.assertTrue(self.app.save_button.instate(["disabled"]))
+			self.app.hide()
+			self.root.update()
+			self.assertTrue(self.app.monitor.active)
+			if self.app.tray.ready:
+				self.assertEqual(self.root.state(), "withdrawn")
+			self.app.show()
+			self.assertIn("unverified", self.app.monitor_status.get())
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False):
+				self.app.quit()
+			self.assertFalse(self.app.closed)
+			self.assertTrue(self.app.monitor.active)
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
+				self.app.quit()
+			self.wait_until(lambda: self.app.closed)
+			self.assertFalse(self.app.monitor.active)
+			self.assertEqual((base / "prime.ini").read_text(), content)
 
 	@unittest.skipUnless(sys.platform == "darwin", "macOS application Quit command")
 	def test_native_macos_quit_uses_application_cleanup(self):

@@ -111,16 +111,18 @@ def inspect_workspace(directory, config_name="prime.ini"):
 
 
 @contextmanager
-def instance_lease(directory):
+def instance_lease(directory, filename="~lock"):
 	"""Use the same byte/flock lock as the CLI, without truncating its file."""
-	path = Path(directory) / "~lock"
+	if filename not in {"~lock", "~gui-monitor.lock"}:
+		raise ValueError("Unsupported instance lock name")
+	path = Path(directory) / filename
 	if path.is_symlink():
 		raise WorkspaceError("Refusing a symbolic-link instance lock.")
 	try:
 		descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
 		stream = os.fdopen(descriptor, "r+b")
 	except OSError as error:
-		raise WorkspaceError("Cannot open the AutoPrimeNet instance lock; no configuration was saved.") from error
+			raise WorkspaceError("Cannot open the AutoPrimeNet instance lock for this workspace.") from error
 	try:
 		try:
 			if os.name == "nt":
@@ -130,7 +132,7 @@ def instance_lease(directory):
 				import fcntl
 				fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
 		except OSError as error:
-			raise WorkspaceError("AutoPrimeNet is running or its instance lock cannot be acquired. Stop it before saving.") from error
+			raise WorkspaceError("AutoPrimeNet or its scheduled runner is running, or its instance lock cannot be acquired. Stop it before changing the workspace.") from error
 		yield
 	finally:
 		# Closing releases the OS lock. Never unlink the shared lock inode.
@@ -228,7 +230,7 @@ class ConfigDocument:
 
 	def __init__(self, directory, config_name="prime.ini"):
 		self.directory = Path(directory).expanduser().resolve()
-		if not self.directory.is_dir() or not config_name or Path(config_name).name != config_name or config_name in {".", "..", "~lock"}:
+		if not self.directory.is_dir() or not config_name or Path(config_name).name != config_name or config_name in {".", "..", "~lock", "~gui-monitor.lock"}:
 			raise WorkspaceError("Select an existing working directory and valid configuration filename.")
 		if config_name.lower().endswith((".lck", ".proof", ".proof.tmp", ".add")):
 			raise WorkspaceError("Configuration filename must not be a lock, proof or work-import file.")
@@ -328,7 +330,7 @@ def load_editor_workspace(directory, config_name="prime.ini"):
 
 
 def save_configuration(document, values, engine, workers):
-	with instance_lease(document.directory):
+	with instance_lease(document.directory, "~gui-monitor.lock"), instance_lease(document.directory):
 		if _file_version(document.path)[0] != document.version:
 			raise WorkspaceError("Configuration changed outside the GUI. Reload before saving.")
 		if document.version is not None and (not document.path.stat().st_mode & 0o222 or not os.access(document.path, os.W_OK)):

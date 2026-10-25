@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional Tkinter GUI foundation for AutoPrimeNet (offline preview).
+"""Optional Tkinter configuration and scheduled monitoring for AutoPrimeNet.
 
 Copyright (C) 2026 Jacob Pollicove
 SPDX-License-Identifier: GPL-3.0-only
@@ -24,7 +24,7 @@ except ImportError:
 	sys.exit(2)
 
 from gui_config import WorkspaceError, load_editor_workspace, save_configuration
-from gui_controller import BackgroundJobs, ControllerError, TrayController, backend_request
+from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request
 from gui_forms import ConfigurationForms
 
 
@@ -37,23 +37,27 @@ class Application:
 		self.root = root
 		self.jobs = BackgroundJobs()
 		self.tray = TrayController()
+		self.monitor = MonitorController()
+		self.quit_pending = False
 		self.hidden = False
 		self.closed = False
 		self.options = []
 		self.tray_deadline = time.monotonic() + 15
 		self.directory = tk.StringVar()
 		self.config_name = tk.StringVar(value="prime.ini")
-		self.status = tk.StringVar(value="Offline preview — no monitoring or server operations")
+		self.status = tk.StringVar(value="Monitoring stopped — local previews and configuration")
+		self.monitor_status = tk.StringVar(value="Scheduled monitoring: Stopped\nPrimeNet connectivity: not checked")
 		self.summary = tk.StringVar(value="Choose a working directory to inspect local configuration and assignments.")
 		self.tray_status = tk.StringVar(value="Starting tray helper…" if tray else "Tray disabled; close minimizes the window.")
 		self.search = tk.StringVar()
-		root.title("AutoPrimeNet GUI — Offline Preview")
+		root.title("AutoPrimeNet GUI")
 		root.geometry("1050x700")
 		root.minsize(780, 520)
 		root.protocol("WM_DELETE_WINDOW", self.hide)
 		if sys.platform == "darwin":
 			root.createcommand("tk::mac::Quit", self.quit)
 		self._build()
+		self.set_busy(False)
 		if tray:
 			self.tray.start()
 		self.jobs.submit("capabilities", backend_request, "capabilities")
@@ -76,7 +80,7 @@ class Application:
 		help_menu = tk.Menu(menu, tearoff=False)
 		help_menu.add_command(label="CLI reference", command=lambda: self.notebook.select(self.tabs["Advanced"]))
 		help_menu.add_command(label="About", command=lambda: messagebox.showinfo(
-			"About AutoPrimeNet GUI", "Optional GUI foundation\nPython 3.15.0 or later\nGPL-3.0\n\nOffline preview only; no server operations or monitoring yet.", parent=self.root))
+			"About AutoPrimeNet GUI", "Optional GUI foundation\nPython 3.15.0 or later\nGPL-3.0\n\nLocal configuration and scheduled CLI monitoring. Immediate file watching and full graphical parity are not available yet.", parent=self.root))
 		menu.add_cascade(label="Help", menu=help_menu)
 		self.root.config(menu=menu)
 		bar = ttk.Frame(self.root, padding=10)
@@ -100,14 +104,22 @@ class Application:
 		self.editor = ConfigurationForms(self)
 		ttk.Label(self.tabs["Dashboard"], text="Local workspace", font=("TkDefaultFont", 16)).pack(anchor="w")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.summary, justify="left", wraplength=720).pack(anchor="w", pady=12)
-		ttk.Label(self.tabs["Dashboard"], text="PrimeNet: not checked\nMonitoring: not implemented\nProgress and completion estimates: unavailable", justify="left").pack(anchor="w")
+		ttk.Label(self.tabs["Dashboard"], textvariable=self.monitor_status, justify="left").pack(anchor="w")
+		controls = ttk.Frame(self.tabs["Dashboard"])
+		controls.pack(anchor="w", pady=8)
+		self.start_button = ttk.Button(controls, text="Start scheduled monitoring…", command=self.start_monitoring)
+		self.start_button.pack(side="left")
+		self.stop_button = ttk.Button(controls, text="Stop after current cycle", command=self.stop_monitoring)
+		self.stop_button.pack(side="left", padx=8)
+		self.force_button = ttk.Button(controls, text="Force stop…", command=self.force_stop_monitoring)
+		self.force_button.pack(side="left")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.tray_status, wraplength=720).pack(anchor="w", pady=16)
 		self.assignments = self._table(self.tabs["Assignments"], ("Worker", "Exponent", "Work type", "Local AID", "Server confirmation"))
 		ttk.Label(self.tabs["Assignments"], text="Read-only preview. Parsed work lines and local AIDs do not confirm current server reservations.", wraplength=720).pack(anchor="w", pady=8)
 		self.workers = self._table(self.tabs["Workers"], ("Worker", "Directory", "Preference", "Work file"))
 		for name, explanation in (
-			("PrimeNet", "Save changes locally with Save settings. Registration, network diagnostics and monitoring remain unavailable."),
-			("Notifications", "Notification settings and test messages are not available in this milestone. No messages are sent."),
+			("PrimeNet", "Save changes locally with Save settings. Start scheduled monitoring from Dashboard when ready to communicate with PrimeNet. Standalone registration and diagnostics remain unfinished."),
+			("Notifications", "Notification editing and test actions are not yet available. Scheduled monitoring uses existing notification settings and can send configured messages."),
 		):
 			ttk.Label(self.tabs[name], text=explanation, wraplength=720, justify="left").pack(anchor="w")
 		ttk.Label(self.tabs["Advanced"], text="Search the existing CLI options (reference only; graphical controls are still being implemented).").pack(anchor="w")
@@ -144,11 +156,14 @@ class Application:
 	def log(self, text):
 		self.activity.config(state="normal")
 		self.activity.insert("end", time.strftime("%H:%M:%S ") + text + "\n")
+		lines = int(self.activity.index("end-1c").split(".")[0])
+		if lines > 2000:
+			self.activity.delete("1.0", "{}.0".format(lines - 2000 + 1))
 		self.activity.see("end")
 		self.activity.config(state="disabled")
 
 	def choose_directory(self):
-		if self.jobs.busy or not self.discard_changes():
+		if self.jobs.busy or self.monitor.active or not self.discard_changes():
 			return
 		directory = filedialog.askdirectory(parent=self.root, title="Choose AutoPrimeNet working directory")
 		if directory:
@@ -160,20 +175,25 @@ class Application:
 		return not self.editor.dirty or messagebox.askyesno("Unsaved configuration", "Discard the unsaved form changes?", parent=self.root)
 
 	def set_busy(self, busy):
-		for widget in (self.reload_button, self.browse_button, self.directory_entry, self.config_entry):
-			widget.state(["disabled"] if busy else ["!disabled"])
-		self.editor.set_enabled(not busy and self.editor.document is not None)
-		self.save_button.state(["disabled"] if busy or self.editor.document is None else ["!disabled"])
+		active = self.monitor.active
+		self.reload_button.state(["disabled"] if busy or self.quit_pending else ["!disabled"])
+		for widget in (self.browse_button, self.directory_entry, self.config_entry):
+			widget.state(["disabled"] if busy or active or self.quit_pending else ["!disabled"])
+		self.editor.set_enabled(not busy and not active and not self.quit_pending and self.editor.document is not None)
+		self.save_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
+		self.start_button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
+		self.stop_button.state(["!disabled"] if active and self.monitor.state != "Stopping" else ["disabled"])
+		self.force_button.state(["!disabled"] if active else ["disabled"])
 
 	def refresh(self):
-		if self.jobs.busy or not self.directory.get().strip() or not self.discard_changes():
+		if self.jobs.busy or self.quit_pending or not self.directory.get().strip() or not self.discard_changes():
 			return
 		if self.jobs.submit("workspace", load_editor_workspace, self.directory.get(), self.config_name.get()):
 			self.status.set("Reading local workspace…")
 			self.set_busy(True)
 
 	def save(self):
-		if self.jobs.busy or self.editor.document is None:
+		if self.jobs.busy or self.monitor.active or self.quit_pending or self.editor.document is None:
 			return
 		document = self.editor.document
 		if Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
@@ -189,6 +209,53 @@ class Application:
 		if self.jobs.submit("save", save_configuration, document, values, engine, workers):
 			self.status.set("Validating and saving local configuration…")
 			self.set_busy(True)
+
+	def start_monitoring(self):
+		self.show()
+		if self.jobs.busy or self.monitor.active or self.quit_pending or self.editor.document is None:
+			return
+		if self.editor.dirty:
+			self.status.set("Save or reload unsaved changes before starting monitoring.")
+			return
+		document = self.editor.document
+		if Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
+			self.status.set("Reload the selected workspace before starting monitoring.")
+			return
+		if document.version is None:
+			self.status.set("Save the configuration before starting monitoring.")
+			return
+		try:
+			hours = document.config.getint("PrimeNet", "HoursBetweenCheckins", fallback=1)
+			if not 1 <= hours <= 168:
+				raise ValueError
+		except ValueError:
+			self.status.set("Correct and save the progress check-in interval before starting monitoring.")
+			return
+		if not messagebox.askyesno("Start scheduled monitoring", "Run AutoPrimeNet in this workspace now, then every {} hour(s)?\n\nCycles can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Successfully uploaded proofs are archived or deleted according to the existing configuration.\n\nThis mode checks at the scheduled interval; it does not watch files immediately. Stop waits for the current cycle to finish. Computation engines are never started or stopped.".format(hours), parent=self.root):
+			return
+		try:
+			self.monitor.start(document)
+		except ControllerError as error:
+			self.status.set(str(error))
+			return
+		self.update_monitor_state("Starting")
+
+	def update_monitor_state(self, state, detail=""):
+		self.monitor.state = state
+		self.status.set("Scheduled monitoring: " + state)
+		self.monitor_status.set("Scheduled monitoring: " + state + ("\n" + detail if detail else "") + "\nServer acceptance/connectivity: unverified")
+		self.tray.set_state(state)
+		self.set_busy(self.jobs.busy)
+
+	def stop_monitoring(self):
+		if self.monitor.active:
+			self.monitor.stop()
+			self.update_monitor_state("Stopping", "Waiting for the current CLI cycle to finish safely.")
+
+	def force_stop_monitoring(self):
+		if self.monitor.active and messagebox.askyesno("Force stop monitoring", "Terminate only the CLI process launched by this GUI? This can interrupt a write or upload and leave sidecar locks behind. They will not be deleted automatically. Computation engines are not affected.", parent=self.root):
+			self.monitor.stop(force=True)
+			self.update_monitor_state("Stopping", "Forced shutdown requested; runtime files may need inspection.")
 
 	def display_workspace(self, snapshot):
 		identity = snapshot["identity"]
@@ -209,7 +276,7 @@ class Application:
 				self.assignments.insert("", "end", values=(item["worker"], fields["n"], work_type, fields["uid"] or "None", "Unverified"))
 			else:
 				self.assignments.insert("", "end", values=(item["worker"], "—", "Unrecognized line", "—", "Unavailable"))
-		self.status.set("Local preview refreshed — no files changed or server contacted")
+		self.status.set("Local preview refreshed; monitoring continues separately." if self.monitor.active else "Local preview refreshed — no files changed or server contacted")
 		self.log("Local workspace preview refreshed.")
 
 	def filter_options(self):
@@ -247,21 +314,61 @@ class Application:
 				self.set_busy(False)
 		while True:
 			try:
+				message = self.monitor.events.get_nowait()
+			except queue.Empty:
+				break
+			if message.get("generation") != self.monitor.generation:
+				continue
+			event = message["event"]
+			if event == "ready":
+				self.log("Scheduled runner ready; interval {} seconds.".format(message["interval"]))
+				if message.get("backup_created"):
+					self.log("A private configuration backup was created before monitoring.")
+			elif event == "cycle_started":
+				if self.monitor.state != "Stopping":
+					self.update_monitor_state("Running cycle")
+				self.log("AutoPrimeNet communication cycle started.")
+			elif event == "cycle_finished":
+				if self.monitor.state != "Stopping":
+					self.update_monitor_state("Waiting", "Last local cycle ended: {}\nNext cycle planned: {}".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["time"])), time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["next_cycle"]))))
+				self.log("CLI cycle exited zero; individual server outcomes remain unverified. Consult the AutoPrimeNet log.")
+			elif event == "failed":
+				self.update_monitor_state("Failed", message.get("error", "Check the workspace, locks and AutoPrimeNet log; reload before retrying."))
+				self.log("Scheduled monitoring failed.")
+			elif event == "stopped":
+				self.update_monitor_state("Stopped", "Forced stop; inspect runtime files and sidecar locks." if message.get("forced") else "Stopped at a cycle boundary. Refresh before editing or restarting.")
+			elif event == "exited":
+				if self.monitor.state not in {"Failed", "Stopped"}:
+					self.update_monitor_state("Failed", "The scheduled runner exited unexpectedly.")
+				self.set_busy(self.jobs.busy)
+				if self.quit_pending:
+					self.finish_quit()
+		if self.closed:
+			return
+		while True:
+			try:
 				event = self.tray.events.get_nowait()
 			except queue.Empty:
 				break
 			if event == "ready":
 				self.tray.ready = True
+				self.tray.set_state(self.monitor.state)
 				self.tray_status.set("Tray/menu bar ready. Close hides the window; use its menu to reopen.")
 			elif event == "open":
 				self.show()
 			elif event == "quit":
 				self.quit()
+			elif event == "start":
+				self.start_monitoring()
+			elif event == "stop":
+				self.stop_monitoring()
 			else:
 				self.tray.ready = False
 				self.tray_status.set("Tray unavailable. Close minimizes to the taskbar/Dock.")
 				if self.hidden:
 					self.show()
+			if self.closed:
+				return
 		if not self.tray.ready and time.monotonic() > self.tray_deadline:
 			self.tray_status.set("Tray unavailable. Close minimizes to the taskbar/Dock.")
 		if not self.closed:
@@ -280,14 +387,23 @@ class Application:
 		self.root.lift()
 
 	def quit(self):
-		# No monitoring child exists in this milestone. Wait for a bounded local
-		# read to finish rather than orphaning its private bridge on GUI exit.
+		# Finish bounded local operations, then stop owned monitoring at a cycle
+		# boundary. Closing the window instead retains background monitoring.
 		if self.jobs.busy:
 			self.show()
 			self.status.set("A local preview is still running; quit when it completes.")
 			return
 		if not self.discard_changes():
 			return
+		if self.monitor.active:
+			self.show()
+			if messagebox.askyesno("Quit and stop monitoring", "Stop scheduled monitoring and quit after the current CLI cycle finishes? Closing the window instead keeps monitoring in the background.", parent=self.root):
+				self.quit_pending = True
+				self.stop_monitoring()
+			return
+		self.finish_quit()
+
+	def finish_quit(self):
 		self.closed = True
 		self.tray.stop()
 		self.jobs.close()

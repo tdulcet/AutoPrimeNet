@@ -2,9 +2,10 @@
 
 The planned optional Tkinter/ttk GUI will provide a graphical interface to
 AutoPrimeNet. The current desktop foundation provides local previews, initial
-configuration forms with validated saving, and experimental macOS/Windows tray
-integration. Monitoring and server operations are not implemented yet. This is
-not a complete GUI release.
+configuration forms with validated saving, scheduled CLI monitoring, and
+experimental macOS/Windows tray integration. Starting monitoring performs real
+server operations. Immediate file watching and standalone graphical assignment
+actions are not implemented yet. This is not a complete GUI release.
 See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
 
 ## Python requirements
@@ -81,10 +82,11 @@ when its parent closes its input pipe, including after a parent-process failure.
 
 ## Environment setup for users and testers
 
-These instructions prepare an environment for the current offline preview. The
+These instructions prepare an environment for the current GUI foundation. The
 backend and opt-in desktop test suites are documented in
-[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). There is no complete-parity or monitoring
-test claim at this stage. All GUI-specific dependency declarations and documentation are new
+[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). Live PrimeNet monitoring has not been
+validated; lifecycle tests use simulated cycles. Full parity remains unfinished.
+All GUI-specific dependency declarations and documentation are new
 files; existing CLI installation instructions remain unchanged.
 
 ### Required components
@@ -189,7 +191,7 @@ and installed package versions (`python -m pip list` using the venv interpreter)
 Redact usernames, credentials, proxy URLs, and private paths before sharing.
 The current requirements file declares runtime dependencies, not a tested lockfile.
 
-### Launching the offline preview
+### Launching the GUI
 
 From the repository root on macOS/Linux/FreeBSD:
 
@@ -212,9 +214,10 @@ the optional dependency file in the same environment first:
 
 On Windows substitute `.\.venv\Scripts\python.exe`. Without these packages, or
 with the `--no-tray` launcher flag, close minimizes to the taskbar/Dock. The tray
-menu accurately labels this milestone as offline, with monitoring unavailable.
-Closing the window currently keeps only this offline GUI running; actual
-AutoPrimeNet monitoring will be added in a later milestone.
+menu shows the scheduled runner's current state and provides Start/Stop actions.
+Closing the window keeps the GUI and any active scheduled monitoring running.
+Start requires confirmation because it performs real server operations; simply
+opening the GUI or refreshing a local preview does not.
 
 Choose a working directory and press **Refresh preview** to inspect identity,
 workers, configured request state, disk space, and local assignments. Settings
@@ -267,7 +270,8 @@ its explicit override so backend defaults or INI inheritance apply. Edited
 multiline values are refused rather than flattened. Password editing is not yet
 available, and encrypted passwords are never shown in the forms.
 
-Before replacement, the GUI acquires the same `~lock` instance lock as the CLI
+Before replacement, the GUI acquires its `~gui-monitor.lock` scheduled-runner lock
+and the same `~lock` instance lock as the CLI
 and checks that the loaded configuration has not changed. Stop independently
 running AutoPrimeNet before saving. The shared lock file is retained, never
 deleted or truncated. A changed existing file is backed up as
@@ -296,10 +300,76 @@ filename using your file manager. Keep its permissions appropriate, then reopen
 and refresh the GUI. Do not copy a backup over a work/results file.
 
 The progress check-in interval is distinct from the scheduler's `--timeout`.
-AutoPrimeNet does not persist `--timeout` through its INI mapping, so this milestone
-does not add an INI field that pretends to control it. A validated saved
+AutoPrimeNet does not persist `--timeout` through its INI mapping, so the GUI does
+not add an INI field that pretends to control it. A validated saved
 configuration is not evidence of registration, connectivity or successful server
-operations. Full graphical CLI parity and actual monitoring remain later work.
+operations. Full graphical CLI parity remains later work.
+
+### Scheduled monitoring
+
+Dashboard → **Start scheduled monitoring…** (or the tray Start item) asks before
+starting a GUI-owned runner. Save or reload unsaved form changes first. The
+runner checks the selected configuration's loaded fingerprint and performs
+offline validation before any CLI cycle starts. Startup errors, changed source
+files, an active independent CLI, or another GUI runner prevent startup.
+
+This first mode runs the unmodified AutoPrimeNet CLI with `--timeout 0` now and
+then at the configured **progress check-in interval**, in hours. Each pass can
+register/update the computer, request/register work, report results/progress,
+upload proofs, download certification starting data, check versions and send
+existing configured notifications. Proof archival/deletion and all PrimeNet
+business logic remain the CLI's existing behavior. For a previously unregistered
+computer, a completed initial registration is followed by a work cycle unless
+Stop was requested in between. No computation engine is launched or terminated.
+
+The cadence intentionally matches the check-in interval in this scheduled mode;
+it does not offer the native CLI's separate polling interval or immediate file
+watchers yet. Results/proofs discovered between cycles wait for the next pass.
+Changing the cadence requires stopping, editing/saving, and restarting. The
+normal independent CLI remains available for its full native monitoring behavior.
+
+Each Start creates an owner-private configuration snapshot named
+`<config-name>.gui-monitor-backup-<unique-id>.bak` before beginning a cycle. The
+unchanged CLI writes configuration/state normally and may normalize INI comments
+and formatting; GUI save preservation cannot prevent that backend behavior.
+This snapshot protects the original configuration, not server reservations or
+computation checkpoints. Restoring it cannot undo server operations.
+
+Dashboard and tray state distinguish Starting, Running cycle, Waiting, Stopping,
+Stopped and Failed. The displayed last-cycle timestamp is local process
+completion, and the next-cycle time is a plan. Exit zero is not proof that every
+server operation succeeded: some existing CLI paths log errors without returning
+a failing exit code. Connectivity and per-operation acceptance stay unverified;
+review AutoPrimeNet's configured log for detailed results. Raw CLI output and
+credentials are not copied into GUI activity, whose display is capped at 2000
+lines. Refresh local snapshots to inspect current files.
+
+**Stop after current cycle** prevents another pass and interrupts an idle wait.
+It lets an active CLI cycle finish its writes/uploads before exiting. This can
+take time during retries, a large proof upload, or waits on an existing `.lck`.
+**Force stop…** requires a separate confirmation and terminates only the owned
+CLI child; it can interrupt a write/upload and leave sidecar locks. Those locks
+are never removed automatically. Inspect the affected workspace before restarting
+after a forced stop. Neither stop action unreserves work or changes QuitGIMPS.
+
+Closing the window hides/minimizes it while monitoring continues. **Quit** asks
+to stop monitoring, waits for the current cycle to finish, then closes the GUI
+and tray helper. A force-stop control remains reachable while Quit is waiting.
+If the GUI process disappears unexpectedly, pipe EOF requests a graceful runner
+shutdown; it may still wait for the active cycle. This is not a guarantee of
+immediate shutdown when files or network operations are blocked.
+
+The GUI holds `~gui-monitor.lock` across cycles to prevent duplicate GUI runners
+and configuration saves. Each CLI pass holds its own normal `~lock`. An independent
+CLI can start between passes; a subsequent conflicting pass fails its native
+lock and the GUI runner stops, without terminating the independent process.
+Lock files can remain after exit; existence alone does not mean an OS lock is
+held. Do not delete them to bypass a live process. Refresh after stopping before
+editing/restarting, because the CLI may have updated configuration/state.
+
+Automated tests use disposable workspaces and simulated cycles. A live monitoring
+trial has not been performed. Starting against a real workspace is an operational
+action with the side effects above, not a read-only test.
 
 ### Local files and Git hygiene
 

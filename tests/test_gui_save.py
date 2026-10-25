@@ -36,7 +36,7 @@ class SaveTests(unittest.TestCase):
 			self.assertEqual(result["document"].config.get("PrimeNet", "username"), "ANONYMOUS")
 			if os.name != "nt":
 				self.assertEqual(result["document"].path.stat().st_mode & 0o777, 0o600)
-			self.assertEqual({path.name for path in Path(directory).iterdir()}, {"prime.ini", "~lock"})
+			self.assertEqual({path.name for path in Path(directory).iterdir()}, {"prime.ini", "~lock", "~gui-monitor.lock"})
 
 	def test_backup_bom_crlf_unknown_keys_and_ciphertext_preserved(self):
 		with tempfile.TemporaryDirectory() as directory:
@@ -201,7 +201,7 @@ class SaveTests(unittest.TestCase):
 			document = ConfigDocument(directory, "worktodo.txt")
 			with self.assertRaisesRegex(WorkspaceError, "conflicts"):
 				document.render(form(document), "mlucas", [{"directory": "", "preference": ""}])
-			for name in ("worktodo.txt.lck", "sample.proof", "worktodo.add"):
+			for name in ("worktodo.txt.lck", "sample.proof", "worktodo.add", "~gui-monitor.lock"):
 				with self.subTest(name=name), self.assertRaises(WorkspaceError):
 					ConfigDocument(directory, name)
 			try:
