@@ -297,6 +297,7 @@ class Application:
 		try:
 			self.monitor.start(document)
 		except ControllerError as error:
+			self.set_busy(self.jobs.busy)
 			self.status.set(str(error))
 			return
 		self.active_operation = None
@@ -359,6 +360,7 @@ class Application:
 		try:
 			self.monitor.start(document, operation=key, parameters=parameters)
 		except ControllerError as error:
+			self.set_busy(self.jobs.busy)
 			self.status.set(str(error))
 			return
 		self.active_operation = key

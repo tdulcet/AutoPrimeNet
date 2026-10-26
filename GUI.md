@@ -459,7 +459,15 @@ The replacement uses a flushed same-directory temporary file and atomic rename.
 A second version check rejects external edits detected during validation. Editors
 that ignore the shared lock can still race that final check; avoid editing the
 same file concurrently. No-op saves retain exact bytes and do not create backups.
-Read-only and symbolic-link configuration files are refused. Work, results and
+Read-only and symbolic-link configuration files are refused. Configuration and
+work previews read bounded regular files and check the opened file and pathname
+for replacement or modification during reading. Nonregular work-file paths and
+broken work-file links are reported explicitly. Read-only work previews may
+follow a link to a regular file; this does not relax the separate no-symlink
+rules for configuration saving or assignment snapshots. On POSIX systems,
+nonblocking opens prevent a file replaced by a FIFO from waiting for a writer.
+These checks do not guarantee a timeout for an unresponsive network filesystem.
+Work, results and
 certification files cannot be chosen as conflicting configuration destinations.
 
 Changing program or computation hours resets cached speed/rolling estimates in
@@ -752,6 +760,13 @@ and tray helper. A force-stop control remains reachable while Quit is waiting.
 If the GUI process disappears unexpectedly, pipe EOF requests a graceful runner
 shutdown; it may still wait for the active cycle. This is not a guarantee of
 immediate shutdown when files or network operations are blocked.
+
+If sending the initial runner request fails, the GUI reports a launch error and
+reaps that owned child in the background, escalating to termination/kill as
+needed. No cycle has been authorized by the begin handshake at that point.
+Conflicting actions remain disabled while that child is still running; cleanup
+does not target an independent CLI or computation engine. Inspect any preflight
+artifacts normally before retrying.
 
 The GUI holds `.gui-runner.guard` across monitoring/actions/saves and also
 attempts `~gui-monitor.lock`. The continuous CLI child holds its own normal

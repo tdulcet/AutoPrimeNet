@@ -891,6 +891,65 @@ with desktop/native integration enabled. The default suite ran 176 tests with
 the original source hash and original-file baseline diff remain unchanged.
 No live-service operations, assignment changes or user manual tests were run.
 
+## Responsive failed-start cleanup and helper event recovery
+
+Reviewed runner startup and found that a failed initial pipe write/flush could
+wait five seconds on the Tk thread, propagate a second pipe-close error, or
+leave an unreaped child after timeout. Failed startup now retains the specific
+owned process and generation, marks it stopping, and runs termination, bounded
+wait, kill escalation and stream cleanup on a background thread. The initial
+begin handshake has not been sent, so no communication cycle is authorized.
+The cleanup tolerates exit races and broken pipe closure; it emits the normal
+generation-tagged exit notification. Start/operation error paths refresh control
+availability so conflicting actions are disabled while cleanup is still active.
+
+Tray and runner readers also reject non-string event names before allowlist
+membership checks. Previously an array/object event name could raise TypeError
+and stop delivery of later valid events.
+
+New regression coverage checks malformed event recovery in both readers,
+startup errors returning while cleanup is deliberately held, duplicate-start
+exclusion during cleanup, timeout escalation and process-generation isolation.
+A real subprocess test verifies a failed startup request is reaped and its pipes
+closed while an unrelated process remains alive. No real backend cycle or
+external service is invoked by these tests.
+
+Validated October 25, 2026 on macOS/Python 3.15.1/Tk 9.1: **180 tests passed**
+with desktop/native integration enabled. Dependency checks, `git diff --check`
+and the original-file baseline check passed. Manual, other-platform and exact
+Python 3.15.0 acceptance remain pending under GUI_ACCEPTANCE.md.
+
+## Stable workspace reads and nonregular-file handling
+
+Extended the same hardening milestone without an intervening commit. Workspace
+preview reads previously used ordinary blocking opens, and configuration version
+checks did not verify the opened descriptor against the pathname before reading.
+The shared bounded regular-file reader now compares initial path metadata,
+opened-descriptor metadata, post-read descriptor metadata and final path metadata.
+Configuration reads refuse symbolic links; read-only work previews retain support
+for links to regular targets. File limits remain 2 MiB. POSIX nonblocking opens
+prevent FIFO replacement races from waiting for a writer; this is not a general
+network-filesystem timeout mechanism.
+
+Existing nonregular work paths and dangling work links now cause explicit errors
+instead of silently appearing absent. Missing ordinary work files remain valid.
+Assignment-snapshot and configuration-save no-symlink policies are unchanged.
+The existing end-of-load configuration-version check still rejects changes
+between loading editor settings and assembling the workspace preview.
+
+New tests cover nonregular/oversized preview inputs, replacement between stat
+and open, valid work-file symlinks, refused configuration symlinks and POSIX
+FIFOs, including replacement after stat. The FIFO checks run in a subprocess
+with a five-second deadline so a regression cannot hang the entire test suite.
+
+Combined automated verification October 25, 2026: **184 tests passed**, including
+all enabled desktop/native checks, on macOS/Python 3.15.1/Tk 9.1. The default run
+also passed with 29 desktop/native cases skipped. Dependency checks,
+`git diff --check` and original-file baseline checks passed. No live-service
+operations or user manual tests were performed. Remaining acceptance is tracked
+in GUI_ACCEPTANCE.md; other operating systems and exact Python 3.15.0 remain
+unverified.
+
 ## Original-file changes
 
 None. All GUI work so far is in newly added files. Existing upstream source,

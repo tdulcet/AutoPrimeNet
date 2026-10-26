@@ -5,13 +5,89 @@ SPDX-License-Identifier: GPL-3.0-only
 """
 
 from pathlib import Path
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from gui_config import WorkspaceError, inspect_workspace, workspace_snapshot
+from gui_config import ConfigDocument, WorkspaceError, inspect_workspace, read_small_file, workspace_snapshot
 
 
 class WorkspaceTests(unittest.TestCase):
+	def test_preview_rejects_nonregular_and_oversized_files(self):
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			with self.assertRaisesRegex(WorkspaceError, "regular file"):
+				read_small_file(base)
+			path = base / "large.txt"
+			path.write_bytes(b"x" * (2 * 1024 * 1024 + 1))
+			with self.assertRaisesRegex(WorkspaceError, "2 MiB"):
+				read_small_file(path)
+			(base / "worktodo.txt").mkdir()
+			with self.assertRaisesRegex(WorkspaceError, "regular files"):
+				inspect_workspace(directory)
+
+	def test_replacement_between_stat_and_open_is_not_accepted(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=original\n")
+			replacement = Path(directory) / "replacement.ini"
+			replacement.write_text("[PrimeNet]\nusername=replaced\n")
+			original_open = os.open
+			def replace_then_open(target, flags, *args, **kwargs):
+				replacement.replace(path)
+				return original_open(target, flags, *args, **kwargs)
+			with patch("gui_config.os.open", side_effect=replace_then_open):
+				with self.assertRaisesRegex(WorkspaceError, "changed while opening"):
+					ConfigDocument(directory)
+
+	@unittest.skipUnless(hasattr(os, "mkfifo"), "Requires POSIX named pipes")
+	def test_fifo_and_fifo_replacement_cannot_block_preview(self):
+		# Run in a bounded subprocess: a regression must not hang the test suite.
+		import subprocess
+		import sys
+		code = '''
+import os, tempfile
+from pathlib import Path
+from unittest.mock import patch
+from gui_config import ConfigDocument, WorkspaceError, read_small_file
+with tempfile.TemporaryDirectory() as directory:
+    path = Path(directory) / 'prime.ini'
+    os.mkfifo(path)
+    for read in (lambda: ConfigDocument(directory), lambda: read_small_file(path)):
+        try: read()
+        except WorkspaceError: pass
+        else: raise AssertionError('FIFO accepted')
+    path.unlink()
+    path.write_text('[PrimeNet]\\n')
+    original_open = os.open
+    def replace(target, flags, *args, **kwargs):
+        path.unlink()
+        os.mkfifo(path)
+        return original_open(target, flags, *args, **kwargs)
+    with patch('gui_config.os.open', side_effect=replace):
+        try: read_small_file(path)
+        except WorkspaceError: pass
+        else: raise AssertionError('FIFO replacement accepted')
+'''
+		result = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=5)
+		self.assertEqual(result.returncode, 0, result.stderr)
+
+	def test_preview_work_symlinks_remain_readable_but_config_links_refused(self):
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			target = base / "target.txt"
+			target.write_text("Test=127,70,1\n")
+			link = base / "worktodo.txt"
+			try:
+				link.symlink_to(target)
+			except OSError:
+				self.skipTest("File symlinks unavailable")
+			self.assertEqual(read_small_file(link), target.read_text())
+			(base / "prime.ini").symlink_to(target)
+			with self.assertRaisesRegex(WorkspaceError, "symbolic"):
+				ConfigDocument(directory)
+
 	def test_missing_config_does_not_create_runtime_files(self):
 		with tempfile.TemporaryDirectory() as directory:
 			snapshot = inspect_workspace(directory)

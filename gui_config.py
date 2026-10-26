@@ -31,11 +31,39 @@ class WorkspaceError(Exception):
 
 
 def read_small_file(path):
-	with path.open("rb") as stream:
-		content = stream.read(MAX_FILE_BYTES + 1)
-	if len(content) > MAX_FILE_BYTES:
-		raise WorkspaceError("The selected file exceeds the 2 MiB preview limit.")
+	_version, content = _read_stable_file(path, "Selected preview file", follow_symlinks=True)
 	return content.decode("utf-8-sig")
+
+
+def _read_stable_file(path, description, follow_symlinks=False, missing_ok=False):
+	"""Read a bounded regular file; verify both the handle and pathname."""
+	inspect = path.stat if follow_symlinks else path.lstat
+	try:
+		before = inspect()
+	except FileNotFoundError:
+		if missing_ok:
+			return None, b""
+		raise
+	if stat.S_ISLNK(before.st_mode):
+		raise WorkspaceError("Configuration saving does not follow symbolic links.")
+	if not stat.S_ISREG(before.st_mode):
+		raise WorkspaceError(description + " must be a regular file.")
+	identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+	flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+	if not follow_symlinks:
+		flags |= getattr(os, "O_NOFOLLOW", 0)
+	with os.fdopen(os.open(path, flags), "rb") as stream:
+		opened = os.fstat(stream.fileno())
+		if not stat.S_ISREG(opened.st_mode) or identity(opened) != identity(before):
+			raise WorkspaceError(description + " changed while opening. Reload before retrying.")
+		data = stream.read(MAX_FILE_BYTES + 1)
+		finished = os.fstat(stream.fileno())
+	if len(data) > MAX_FILE_BYTES:
+		raise WorkspaceError(description + " exceeds the 2 MiB size limit.")
+	after = inspect()
+	if identity(before) != identity(finished) or identity(before) != identity(after) or not stat.S_ISREG(after.st_mode):
+		raise WorkspaceError(description + " changed while loading. Reload before retrying.")
+	return (*identity(after), hashlib.sha256(data).hexdigest()), data
 
 
 def workspace_snapshot(directory, config_name="prime.ini"):
@@ -79,10 +107,20 @@ def workspace_snapshot(directory, config_name="prime.ini"):
 				raise WorkspaceError("Worker directories resolve to the same location.")
 			seen.add(folder)
 			work = folder / ("worktodo-{}.txt".format(index) if engine == "prpll" else work_name)
+			try:
+				work_info = work.stat()
+			except FileNotFoundError:
+				if work.is_symlink():
+					raise WorkspaceError("A work file symbolic link has no readable target.")
+				work_present = False
+			else:
+				if not stat.S_ISREG(work_info.st_mode):
+					raise WorkspaceError("Configured work files must be regular files.")
+				work_present = True
 			workers.append({
 				"number": index + 1, "directory": str(folder), "work_file": str(work),
 				"preference": get("WorkPreference", section=section) or "Not configured",
-				"work_present": work.is_file(),
+				"work_present": work_present,
 			})
 		identity = {"username": get("username") or "Not configured", "computer": get("ComputerID") or "Not configured"}
 		request_state = config.getboolean("PrimeNet", "QuitGIMPS", fallback=False)
@@ -210,23 +248,7 @@ def instance_lease(directory, filename="~lock", require_lock=True):
 
 
 def _file_version(path):
-	if path.is_symlink():
-		raise WorkspaceError("Configuration saving does not follow symbolic links.")
-	try:
-		before = path.stat()
-	except FileNotFoundError:
-		return None, b""
-	if not stat.S_ISREG(before.st_mode):
-		raise WorkspaceError("Configuration must be a regular file.")
-	with path.open("rb") as stream:
-		data = stream.read(MAX_FILE_BYTES + 1)
-	if len(data) > MAX_FILE_BYTES:
-		raise WorkspaceError("Configuration exceeds the 2 MiB size limit.")
-	after = path.stat()
-	identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-	if identity(before) != identity(after):
-		raise WorkspaceError("Configuration changed while loading. Reload before editing.")
-	return (*identity(after), hashlib.sha256(data).hexdigest()), data
+	return _read_stable_file(path, "Configuration", missing_ok=True)
 
 
 def patch_ini(text, edits):

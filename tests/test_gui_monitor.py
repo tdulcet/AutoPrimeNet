@@ -12,7 +12,7 @@ import textwrap
 import time
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from gui_config import ConfigDocument, WorkspaceError, instance_lease, save_configuration
 from gui_controller import ControllerError, MonitorController
@@ -156,6 +156,30 @@ class ScheduleTests(unittest.TestCase):
 
 
 class MonitorProcessTests(unittest.TestCase):
+	def test_broken_startup_pipe_reaps_real_child_without_touching_other_process(self):
+		owned = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+		unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+		original_stdin = owned.stdin
+		owned.stdin = Mock(wraps=original_stdin)
+		owned.stdin.write.side_effect = BrokenPipeError("fixture")
+		controller = MonitorController(process_factory=lambda *_args, **_kwargs: owned)
+		try:
+			with tempfile.TemporaryDirectory() as directory:
+				with self.assertRaisesRegex(ControllerError, "Could not launch"):
+					controller.start(fixture(directory))
+				wait_event(controller, "exited")
+				self.assertFalse(controller.active)
+				self.assertTrue(owned.stdout.closed)
+				self.assertTrue(original_stdin.closed)
+				self.assertIsNone(unrelated.poll())
+		finally:
+			for process in (owned, unrelated):
+				if process.poll() is None:
+					process.kill()
+				process.wait()
+			original_stdin.close()
+			owned.stdout.close()
+
 	def make_controller(self):
 		controller = MonitorController(process_factory=fake_monitor_process)
 		self.addCleanup(self.stop_controller, controller)
