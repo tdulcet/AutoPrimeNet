@@ -180,7 +180,7 @@ class ManagementTests(unittest.TestCase):
 
 	def test_real_cli_pause_resume_changes_only_local_request_policy(self):
 		with tempfile.TemporaryDirectory() as directory:
-			document = fixture(directory)
+			fixture(directory)
 			work = Path(directory) / "worktodo.txt"
 			work.write_text("Test=127,70,1\n")
 			code = "import sys,runpy,gui_backend; sys.addaudithook(gui_backend._network_guard); sys.argv=['autoprimenet.py','--workdir',sys.argv[1],'--timeout','0',sys.argv[2]]; runpy.run_path('autoprimenet.py',run_name='__main__')"

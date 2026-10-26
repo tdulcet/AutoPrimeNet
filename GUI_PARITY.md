@@ -8,19 +8,19 @@ Generated from the same option inventory and coverage metadata used by the GUI r
 
 ## Coverage meaning
 
-- **Available**: a graphical control or operation exists within the documented GUI limits. This does not mean its live server behavior or every platform has been validated.
-- **Partial**: related graphical functionality exists, but an original workflow distinction remains.
-- **CLI only**: use the independent original CLI; no raw-argument GUI substitute is provided.
-- **Hidden / CLI only**: hidden experimental upstream behavior is not exposed.
-- **Removed upstream**: the original backend rejects this legacy feature.
+* **Available**: a graphical control or operation exists within the documented GUI limits. This does not mean its live server behavior or every platform has been validated.
+* **Partial**: related graphical functionality exists, but an original workflow distinction remains.
+* **CLI only**: use the independent original CLI; no raw-argument GUI substitute is provided.
+* **Hidden / CLI only**: hidden experimental upstream behavior is not exposed.
+* **Removed upstream**: the original backend rejects this legacy feature.
 
 Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / CLI only, 1 Removed upstream.
 
 ## Remaining workflow gaps
 
-- Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
-- Linux/FreeBSD GTK tray integration is implemented with simulated host checks; actual desktop/library/display-server validation remains pending.
-- Live registration, assignment changes, email, proof/result operations and v6 ping remain unvalidated. Tests use offline probes or simulated API responses. Python 3.15.0 itself and Windows/Linux/FreeBSD runtime coverage remain pending.
+* Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
+* Linux/FreeBSD GTK tray integration is implemented with simulated host checks; actual desktop/library/display-server validation remains pending.
+* Live registration, assignment changes, email, proof/result operations and v6 ping remain unvalidated. Tests use offline probes or simulated API responses. Python 3.15.0 itself and Windows/Linux/FreeBSD runtime coverage remain pending.
 
 ## Interactive workflows and state
 

@@ -1,12 +1,21 @@
 # GUI development and validation
 
-This document records development evidence for the optional Python 3.15.0-or-later
-GUI. See [GUI.md](GUI.md) for environment requirements and the agreed behavior.
-The complete GUI is not available yet; the desktop foundation now includes local
-configuration forms, encrypted password replacement, validated persistence,
-scheduled/one-shot process control, graphical computer/exponent registration,
-private reports and read-only previews. Live PrimeNet workflows remain
-unvalidated. [GUI_PARITY.md](GUI_PARITY.md) classifies every audited parser entry.
+This document records architecture and validation evidence for the optional
+Python 3.15.0-or-later GUI. See [GUI.md](GUI.md) for installation and usage and
+[GUI_PARITY.md](GUI_PARITY.md) for the audited parser-entry inventory.
+
+## Current status
+
+The 94 ordinary CLI parser entries have graphical controls within the documented
+limits. Configuration saving, encrypted password replacement, native monitoring,
+watching, one-shot operations, registration, discovery and private reports are
+implemented. This inventory is not release acceptance: exact Python 3.15.0,
+other operating systems and controlled live-service workflows remain unverified.
+
+Milestone sections below are **historical records**, ordered by implementation.
+Their earlier counts and statements about unfinished features describe that
+milestone, not the current application. The final review section records the
+latest checks.
 
 ## Milestone: environment and offline backend prototype
 
@@ -38,32 +47,35 @@ above are evidence from one environment, not cross-platform pins or a lockfile.
 
 ## Offline bridge
 
-`gui_backend.py` is a short-lived private child-process prototype. It accepts one
+`gui_backend.py` is a short-lived private child process. It accepts one
 JSON request on standard input and returns one JSON response on standard output.
-It currently supports only:
+Its offline operation allowlist is:
 
-- `capabilities`: reads the audited parser inventory without executing upstream
+* `capabilities`: reads the audited parser inventory without executing upstream
   definitions or startup. Includes hidden/inverse flags and automatic help.
-- `parse_work`: executes the reviewed upstream definition prefix in a private
+* `parse_work`: executes the reviewed upstream definition prefix in a private
   namespace, then reuses `parse_assignment()` and `output_assignment()` to inspect
   supplied work lines. It does not open the user's work files.
-- `validate_config`: initializes the existing argument parser and merges proposed
+* `validate_config`: initializes the existing argument parser and merges proposed
   configuration text in memory, reuses decryption and `check_options()`, and
   returns only non-secret effective settings. It does not write configuration,
   acquire locks, run prompted setup, register the computer or enter the scheduler.
-- `protect_credentials`: validates configuration offline and strictly encrypts
+* `protect_credentials`: validates configuration offline and strictly encrypts
   explicit SMTP/proxy password replacements using the original backend. Returns
   only selected ciphertext and the hardware GUID needed to retain its binding.
   It does not write files; the existing save layer patches and validates the
   result before atomic replacement.
-- `preview_registration`: supplies validated form answers to the original
+* `preview_registration`: supplies validated form answers to the original
   exponent-registration function using in-memory files and no-op registration.
   It returns canonical work lines without writing files or making a lookup.
-- `debug_report`: captures the original diagnostic function offline, redacts
+* `debug_report`: captures the original diagnostic function offline, redacts
   configured passwords, and returns explicitly private report text. Export
   requires a separate GUI confirmation and creates an owner-private local file.
-- `cli_help`: builds the original parser and returns its visible help without a
+* `cli_help`: builds the original parser and returns its visible help without a
   configuration or CLI startup. Capabilities also include the audited version.
+* `discover_gpus`: reuses local GPU discovery and returns reviewed hardware form
+  values without server access or runtime-file writes. SMTP discovery uses its
+  separate network-enabled helper rather than this offline bridge.
 
 The source SHA-256 must exactly match the reviewed backend. Source drift fails
 closed before execution. An update to that guard requires a new integration
@@ -101,6 +113,38 @@ On Windows PowerShell:
 .\.venv\Scripts\python.exe -m pip check
 ```
 
+The default suite skips tests that initialize a native graphical session. To
+include all desktop and native watcher checks, run from a logged-in desktop:
+
+```sh
+AUTOPRIMENET_GUI_DESKTOP_TESTS=1 .venv/bin/python -B -m unittest discover -s tests -p 'test_gui_*.py' -v
+```
+
+Windows PowerShell:
+
+```powershell
+$env:AUTOPRIMENET_GUI_DESKTOP_TESTS = '1'
+.\.venv\Scripts\python.exe -B -m unittest discover -s tests -p 'test_gui_*.py' -v
+Remove-Item Env:AUTOPRIMENET_GUI_DESKTOP_TESTS
+```
+
+Native macOS/Windows tray tests require `requirements-gui-tray.txt`; they report
+an explicit skip when those optional packages are absent. With packages installed,
+a native tray startup failure fails the test. Linux/FreeBSD tray-host tests use
+simulated GI/D-Bus backends; actual panel/desktop acceptance remains manual.
+
+For an optional static bug-pattern check with Ruff installed separately, run on
+macOS/Linux/FreeBSD:
+
+```sh
+ruff check --isolated --target-version py315 --select F,B,PLE autoprimenet_gui.py gui_*.py tests/test_gui_*.py
+```
+
+This deliberately ignores repository-wide configuration and checks only the GUI
+additions. It does not change the upstream Python compatibility/lint targets.
+Ruff and coverage tooling are review/development tools, not GUI runtime or
+standard-library test-suite requirements.
+
 The standard-library tests launch the bridge in isolated child processes. They
 cover parser inventory, the ten work-file formats, canonical round trips,
 unverified AIDs, malformed/multiline input, protocol/action rejection, source
@@ -136,15 +180,15 @@ minimization is the fallback. Linux/FreeBSD tray integration is not enabled yet.
 
 Validation on the same macOS/Python 3.15.1/Tk 9.1 environment:
 
-- 18 core tests passed: the previous 10, plus read-only configuration/worker
+* 18 core tests passed: the previous 10, plus read-only configuration/worker
   discovery, symlink conflict detection, PRPLL indexed files, exclusion of secret
   settings from snapshots, invalid values/paths, bounded request size, job
   serialization, and backend failure reporting.
-- Five opt-in real-desktop tests passed: tab navigation/search/workspace loading
+* Five opt-in real-desktop tests passed: tab navigation/search/workspace loading
   and repeated refresh, tray hide/programmatic restore/helper failure recovery,
   reachable taskbar/Dock fallback without tray support, clean shutdown of a healthy
   tray helper, and macOS native Quit dispatch through application cleanup.
-- The user confirmed the requested manual macOS menu-bar test passed on October
+* The user confirmed the requested manual macOS menu-bar test passed on October
   24, 2026: closing the window, reopening it through the menu-bar icon, and Quit.
   This supplements the programmatic event-delivery checks above.
 
@@ -206,18 +250,18 @@ unresolved dictionary binding. The audited upstream source itself was unchanged.
 
 New verification covers:
 
-- Effective defaults for all eight computation programs, and comparison of
+* Effective defaults for all eight computation programs, and comparison of
   key effective values with the normal CLI's status path in a disposable
   workspace under a network-blocking audit hook.
-- Real upstream OpenSSL encryption/decryption using a synthetic proxy password;
+* Real upstream OpenSSL encryption/decryption using a synthetic proxy password;
   an unrelated edit retains ciphertext and the original backup without storing
   the decrypted value. A separate fake-ciphertext formatting test mocks validation
   explicitly and is not counted as evidence of decryption.
-- Initial creation, private-file modes, backups, comments/unknown/multiline
+* Initial creation, private-file modes, backups, comments/unknown/multiline
   preservation, literal percent paths, multiple workers and preferences,
   external edits (including restored mtime), lock contention, read-only files,
   failed replacement, temp cleanup, invalid input and engine-change resets.
-- Real Tk interaction through the application methods for invalid input,
+* Real Tk interaction through the application methods for invalid input,
   successful save/reload, unsaved-change cancellation, and all prior tray tests.
 
 The atomic rename is not a compare-and-swap against unrelated editors that ignore
@@ -949,6 +993,73 @@ also passed with 29 desktop/native cases skipped. Dependency checks,
 operations or user manual tests were performed. Remaining acceptance is tracked
 in GUI_ACCEPTANCE.md; other operating systems and exact Python 3.15.0 remain
 unverified.
+
+## Comprehensive code, regression and documentation review — October 26, 2026
+
+Reviewed the GUI additions across configuration/credential persistence, offline
+and live adapters, registration planning, scheduling, worker shutdown, tray
+integration, reports and Tk forms. Original upstream files were preserved.
+
+### Corrections
+
+* `gui_paths.py` validates effective file roles before Save and runner launch:
+  configuration, log and five rotated logs, work/results/certification/history,
+  `.add` imports, sidecar locks, instance ownership and proof archive directory.
+  It covers PRPLL indexed names, worker-relative paths and existing hard-link or
+  symlink aliases, plus case-only names on case-insensitive macOS volumes and
+  Windows. The Darwin case-policy constant was checked against the local SDK's
+  sys/unistd.h. Existing runtime file paths must be regular files; an archive
+  must be a directory. A noncooperating process can still replace paths after
+  validation, so this is not a replacement for ownership/locking.
+* Reload/Save closes old form dialogs, clears unapplied password entries and
+  closes the old saved configuration's private log viewer. Worker dialog callbacks
+  retain their originating document. Directory selection confirms discarding
+  edits once; a failed load retains the old values and dirty state.
+* One-pass initial registration treats an empty ComputerGUID like a missing one,
+  and runs its follow-up only after a nonempty GUID appears and Stop is not set.
+* Runner messages validate the fields consumed by Tk, while preserving both
+  scheduled and one-shot readiness formats. SMTP responses are checked before
+  reaching forms. Non-string tray states and extreme GPU measurements fail
+  safely instead of breaking reader/callback threads or overflowing conversion.
+* StoppingQueue preserves queue timeout/nonblocking behavior while retaining
+  stop-at-idle-boundary semantics. Assignment previews reject wrong row counts
+  instead of silently truncating through zip.
+* `.gitignore` covers separate `.venv*` test environments. Unused imports and
+  test fixtures were cleaned up after the scoped static check.
+
+### Regression coverage and documentation
+
+Added focused checks for the corrections above, changing/disappearing files
+during reads, failed private-report cleanup, malformed/oversize private-helper
+requests, native console/event channel separation and parent EOF. The parity
+inventory is now checked against all audited parser entries, including coverage
+classification. Native tray tests explicitly skip absent optional packages;
+installed packages with a failing native helper still fail the test.
+
+The user guide now groups Features, Installation, Usage and Development, with
+discovery/debug instructions alongside the settings they describe. GUI documents
+use the upstream README's asterisk lists, fenced commands, Markdown headings,
+tables and relative links. Earlier milestone claims are labeled historical;
+current inventory coverage is separated from pending platform/live acceptance.
+The user's downloaded VM testing documents were not restored to the repository.
+
+### Final automated verification
+
+On October 26, 2026, macOS/Python 3.15.1/Tk 9.1 passed **210 tests** with
+desktop/native checks enabled and no skips. This review added 26 tests to the
+184-test baseline. The default run also passed, with 32 desktop/native checks
+skipped. Coverage 7.17.0 measured **87% combined statement/branch coverage**
+across the 21 GUI modules, including helper subprocesses (3,173 of 3,567
+statements executed). Coverage does not establish acceptance of other operating
+systems, live services or exact Python 3.15.0; these remain pending in
+GUI_ACCEPTANCE.md.
+
+The scoped Ruff 0.17.2 checks passed. All 40 GUI/test Python sources parsed,
+the 12 shell command blocks passed syntax checks, and local documentation links,
+dependency consistency and `git diff --check` passed. Review tools and coverage
+artifacts stayed outside the repository. All ten original upstream files still
+match baseline b4426a1. No live-service operations or user manual acceptance
+tests were performed.
 
 ## Original-file changes
 

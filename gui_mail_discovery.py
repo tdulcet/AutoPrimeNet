@@ -89,11 +89,23 @@ def discover_mail(document, email):
 		raise ValueError("Mail discovery could not finish within 90 seconds. Check the connection or configure SMTP manually.") from error
 	if not isinstance(response, dict):
 		raise ValueError("Mail discovery returned an invalid response. Configure SMTP manually.")
-	if process.returncode or response.get("protocol") != 1 or not response.get("ok"):
-		raise ValueError(response.get("error", "Mail discovery failed. Configure SMTP manually."))
+	if process.returncode or response.get("protocol") != 1 or response.get("ok") is not True:
+		raise ValueError("Mail discovery failed. Check saved settings and the connection, or configure SMTP manually.")
 	result = response.get("result")
 	if not isinstance(result, dict) or "match" not in result:
 		raise ValueError("Mail discovery returned an invalid response. Configure SMTP manually.")
+	match = result["match"]
+	if match is not None:
+		try:
+			settings = match["settings"]
+			if set(match) != {"provider", "security", "settings"} or set(settings) - {"smtp_server", "tls", "starttls", "email_username"}:
+				raise ValueError
+			host, port = settings["smtp_server"].rsplit(":", 1)
+			expected = mail_settings((match["provider"], host, int(port), match["security"], settings.get("email_username")))
+			if expected != match:
+				raise ValueError
+		except (KeyError, TypeError, AttributeError, ValueError) as error:
+			raise ValueError("Mail discovery returned invalid settings. Configure SMTP manually.") from error
 	return result
 
 

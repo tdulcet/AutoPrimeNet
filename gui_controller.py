@@ -12,6 +12,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 
 from gui_tray_host import tray_platform
 
@@ -21,6 +22,41 @@ ROOT = Path(__file__).resolve().parent
 
 class ControllerError(Exception):
 	"""An operation failed without exposing raw subprocess diagnostics."""
+
+
+def monitor_message(message):
+	"""Validate fields used by Tk before accepting an event from the runner."""
+	if not isinstance(message, dict) or not isinstance(message.get("event"), str):
+		return False
+	event = message["event"]
+	if event not in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped", "trace_created", "trace_warning"}:
+		return False
+	if event == "ready":
+		if "operation" in message:
+			from gui_operations import OPERATIONS
+			if not isinstance(message["operation"], str) or message["operation"] not in OPERATIONS:
+				return False
+		elif type(message.get("interval")) is not int or not 0 <= message["interval"] <= 604800:
+			return False
+	for key in ("error", "assignment_backup"):
+		if key in message and message[key] is not None and (not isinstance(message[key], str) or len(message[key]) > 8192):
+			return False
+	if "error" in message and message["error"] is None:
+		return False
+	if event == "trace_created":
+		name = message.get("name")
+		if not isinstance(name, str) or not name or len(name) > 255 or Path(name).name != name or any(char in name for char in "\r\n\x00"):
+			return False
+	if event == "cycle_finished":
+		for key in ("time", "next_cycle"):
+			value = message.get(key)
+			if type(value) not in (int, float):
+				return False
+			try:
+				time.localtime(value)
+			except (ValueError, OverflowError, OSError):
+				return False
+	return True
 
 
 class BackgroundJobs:
@@ -260,7 +296,7 @@ class MonitorController:
 					message = json.loads(line)
 				except ValueError:
 					continue
-				if isinstance(message, dict) and isinstance(message.get("event"), str) and message["event"] in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped", "trace_created", "trace_warning"}:
+				if monitor_message(message):
 					if message["event"] == "ready":
 						with self._control_lock:
 							if generation == self.generation and self.state == "Starting":

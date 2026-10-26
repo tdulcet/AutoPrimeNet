@@ -25,6 +25,14 @@ class HardwareTests(unittest.TestCase):
 			with self.subTest(record=record), self.assertRaises(ValueError):
 				gpu_settings(record)
 
+	def test_extreme_and_boolean_measurements_are_rejected_without_overflow(self):
+		for value in (True, -1, 1.5, float("inf"), 1 << 10000):
+			for index in range(1, 6):
+				record = ["GPU", 1, 1000, 64, 256, 4096, "", "CUDA"]
+				record[index] = value
+				with self.subTest(index=index, value_type=type(value).__name__), self.assertRaises(ValueError):
+					gpu_settings(record)
+
 	def test_dispatch_reuses_discovery_skips_unusable_devices_and_closes_session(self):
 		from unittest.mock import Mock
 		session = Mock()

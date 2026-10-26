@@ -7,6 +7,7 @@ SPDX-License-Identifier: GPL-3.0-only
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -20,6 +21,17 @@ BASELINE_SHA256 = "05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7e
 
 
 class BackendTests(unittest.TestCase):
+	def test_documented_parity_inventory_matches_audited_parser(self):
+		from gui_reference import reference_info
+		options = self.run_bridge({"protocol": 1, "operation": "capabilities"})["result"]["cli_options"]
+		documented = []
+		for line in (ROOT / "GUI_PARITY.md").read_text().splitlines():
+			if not line.startswith("| `"):
+				continue
+			cells = [cell.strip() for cell in line.split("|")]
+			documented.append((re.findall(r"`([^`]+)`", cells[1]), cells[2].strip("`"), cells[3]))
+		expected = [(item["flags"], item["dest"], reference_info(item["dest"])[2]) for item in options]
+		self.assertEqual(documented, expected)
 	def test_gpu_discovery_is_offline_and_creates_no_runtime_files(self):
 		response = self.run_bridge({"protocol": 1, "operation": "discover_gpus"})
 		self.assertTrue(response["ok"], response)
@@ -84,7 +96,7 @@ class BackendTests(unittest.TestCase):
 		self.assertTrue(response["ok"], response)
 		assignments = response["result"]["assignments"]
 		self.assertEqual(len(assignments), len(lines))
-		for line, item in zip(lines, assignments):
+		for line, item in zip(lines, assignments, strict=True):
 			with self.subTest(line=line):
 				self.assertTrue(item["parsed"])
 				self.assertEqual(item["fields"]["n"], 127)

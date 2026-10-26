@@ -69,7 +69,7 @@ def main():
 					continue
 				try:
 					message = json.loads(line)
-					if message.get("state") in {"Stopped", "Starting", "Running cycle", "Waiting", "Watching files", "Stopping", "Failed"}:
+					if isinstance(message.get("state"), str) and message["state"] in {"Stopped", "Starting", "Running cycle", "Waiting", "Watching files", "Stopping", "Failed"}:
 						state[0] = message["state"]
 						on_native_thread(icon.update_menu)
 				except (ValueError, AttributeError):

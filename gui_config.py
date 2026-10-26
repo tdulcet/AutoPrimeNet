@@ -109,9 +109,9 @@ def workspace_snapshot(directory, config_name="prime.ini"):
 			work = folder / ("worktodo-{}.txt".format(index) if engine == "prpll" else work_name)
 			try:
 				work_info = work.stat()
-			except FileNotFoundError:
+			except FileNotFoundError as error:
 				if work.is_symlink():
-					raise WorkspaceError("A work file symbolic link has no readable target.")
+					raise WorkspaceError("A work file symbolic link has no readable target.") from error
 				work_present = False
 			else:
 				if not stat.S_ISREG(work_info.st_mode):
@@ -148,7 +148,9 @@ def inspect_workspace(directory, config_name="prime.ini"):
 		if len(all_lines) > 1000:
 			raise WorkspaceError("Preview supports at most 1000 work lines across all workers.")
 	parsed = backend_request("parse_work", lines=all_lines)["assignments"] if all_lines else []
-	snapshot["assignments"] = [{"worker": number, **item} for number, item in zip(worker_numbers, parsed)]
+	if not isinstance(parsed, list) or len(parsed) != len(worker_numbers):
+		raise WorkspaceError("The backend returned an incomplete assignment preview. Refresh before retrying.")
+	snapshot["assignments"] = [{"worker": number, **item} for number, item in zip(worker_numbers, parsed, strict=True)]
 	return snapshot
 
 

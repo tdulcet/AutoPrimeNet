@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 from gui_config import ConfigDocument, WorkspaceError, instance_lease, save_configuration
 from gui_controller import ControllerError, MonitorController
-from gui_monitor import StopControl, _cli_process, _cli_once, cli_cycle, run_schedule
+from gui_monitor import StopControl, _cli_process, cli_cycle, run_schedule
 
 
 def fake_monitor_process(_command, **kwargs):
@@ -81,6 +81,17 @@ class EncodingTests(unittest.TestCase):
 
 
 class ScheduleTests(unittest.TestCase):
+	def test_empty_guid_requires_successful_registration_before_followup(self):
+		for new_guid in ("", "a" * 32):
+			with self.subTest(new_guid=bool(new_guid)), tempfile.TemporaryDirectory() as directory:
+				document = fixture(directory)
+				document.path.write_text(document.text + "ComputerGUID=\n")
+				def once(*_args, document=document, new_guid=new_guid):
+					document.path.write_text(document.text + "ComputerGUID=" + new_guid + "\n")
+					return 0, False
+				with patch("gui_monitor._cli_once", side_effect=once) as cycle:
+					self.assertEqual(cli_cycle(directory, "prime.ini", StopControl()), (0, False))
+					self.assertEqual(cycle.call_count, 2 if new_guid else 1)
 	def test_stop_during_preflight_prevents_first_cycle(self):
 		control = StopControl()
 		events = []
@@ -117,7 +128,7 @@ class ScheduleTests(unittest.TestCase):
 			with self.subTest(stopping=stopping), tempfile.TemporaryDirectory() as directory:
 				document = fixture(directory)
 				control = StopControl()
-				def first_pass(*_args):
+				def first_pass(*_args, document=document, stopping=stopping, control=control):
 					document.path.write_text(document.text + "ComputerGUID=0123456789abcdef0123456789abcdef\n")
 					if stopping:
 						control.stop.set()

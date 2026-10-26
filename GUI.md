@@ -13,6 +13,15 @@ acceptance remain pending. This is not a validated release. See
 [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for automated test evidence, and
 [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md) for the consolidated acceptance checklist.
 
+## Features
+
+* Graphical configuration, worker editing and validated local saving
+* Offline assignment and exponent-registration previews
+* Confirmed computer registration and one-shot CLI operations
+* Native monitoring, file watching and graceful worker shutdown
+* Optional tray/menu-bar integration with a reachable fallback
+* Reviewed GPU/SMTP discovery, masked password replacement and private reports
+
 ## Python requirements
 
 **The GUI requires Python 3.15.0 or later.** This minimum supersedes the original
@@ -69,9 +78,9 @@ The intended default is **close to tray/menu bar and keep monitoring**. Closing
 the main window hides it while both the GUI and its managed AutoPrimeNet backend
 remain running. This differs from exiting the GUI and leaving a detached backend.
 
-- Windows: use the notification area (system tray).
-- macOS: use a menu bar status item.
-- Linux and FreeBSD desktops: use an available compatible tray/status-item host.
+* Windows: use the notification area (system tray).
+* macOS: use a menu bar status item.
+* Linux and FreeBSD desktops: use an available compatible tray/status-item host.
   Availability depends on the desktop session, not just the operating system.
 
 The tray/menu-bar menu should offer **Open AutoPrimeNet GUI**, monitoring status,
@@ -91,7 +100,7 @@ GUI's shutdown control. Hiding or quitting the GUI must never terminate Mlucas,
 Prime95, or another computation engine, unreserve assignments, or change the
 stop/resume-new-work setting as a side effect.
 
-The prototype uses optional `pystray` in a separate child process with its own
+The GUI uses optional `pystray` in a separate child process with its own
 native event loop. Tkinter does not directly provide a portable tray API; using
 this library avoids maintaining separate native tray implementations. Its LGPLv3
 license is compatible with the GUI's GPLv3 licensing. Dependencies include Pillow,
@@ -107,7 +116,7 @@ desktop constraints described in
 If the helper fails while hidden, the GUI restores itself. The helper also exits
 when its parent closes its input pipe, including after a parent-process failure.
 
-## Environment setup for users and testers
+## Installation
 
 These instructions prepare an environment for the current GUI foundation. The
 backend and opt-in desktop test suites are documented in
@@ -129,6 +138,7 @@ files; existing CLI installation instructions remain unchanged.
 | Optional `.venv` extra | Requests SOCKS extra, only for SOCKS proxy users | Adds PySocks support |
 | System/interpreter library, required for password replacement or existing encrypted passwords | Loadable OpenSSL `libcrypto` compatible with the original backend | Existing AES-256-GCM password encryption; this is a native library, not a pip package |
 | Optional `.venv` packages on macOS/Windows | `requirements-gui-tray.txt`: pystray, Pillow, six and platform dependencies | Tray/menu-bar helper; no tray packages needed for taskbar-only mode |
+| Optional system and `.venv` packages on Linux/FreeBSD | Native GTK 3, GObject introspection, Cairo and a tray host; `requirements-gui-tray-gtk.txt` in the selected venv | Optional GTK/AppIndicator tray helper; see the GTK installation section |
 | Separate working directory | Computation engine and its existing work/configuration files | Actual computation; engines are not Python GUI dependencies |
 
 Users and testers need the same runtime environment. The initial automated tests
@@ -141,11 +151,10 @@ files in the same change.
 
 ### macOS with Homebrew
 
-From the repository root (on this development machine,
-`/Users/jacobpollicove/Git-Projects/autoprimenet`):
+From your source checkout:
 
 ```sh
-cd /Users/jacobpollicove/Git-Projects/autoprimenet
+cd /path/to/autoprimenet
 brew install python@3.15 python-tk@3.15
 python3.15 --version
 python3.15 -m venv .venv
@@ -154,8 +163,7 @@ python3.15 -m venv .venv
 .venv/bin/python -m tkinter
 ```
 
-Other contributors should replace the `cd` path with their checkout's actual
-location. Homebrew installs native interpreter/Tk components outside `.venv`;
+Replace the `cd` path with your checkout's actual location. Homebrew installs native interpreter/Tk components outside `.venv`;
 pip installs project packages inside it. Do not use `sudo pip` or modify Apple's
 system Python. The final command should open a small Tk demonstration window;
 close it after checking. If `_tkinter` is missing, fix the matching interpreter's
@@ -266,6 +274,61 @@ settings dialog described below. Notifications provides local SMTP configuration
 Logs & Status includes GUI activity, a separate private native-log viewer,
 original work-status reporting and offline diagnostic export.
 
+### Optional Linux/FreeBSD GTK tray integration
+
+The optional helper now attempts menu-capable GTK 3/AppIndicator backends on
+Linux and FreeBSD. Native toolkit work runs in its own process, separate from
+Tkinter. Base GUI use still needs only requirements-gui.txt and matching Tk;
+GTK/GObject dependencies are optional. Real Linux/FreeBSD desktop acceptance is
+pending; current tests simulate GTK/D-Bus behavior on the macOS development host.
+
+For this optional feature, the **system** needs GTK **3**, GLib/GIO/GObject
+introspection runtime data, Cairo and any build tools/headers required by the
+chosen PyGObject build, including headers for the chosen Python 3.15+ interpreter.
+The desktop must provide a tray host. For AppIndicator menus, install compatible
+AppIndicator3 or AyatanaAppIndicator3 libraries and their introspection data.
+Packages and desktop extensions vary by distribution; use its supported package
+manager and the [PyGObject installation guide](https://pygobject.gnome.org/getting_started.html)
+for build prerequisites. That guide's GTK 4 example does not replace this helper's
+GTK 3 requirement. A system Python's `gi` module may not match your 3.15 venv;
+do not copy or symlink another interpreter's extension modules into it.
+
+Install the **venv** packages after the native prerequisites are available:
+
+```sh
+.venv/bin/python -m pip install -r requirements-gui-tray-gtk.txt
+.venv/bin/python -m pip check
+.venv/bin/python -c "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk; print(Gtk.get_major_version())"
+```
+
+This adds pystray/Pillow and PyGObject to the selected venv; pip may build native
+Python bindings locally. See [pystray's virtualenv guidance](https://pystray.readthedocs.io/en/latest/faq.html).
+For a running session with a registered StatusNotifier visualization host, the
+helper prefers AppIndicator and falls back to GTK if its typelib is unavailable.
+Otherwise it tries GTK's legacy status icon. An explicit `PYSTRAY_BACKEND`
+selection is respected. XOrg-only pystray backends without menus are refused so
+the window cannot be hidden behind an icon lacking the required menu controls.
+
+Readiness requires a menu and a detected host: GTK uses its
+[embedded status-icon check](https://docs.gtk.org/gtk3/method.StatusIcon.is_embedded.html),
+while AppIndicator checks the local session bus's
+[registered StatusNotifier host](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-watcher.html).
+A watcher service alone is insufficient. The D-Bus property call has a one-second
+timeout and does not request watcher-service autostart. The helper allows five
+seconds for initial embedding, then checks host availability every two seconds.
+If no host appears, a backend fails, or a host disappears later, the tray helper
+stops and the GUI returns to its reachable window/taskbar behavior. These checks
+cannot guarantee that a desktop visibly exposes an icon hidden by user policy.
+
+The GUI aborts a helper that has not become ready within 15 seconds. Menu events
+from stopped/replaced helpers are ignored; their shutdown targets only their own
+process. Use **Settings → Retry tray integration** after the panel, extension or
+libraries are ready. A retry during startup does not create a duplicate helper.
+As before, `--no-tray` disables automatic startup; Retry is an explicit opt-in.
+No tray lookup contacts PrimeNet or a mail provider, or changes assignments.
+
+## Usage
+
 ### Configuring AutoPrimeNet locally
 
 Load a working directory with **Refresh preview** before editing. An existing
@@ -371,6 +434,25 @@ program. Saving does not register a computer or send a hardware update. A later
 monitoring cycle can report the settings. The CLI may subsequently update its
 configuration, so stop monitoring and refresh before editing again.
 
+### Discovering GPUs
+
+In **PrimeNet → Edit hardware and resource settings → Detect GPUs**, the GUI
+calls the original local OpenCL/CUDA/NVML discovery functions in its isolated,
+network-blocked helper. Installed vendor drivers determine what can be detected;
+no additional Python package is required. Discovery may show duplicate devices.
+Choose the device used by your computation program, review the proposed values,
+and select **Use in hardware dialog**, then **Apply to form** and **Save settings**.
+Cancel leaves the form unchanged. Nothing is saved or sent during discovery.
+
+The selected GPU changes hardware reported to PrimeNet; it does not select a
+GPU for your computation engine. The mapping follows original setup: processor
+name/features/frequency, total memory and 90% stage 2 memory, cores and one thread
+per core when available, and cache overrides when both caches are available.
+Unknown cores/caches retain existing values; review these before saving. No GPUs
+or a driver failure leaves manual editing available. CPU defaults still apply
+when no hardware overrides are supplied. Native driver behavior on Windows,
+Linux and FreeBSD still requires platform testing.
+
 ### Notification configuration
 
 Use the **Notifications** tab to edit the existing backend's email settings.
@@ -397,6 +479,32 @@ Automatic server discovery and per-event notification controls are not
 implemented yet. **Send test email…** is a confirmed one-shot action described
 below. Changing SMTP servers/usernames does not automatically replace their
 saved password; use password management as needed.
+
+### Discovering an SMTP provider
+
+Choose **Notifications → Discover SMTP provider** and enter a sender address
+(optionally including its display name). **Look up provider** asks for confirmation
+before any network access. It uses the original provider-autoconfiguration code,
+including provider endpoints, the Mozilla ISP database, and DNS-over-HTTPS
+fallbacks. The sender address may be included in provider requests; lookups may
+use unencrypted HTTP or unsigned DNS. Review returned settings with your provider.
+
+Lookup uses **saved** proxy settings, including saved proxy credentials, and the
+normal system proxy environment. Save connection edits first. It runs in a
+separate helper with an eight-second timeout per request and a 90-second overall
+limit. Closing the dialog discards its result; an in-flight lookup may continue
+until completion or timeout. Retry Quit after this bounded job finishes. Discovery does not
+send an SMTP password, email, or PrimeNet request and creates no runtime files.
+The original offline bridge continues to reject network-enabled operations.
+
+Review provider, SMTP server/port, connection security and optional username,
+then choose **Apply to form**. This replaces those form fields and the sender
+address. An unknown username retains the existing username; review it manually.
+A changed sender or workspace requires another lookup. Unknown connection
+security is rejected; explicitly advertised plain SMTP is shown as `plain` with
+both TLS switches off. Passwords, recipients and notification send policy remain
+unchanged. Use **Save settings** separately. A test email remains a separate,
+confirmed operation. Empty results or errors leave manual SMTP editing available.
 
 ### Connections and passwords
 
@@ -467,8 +575,21 @@ follow a link to a regular file; this does not relax the separate no-symlink
 rules for configuration saving or assignment snapshots. On POSIX systems,
 nonblocking opens prevent a file replaced by a FIFO from waiting for a writer.
 These checks do not guarantee a timeout for an unresponsive network filesystem.
-Work, results and
-certification files cannot be chosen as conflicting configuration destinations.
+Configuration, log, work, results, certification, sent-history, import and lock
+paths must not overlap, including effective indexed PRPLL filenames and detected
+symlink/hard-link aliases and the five rotated-log destinations. Existing runtime
+file paths must be regular files. Proof archive directories must have a separate
+path. Validation runs before saving and again during runner preflight. These
+checks do not prevent a noncooperating program replacing paths after validation.
+Case-only names are compared using the macOS volume's case-sensitivity policy
+and Windows path normalization; distinct names on a case-sensitive volume remain
+distinct.
+
+Reloading or saving a configuration closes old settings/worker/password dialogs,
+clears unapplied password entries and closes the saved configuration's old log
+viewer. A failed workspace change retains the unsaved form values and their
+dirty state. Queued exponent drafts still require a fresh preview after a saved
+document changes.
 
 Changing program or computation hours resets cached speed/rolling estimates in
 the same way as setup; unrelated state and inactive worker sections remain.
@@ -775,6 +896,47 @@ Native lock files can remain after exit; their existence alone does not mean an
 OS lock is held. Do not delete them to bypass a live process. Refresh after
 stopping before editing/restarting, because backend state may have changed.
 
+### Debug verbosity and private traces
+
+Use **Settings → Edit monitoring and output preferences → Debug verbosity**:
+
+| Level | Original backend behavior |
+| --- | --- |
+| 0 | Normal logging (default) |
+| 1 | Detailed debug logging in the original backend log |
+| 2 | Detailed logging plus original HTTP/SMTP wire tracing |
+| 3 | All logging plus wire tracing; higher repeated `--debug` counts have the same upstream logging threshold |
+
+The GUI stores this preference as `[GUI] DebugLevel` and supplies repeated
+`--debug` flags to its owned CLI processes and graphical registration/native
+runtime adapters. The standalone CLI ignores this GUI preference and still needs
+its own `--debug` flags. Offline previews, validation, mail discovery and diagnostic
+exports do not enable raw trace capture or create trace files.
+
+At levels 2–3, the existing Start/action confirmation explains that raw traces
+can contain SMTP/proxy passwords, authentication tokens, email addresses and
+message bodies. Each CLI child gets a new owner-private
+`.gui-backend-trace-<unique-id>.log` in the selected workspace (POSIX mode 0600;
+on Windows, permissions depend on the workspace's inherited ACL). Capture is
+limited to 8 MiB including a limit marker; later output is drained and discarded
+so it cannot block the backend. A new-computer one-pass run may start two CLI
+processes and produce two files. The original native log retains its independent
+upstream rotation policy.
+
+**Logs & Status → View latest private trace** reads only the latest regular trace
+file, at most the last 128 KiB / 2000 lines. It is available while monitoring runs,
+and Refresh reads newly flushed output. Trace contents are never copied to GUI
+activity or included automatically in exported diagnostics. The existing private
+backend-log viewer remains separate. Older trace files can be reviewed with a
+local text editor. Trace files are retained until you remove them with your file
+manager; review/redact before sharing, and turn verbosity back to 0 when done.
+
+A trace file must be created before the chosen CLI process starts. Capture I/O
+errors after launch do not interrupt an active backend write/upload; the pipe
+continues draining and a generic incomplete-capture warning appears after the
+process ends. Raw errors and trace contents are not emitted on the GUI event
+channel. Trace files created in the repository root are ignored by Git.
+
 ### Native instance-lock policy
 
 **Settings → Edit connection settings → Require successful native instance
@@ -825,80 +987,37 @@ yourself. Review `git status --short` before staging. `.gitignore` does not prot
 tracked upstream files from edits or prevent changes to files already tracked.
 Original-file preservation remains a development policy, independently of ignores.
 
-## Validation and tooling
+## Development and validation
 
-- Test GUI startup, forms, background operations, configuration handling, and
+* Test GUI startup, forms, background operations, configuration handling, and
   backend integration on Python 3.15.0, then on selected later releases.
-- Reject older interpreters with a clear version message before importing
+* Reject older interpreters with a clear version message before importing
   supporting GUI modules. The small launcher version check must itself use
   syntax understood by the older interpreters it is intended to diagnose.
-- Scope future GUI linting and test configuration to the GUI's minimum version.
+* Scope GUI linting and test configuration to the GUI's minimum version.
   The existing repository-wide Ruff and Pylint settings target older versions;
   changing them globally could affect the independent CLI and requires review.
-- Preserve the CLI's independence by avoiding imports of GUI code from existing
+* Preserve the CLI's independence by avoiding imports of GUI code from existing
   CLI entry points.
-- Target macOS, Windows, Linux, and FreeBSD where practically testable. Record
+* Target macOS, Windows, Linux, and FreeBSD where practically testable. Record
   actual runtime/platform results; intended support is not evidence of testing.
 
 The development environment now has Python 3.15.1, working Tcl/Tk 9.1.0 bindings,
 and Requests inside `.venv`. A real Tk window smoke check has passed on macOS.
 The user confirmed an earlier prototype's manual macOS hide/reopen/Quit test;
 that historical check does not validate the current implementation. Consolidated
-manual acceptance remains deferred and is tracked in
+manual acceptance remains pending and is tracked in
 [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md).
-Complete GUI, Python 3.15.0-floor, and cross-platform validation remain pending;
+Release acceptance, Python 3.15.0-floor, and cross-platform validation remain pending;
 see [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for the scope of actual checks.
 
 
-### Discovering GPUs
 
-In **PrimeNet → Edit hardware and resource settings → Detect GPUs**, the GUI
-calls the original local OpenCL/CUDA/NVML discovery functions in its isolated,
-network-blocked helper. Installed vendor drivers determine what can be detected;
-no additional Python package is required. Discovery may show duplicate devices.
-Choose the device used by your computation program, review the proposed values,
-and select **Use in hardware dialog**, then **Apply to form** and **Save settings**.
-Cancel leaves the form unchanged. Nothing is saved or sent during discovery.
-
-The selected GPU changes hardware reported to PrimeNet; it does not select a
-GPU for your computation engine. The mapping follows original setup: processor
-name/features/frequency, total memory and 90% stage 2 memory, cores and one thread
-per core when available, and cache overrides when both caches are available.
-Unknown cores/caches retain existing values; review these before saving. No GPUs
-or a driver failure leaves manual editing available. CPU defaults still apply
-when no hardware overrides are supplied. Native driver behavior on Windows,
-Linux and FreeBSD still requires platform testing.
-
-
-### Discovering an SMTP provider
-
-Choose **Notifications → Discover SMTP provider** and enter a sender address
-(optionally including its display name). **Look up provider** asks for confirmation
-before any network access. It uses the original provider-autoconfiguration code,
-including provider endpoints, the Mozilla ISP database, and DNS-over-HTTPS
-fallbacks. The sender address may be included in provider requests; lookups may
-use unencrypted HTTP or unsigned DNS. Review returned settings with your provider.
-
-Lookup uses **saved** proxy settings, including saved proxy credentials, and the
-normal system proxy environment. Save connection edits first. It runs in a
-separate helper with an eight-second timeout per request and a 90-second overall
-limit. Closing the dialog discards its result; an in-flight lookup may continue
-until completion or timeout. Retry Quit after this bounded job finishes. Discovery does not
-send an SMTP password, email, or PrimeNet request and creates no runtime files.
-The original offline bridge continues to reject network-enabled operations.
-
-Review provider, SMTP server/port, connection security and optional username,
-then choose **Apply to form**. This replaces those form fields and the sender
-address. An unknown username retains the existing username; review it manually.
-A changed sender or workspace requires another lookup. Unknown connection
-security is rejected; explicitly advertised plain SMTP is shown as `plain` with
-both TLS switches off. Passwords, recipients and notification send policy remain
-unchanged. Use **Save settings** separately. A test email remains a separate,
-confirmed operation. Empty results or errors leave manual SMTP editing available.
 
 ### Planned manual acceptance testing
 
-Manual acceptance testing is deferred until implementation is ready. Automated
+Manual acceptance testing remains pending; the implemented feature inventory is
+ready for acceptance testing within the documented limits. Automated
 checks recorded in GUI_DEVELOPMENT.md are separate evidence and do not imply the
 user has tested these workflows. Use disposable workspaces on the available test
 machines first. Record OS, Python/Tk versions, computation engine, tray support,
@@ -907,99 +1026,3 @@ registration previews, lifecycle/quit, and private logs/reports. Live provider o
 PrimeNet actions should be exercised deliberately with the intended account and
 workspace, with local backups and review of server state. Cross-platform runtime
 and live-service acceptance remain pending in GUI_PARITY.md.
-
-
-### Debug verbosity and private traces
-
-Use **Settings → Edit monitoring and output preferences → Debug verbosity**:
-
-| Level | Original backend behavior |
-| --- | --- |
-| 0 | Normal logging (default) |
-| 1 | Detailed debug logging in the original backend log |
-| 2 | Detailed logging plus original HTTP/SMTP wire tracing |
-| 3 | All logging plus wire tracing; higher repeated `--debug` counts have the same upstream logging threshold |
-
-The GUI stores this preference as `[GUI] DebugLevel` and supplies repeated
-`--debug` flags to its owned CLI processes and graphical registration/native
-runtime adapters. The standalone CLI ignores this GUI preference and still needs
-its own `--debug` flags. Offline previews, validation, mail discovery and diagnostic
-exports do not enable raw trace capture or create trace files.
-
-At levels 2–3, the existing Start/action confirmation explains that raw traces
-can contain SMTP/proxy passwords, authentication tokens, email addresses and
-message bodies. Each CLI child gets a new owner-private
-`.gui-backend-trace-<unique-id>.log` in the selected workspace (POSIX mode 0600;
-on Windows, permissions depend on the workspace's inherited ACL). Capture is
-limited to 8 MiB including a limit marker; later output is drained and discarded
-so it cannot block the backend. A new-computer one-pass run may start two CLI
-processes and produce two files. The original native log retains its independent
-upstream rotation policy.
-
-**Logs & Status → View latest private trace** reads only the latest regular trace
-file, at most the last 128 KiB / 2000 lines. It is available while monitoring runs,
-and Refresh reads newly flushed output. Trace contents are never copied to GUI
-activity or included automatically in exported diagnostics. The existing private
-backend-log viewer remains separate. Older trace files can be reviewed with a
-local text editor. Trace files are retained until you remove them with your file
-manager; review/redact before sharing, and turn verbosity back to 0 when done.
-
-A trace file must be created before the chosen CLI process starts. Capture I/O
-errors after launch do not interrupt an active backend write/upload; the pipe
-continues draining and a generic incomplete-capture warning appears after the
-process ends. Raw errors and trace contents are not emitted on the GUI event
-channel. Trace files created in the repository root are ignored by Git.
-
-
-### Optional Linux/FreeBSD GTK tray integration
-
-The optional helper now attempts menu-capable GTK 3/AppIndicator backends on
-Linux and FreeBSD. Native toolkit work runs in its own process, separate from
-Tkinter. Base GUI use still needs only requirements-gui.txt and matching Tk;
-GTK/GObject dependencies are optional. Real Linux/FreeBSD desktop acceptance is
-pending; current tests simulate GTK/D-Bus behavior on the macOS development host.
-
-For this optional feature, the **system** needs GTK **3**, GLib/GIO/GObject
-introspection runtime data, Cairo and any build tools/headers required by the
-chosen PyGObject build, including headers for the chosen Python 3.15+ interpreter.
-The desktop must provide a tray host. For AppIndicator menus, install compatible
-AppIndicator3 or AyatanaAppIndicator3 libraries and their introspection data.
-Packages and desktop extensions vary by distribution; use its supported package
-manager and the [PyGObject installation guide](https://pygobject.gnome.org/getting_started.html)
-for build prerequisites. That guide's GTK 4 example does not replace this helper's
-GTK 3 requirement. A system Python's `gi` module may not match your 3.15 venv;
-do not copy or symlink another interpreter's extension modules into it.
-
-Install the **venv** packages after the native prerequisites are available:
-
-```sh
-.venv/bin/python -m pip install -r requirements-gui-tray-gtk.txt
-.venv/bin/python -m pip check
-.venv/bin/python -c "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk; print(Gtk.get_major_version())"
-```
-
-This adds pystray/Pillow and PyGObject to the selected venv; pip may build native
-Python bindings locally. See [pystray's virtualenv guidance](https://pystray.readthedocs.io/en/latest/faq.html).
-For a running session with a registered StatusNotifier visualization host, the
-helper prefers AppIndicator and falls back to GTK if its typelib is unavailable.
-Otherwise it tries GTK's legacy status icon. An explicit `PYSTRAY_BACKEND`
-selection is respected. XOrg-only pystray backends without menus are refused so
-the window cannot be hidden behind an icon lacking the required menu controls.
-
-Readiness requires a menu and a detected host: GTK uses its
-[embedded status-icon check](https://docs.gtk.org/gtk3/method.StatusIcon.is_embedded.html),
-while AppIndicator checks the local session bus's
-[registered StatusNotifier host](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-watcher.html).
-A watcher service alone is insufficient. The D-Bus property call has a one-second
-timeout and does not request watcher-service autostart. The helper allows five
-seconds for initial embedding, then checks host availability every two seconds.
-If no host appears, a backend fails, or a host disappears later, the tray helper
-stops and the GUI returns to its reachable window/taskbar behavior. These checks
-cannot guarantee that a desktop visibly exposes an icon hidden by user policy.
-
-The GUI aborts a helper that has not become ready within 15 seconds. Menu events
-from stopped/replaced helpers are ignored; their shutdown targets only their own
-process. Use **Settings → Retry tray integration** after the panel, extension or
-libraries are ready. A retry during startup does not create a duplicate helper.
-As before, `--no-tray` disables automatic startup; Retry is an explicit opt-in.
-No tray lookup contacts PrimeNet or a mail provider, or changes assignments.

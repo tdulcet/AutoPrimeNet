@@ -5,12 +5,17 @@ SPDX-License-Identifier: GPL-3.0-only
 """
 
 import os
+import importlib.util
 from pathlib import Path
 import sys
 import tempfile
 import time
 import unittest
 from unittest.mock import patch
+
+
+def native_tray_installed():
+	return all(importlib.util.find_spec(name) is not None for name in ("pystray", "PIL"))
 
 
 @unittest.skipUnless(os.environ.get("AUTOPRIMENET_GUI_DESKTOP_TESTS") == "1", "Requires an explicitly enabled graphical session")
@@ -40,6 +45,70 @@ class WindowTests(unittest.TestCase):
 			self.app.editor.dirty = False
 			self.app.registration.close()
 			self.app.quit()
+
+	def test_reload_closes_old_dialogs_and_clears_unapplied_passwords(self):
+		from gui_config import ConfigDocument
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			editor = self.app.editor
+			for kind in ("options", "passwords", "mail", "worker"):
+				with self.subTest(dialog=kind):
+					if kind == "options":
+						window = editor.edit_options(group="Hardware")
+						editor.options_values["CpuBrand"].set("old draft")
+					elif kind == "passwords":
+						window = editor.edit_passwords()
+						editor.password_values["email"].set("unapplied-private-fixture")
+					elif kind == "mail":
+						window = editor.discover_mail()
+					else:
+						self.app.workers.selection_set(self.app.workers.get_children()[0])
+						editor.edit_worker()
+						window = editor.worker_window
+					editor.load(ConfigDocument(directory))
+					self.assertFalse(window.winfo_exists())
+					self.assertEqual(editor.credentials, {})
+					self.assertEqual(editor.values["CpuBrand"].get(), "")
+					if kind == "passwords":
+						self.assertEqual(editor.password_values["email"].get(), "")
+
+	def test_failed_directory_change_preserves_unsaved_settings(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			document = self.app.editor.document
+			self.app.editor.values["ComputerID"].set("unsaved-fixture")
+			with patch("autoprimenet_gui.filedialog.askdirectory", return_value=str(Path(directory) / "missing")), patch("autoprimenet_gui.messagebox.askyesno", return_value=True) as confirm:
+				self.app.choose_directory()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				confirm.assert_called_once()
+			self.assertIs(self.app.editor.document, document)
+			self.assertTrue(self.app.editor.dirty)
+			self.assertEqual(self.app.editor.values["ComputerID"].get(), "unsaved-fixture")
+
+	def test_directory_change_confirms_queued_batch_discard_only_once(self):
+		with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+			for directory in (first, second):
+				(Path(directory) / "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.directory.set(first)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			window = self.app.registration.open()
+			self.app.registration.values["exponent"].set("127")
+			self.app.registration.add()
+			with patch("autoprimenet_gui.filedialog.askdirectory", return_value=second), patch("autoprimenet_gui.messagebox.askyesno", return_value=True) as confirm:
+				self.app.choose_directory()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				confirm.assert_called_once()
+			self.assertEqual(self.app.editor.document.directory, Path(second).resolve())
+			self.assertFalse(window.winfo_exists())
 
 	def test_gpu_discovery_review_cancel_and_staged_apply(self):
 		from gui_hardware import gpu_settings
@@ -780,7 +849,7 @@ class WindowTests(unittest.TestCase):
 			self.app.refresh()
 			self.wait_until(lambda: not self.app.jobs.busy)
 			self.app.monitor = MonitorController(process_factory=fake_monitor_process)
-			if sys.platform in {"darwin", "win32"}:
+			if sys.platform in {"darwin", "win32"} and native_tray_installed():
 				self.app.tray.start()
 				self.wait_until(lambda: self.app.tray.ready)
 			with patch("autoprimenet_gui.messagebox.askyesno", return_value=True):
@@ -810,16 +879,20 @@ class WindowTests(unittest.TestCase):
 		self.root.tk.call("tk::mac::Quit")
 		self.assertTrue(self.app.closed)
 
-	@unittest.skipUnless(sys.platform in {"darwin", "win32"}, "Native tray prototype currently supports macOS and Windows")
+	@unittest.skipUnless(sys.platform in {"darwin", "win32"}, "Native macOS/Windows tray test")
 	def test_quit_stops_healthy_tray_helper(self):
+		if not native_tray_installed():
+			self.skipTest("Install requirements-gui-tray.txt for native tray checks")
 		self.app.tray.start()
 		self.wait_until(lambda: self.app.tray.ready)
 		process = self.app.tray.process
 		self.app.quit()
 		self.assertEqual(process.wait(timeout=6), 0)
 
-	@unittest.skipUnless(sys.platform in {"darwin", "win32"}, "Native tray prototype currently supports macOS and Windows")
+	@unittest.skipUnless(sys.platform in {"darwin", "win32"}, "Native macOS/Windows tray test")
 	def test_tray_hide_restore_helper_failure_and_clean_shutdown(self):
+		if not native_tray_installed():
+			self.skipTest("Install requirements-gui-tray.txt for native tray checks")
 		self.app.tray.start()
 		self.wait_until(lambda: self.app.tray.ready)
 		process = self.app.tray.process

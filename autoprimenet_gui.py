@@ -200,13 +200,12 @@ class Application:
 		self.activity.config(state="disabled")
 
 	def choose_directory(self):
-		if self.jobs.busy or self.monitor.active or not self.discard_changes():
+		if self.jobs.busy or self.monitor.active or self.quit_pending:
 			return
 		directory = filedialog.askdirectory(parent=self.root, title="Choose AutoPrimeNet working directory")
-		if directory:
-			self.editor.dirty = False
+		if directory and self.discard_changes():
 			self.directory.set(directory)
-			self.refresh()
+			self.refresh(confirm_discard=False)
 
 	def discard_changes(self):
 		return not (self.editor.dirty or self.registration.dirty) or messagebox.askyesno("Unsaved changes", "Discard unsaved configuration or queued registration edits?", parent=self.root)
@@ -229,8 +228,8 @@ class Application:
 		self.stop_button.state(["!disabled"] if active and self.monitor.state != "Stopping" else ["disabled"])
 		self.force_button.state(["!disabled"] if active else ["disabled"])
 
-	def refresh(self):
-		if self.jobs.busy or self.quit_pending or not self.directory.get().strip() or not self.discard_changes():
+	def refresh(self, confirm_discard=True):
+		if self.jobs.busy or self.quit_pending or not self.directory.get().strip() or (confirm_discard and not self.discard_changes()):
 			return
 		if self.jobs.submit("workspace", load_editor_workspace, self.directory.get(), self.config_name.get()):
 			self.status.set("Reading local workspace…")
@@ -522,6 +521,7 @@ class Application:
 				self.editor.load(value["document"])
 				self.set_busy(False)
 			elif name == "save":
+				self.backend_log.close()
 				self.editor.load(value["document"])
 				self.status.set("Configuration saved locally" + ("; backup created. " if value["backup"] else ". ") + "Refresh preview to update displayed assignments. No server contacted.")
 				self.log("Local configuration saved" + (" with a backup." if value["backup"] else "."))

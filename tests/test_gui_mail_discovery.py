@@ -20,6 +20,22 @@ from gui_mail_discovery import discover_mail, execute, mail_settings
 
 
 class MailDiscoveryTests(unittest.TestCase):
+	def test_parent_rejects_malformed_settings_before_tk_receives_them(self):
+		from types import SimpleNamespace
+		with tempfile.TemporaryDirectory() as directory:
+			self.request(directory)
+			document = ConfigDocument(directory)
+			for match in ([], "provider", {}, {"provider": "P", "security": "SSL", "settings": {}},
+				{"provider": "P", "security": "SSL", "settings": {"smtp_server": "host:465", "tls": "False", "starttls": "False"}},
+				{"provider": "P", "security": "SSL", "settings": {"smtp_server": "host:465", "tls": "True", "starttls": "False", "unexpected": "value"}}):
+				with self.subTest(match=match), patch("gui_mail_discovery.subprocess.run", return_value=SimpleNamespace(
+					returncode=0, stdout=json.dumps({"protocol": 1, "ok": True, "result": {"match": match}}))):
+					with self.assertRaisesRegex(ValueError, "invalid settings"):
+						discover_mail(document, "user@example.com")
+			for match in (None, mail_settings(("P", "host", 465, "SSL", None))):
+				with patch("gui_mail_discovery.subprocess.run", return_value=SimpleNamespace(
+					returncode=0, stdout=json.dumps({"protocol": 1, "ok": True, "result": {"match": match}}))):
+					self.assertEqual(discover_mail(document, "user@example.com")["match"], match)
 	def request(self, directory):
 		path = Path(directory) / "prime.ini"
 		path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\nProxyHost=proxy.example:8080\nProxyUser=fixture\nProxyPass=secret\n")

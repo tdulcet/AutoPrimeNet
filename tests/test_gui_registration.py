@@ -121,7 +121,7 @@ sys.exit(r.execute(request,before_main=before))
 	def test_adapter_rejects_stale_configuration_before_startup(self):
 		from gui_registration import execute
 		with tempfile.TemporaryDirectory() as directory:
-			document = fixture(directory)
+			fixture(directory)
 			with self.assertRaisesRegex(ValueError, "changed before registration"):
 				execute(dict(operation="register_computer", directory=directory, config_name="prime.ini", config_sha256="wrong"))
 			self.assertEqual({path.name for path in Path(directory).iterdir()}, {"prime.ini"})

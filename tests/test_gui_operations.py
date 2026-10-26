@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from gui_config import ConfigDocument, WorkspaceError, save_configuration
 from gui_controller import ControllerError, MonitorController
-from gui_monitor import StopControl, _cli_process, _cli_once, run_operation
+from gui_monitor import StopControl, _cli_process, run_operation
 from gui_operations import OPERATIONS, operation_arguments
 from test_gui_monitor import fake_monitor_process, fixture, wait_event
 
