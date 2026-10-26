@@ -127,7 +127,7 @@ class TrayController:
 					event = json.loads(line).get("event")
 				except (ValueError, AttributeError):
 					continue
-				if event in {"ready", "open", "quit", "start", "stop", "unavailable"}:
+				if isinstance(event, str) and event in {"ready", "open", "quit", "start", "stop", "unavailable"}:
 					self.events.put({"event": event, "generation": generation})
 		except (OSError, ValueError):
 			pass
@@ -207,6 +207,7 @@ class MonitorController:
 				request["parameters"] = parameters
 		elif parameters:
 			raise ControllerError("Scheduled monitoring does not accept operation parameters.")
+		process = None
 		try:
 			process = self._process_factory(
 				[sys.executable, "-B", str(ROOT / "gui_monitor.py")],
@@ -215,16 +216,42 @@ class MonitorController:
 			)
 			process.stdin.write(json.dumps(request) + "\n")
 			process.stdin.flush()
-		except OSError as error:
-			if "process" in locals():
-				process.stdin.close()
-				process.wait(timeout=5)
-				process.stdout.close()
+		except (OSError, ValueError) as error:
+			if process is not None:
+				# Retain ownership until cleanup finishes; never wait on Tk's thread.
+				self.process = process
+				self.state = "Stopping"
+				self.generation += 1
+				threading.Thread(target=self._abort_start, args=(process, self.generation), name="RunnerStartupCleanup").start()
 			raise ControllerError("Could not launch the AutoPrimeNet runner.") from error
 		self.process = process
 		self.state = "Starting"
 		self.generation += 1
 		threading.Thread(target=self._read, args=(process, self.generation), name="MonitoringEvents", daemon=True).start()
+
+	def _abort_start(self, process, generation):
+		# No begin handshake was sent, so this child cannot have started a cycle.
+		try:
+			if process.poll() is None:
+				try:
+					process.terminate()
+				except ProcessLookupError:
+					pass  # The child exited between poll and terminate.
+			try:
+				code = process.wait(timeout=2)
+			except subprocess.TimeoutExpired:
+				try:
+					process.kill()
+				except ProcessLookupError:
+					pass
+				code = process.wait()
+		finally:
+			for stream in (process.stdin, process.stdout):
+				try:
+					stream.close()
+				except (OSError, ValueError):
+					pass
+		self.events.put({"event": "exited", "exit_code": code, "generation": generation})
 
 	def _read(self, process, generation):
 		try:
@@ -233,7 +260,7 @@ class MonitorController:
 					message = json.loads(line)
 				except ValueError:
 					continue
-				if isinstance(message, dict) and message.get("event") in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped", "trace_created", "trace_warning"}:
+				if isinstance(message, dict) and isinstance(message.get("event"), str) and message["event"] in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped", "trace_created", "trace_warning"}:
 					if message["event"] == "ready":
 						with self._control_lock:
 							if generation == self.generation and self.state == "Starting":
