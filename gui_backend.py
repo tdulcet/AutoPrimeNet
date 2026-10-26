@@ -182,6 +182,11 @@ def _validate_config(namespace, tree, boundary, request):
 		raise BackendError("A configured worker directory does not exist.")
 	if not args.prpll and len(directories) != len(set(directories)):
 		raise BackendError("Worker directories resolve to the same location.")
+	from gui_paths import validate_paths
+	try:
+		validate_paths(directory, name, args)
+	except ValueError as error:
+		raise BackendError(str(error)) from error
 	return {
 		"program": namespace["PROGRAM"]["name"], "num_workers": args.num_workers,
 		"work_preferences": args.work_preference, "supported_preferences": sorted(namespace["SUPPORTED"]),

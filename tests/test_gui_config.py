@@ -14,6 +14,35 @@ from gui_config import ConfigDocument, WorkspaceError, inspect_workspace, read_s
 
 
 class WorkspaceTests(unittest.TestCase):
+	def test_modification_or_disappearance_during_read_is_not_accepted(self):
+		for change in ("modify", "remove"):
+			with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+				if change == "remove" and os.name == "nt":
+					self.skipTest("Windows may refuse unlinking an open file")
+				path = Path(directory) / "prime.ini"
+				path.write_text("[PrimeNet]\nusername=original\n")
+				original_fstat = os.fstat
+				calls = 0
+				def fstat(descriptor, *, change=change, path=path, original_fstat=original_fstat):
+					nonlocal calls
+					calls += 1
+					if calls == 2:
+						if change == "modify":
+							path.write_text("[PrimeNet]\nusername=changed-after-read\n")
+						else:
+							path.unlink()
+					return original_fstat(descriptor)
+				with patch("gui_config.os.fstat", side_effect=fstat):
+					with self.assertRaises((WorkspaceError, FileNotFoundError)):
+						ConfigDocument(directory)
+
+	def test_incomplete_backend_preview_does_not_silently_drop_work(self):
+		with tempfile.TemporaryDirectory() as directory:
+			(Path(directory) / "worktodo.txt").write_text("Test=127,70,1\n")
+			for result in ([], None, [{"parsed": False}] * 2):
+				with self.subTest(result=result), patch("gui_config.backend_request", return_value={"assignments": result}):
+					with self.assertRaisesRegex(WorkspaceError, "incomplete assignment preview"):
+						inspect_workspace(directory)
 	def test_preview_rejects_nonregular_and_oversized_files(self):
 		with tempfile.TemporaryDirectory() as directory:
 			base = Path(directory)

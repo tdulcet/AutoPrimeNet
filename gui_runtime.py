@@ -40,9 +40,15 @@ class StoppingQueue(queue.Queue):
 	def get(self, block=True, timeout=None):
 		if not block:
 			return super().get(False)
+		if timeout is not None and timeout < 0:
+			raise ValueError("'timeout' must be a non-negative number")
+		deadline = None if timeout is None else time.monotonic() + timeout
 		while not self.stop.is_set():
+			remaining = None if deadline is None else deadline - time.monotonic()
+			if remaining is not None and remaining <= 0:
+				return super().get(False)
 			try:
-				return super().get(timeout=0.1)
+				return super().get(timeout=0.1 if remaining is None else min(0.1, remaining))
 			except queue.Empty:
 				pass
 		raise WorkerStopped()

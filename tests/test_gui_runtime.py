@@ -7,12 +7,12 @@ SPDX-License-Identifier: GPL-3.0-only
 import ast
 import json
 import os
+import queue
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from unittest.mock import patch
 
@@ -22,6 +22,25 @@ from gui_runtime import ROOT, Runtime, StoppingQueue, WorkerStopped, instrument
 
 
 class RuntimeTests(unittest.TestCase):
+	def test_stopping_queue_preserves_timeout_and_nonblocking_contract(self):
+		stop = threading.Event()
+		jobs = StoppingQueue(stop)
+		with self.assertRaises(ValueError):
+			jobs.get(timeout=-1)
+		for options in ({"block": False}, {"timeout": 0}):
+			with self.assertRaises(queue.Empty):
+				jobs.get(**options)
+			jobs.put("fixture")
+			self.assertEqual(jobs.get(**options), "fixture")
+		# A regression that ignores timeout must fail, rather than hang the suite.
+		timer = threading.Timer(1, stop.set)
+		timer.start()
+		try:
+			with self.assertRaises(queue.Empty):
+				jobs.get(timeout=0.02)
+		finally:
+			timer.cancel()
+			timer.join()
 	def test_polling_and_watch_preferences_save_and_validate_offline(self):
 		from gui_config import ConfigDocument, save_configuration
 		from gui_controller import ControllerError, backend_request

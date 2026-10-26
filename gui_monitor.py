@@ -8,7 +8,6 @@ SPDX-License-Identifier: GPL-3.0-only
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
@@ -109,10 +108,10 @@ def cli_cycle(directory, config_name, control):
 	# The existing zero-timeout CLI registers a new computer and exits before
 	# requesting work. Follow a completed initial registration with its normal
 	# work cycle, unless Stop was requested in between. No API logic is copied.
-	missing_guid = not ConfigDocument(directory, config_name).config.has_option("PrimeNet", "ComputerGUID")
+	missing_guid = not ConfigDocument(directory, config_name).config.get("PrimeNet", "ComputerGUID", fallback="")
 	result = _cli_once(directory, config_name, control)
 	if result == (0, False) and missing_guid and not control.stop.is_set():
-		if ConfigDocument(directory, config_name).config.has_option("PrimeNet", "ComputerGUID"):
+		if ConfigDocument(directory, config_name).config.get("PrimeNet", "ComputerGUID", fallback=""):
 			return _cli_once(directory, config_name, control)
 	return result
 

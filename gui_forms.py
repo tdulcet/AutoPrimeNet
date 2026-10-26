@@ -31,6 +31,7 @@ class ConfigurationForms:
 		self.mail_document = None
 		self.credentials = {}
 		self.password_window = None
+		self.worker_window = None
 		for field in FIELDS:
 			variable = tk.StringVar(value=field.default)
 			variable.trace_add("write", self.changed)
@@ -380,6 +381,18 @@ class ConfigurationForms:
 			widget.state(["!disabled"] if enabled else ["disabled"])
 
 	def load(self, document):
+		# A queued reload/save can finish while a dialog is open (for example
+		# through the application menu). Never apply its old draft to a new
+		# document, or retain replacement secrets in an abandoned dialog.
+		if self.password_window is not None and self.password_window.winfo_exists():
+			self.close_passwords()
+		for name in ("options_window", "mail_window", "worker_window"):
+			window = getattr(self, name)
+			if window is not None and window.winfo_exists():
+				window.destroy()
+			setattr(self, name, None)
+		self.gpu_target = None
+		self.options_values = {}
 		self.loading = True
 		try:
 			self.document = document
@@ -428,6 +441,8 @@ class ConfigurationForms:
 			table.insert("", "end", iid=str(index), values=(index + 1, worker["directory"] or "Working directory", worker["preference"] or "Program default", "Unsaved configuration" if self.dirty else "Configured"))
 
 	def edit_worker(self):
+		if self.document is None or self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+			return
 		selected = self.app.workers.selection()
 		if not selected:
 			messagebox.showinfo("Workers", "Select a worker in the table first.", parent=self.app.root)
@@ -435,7 +450,8 @@ class ConfigurationForms:
 		index = self.app.workers.index(selected[0])
 		if index >= len(self.worker_values):
 			return
-		window = tk.Toplevel(self.app.root)
+		window = self.worker_window = tk.Toplevel(self.app.root)
+		document = self.document
 		window.title("Configure worker #{}".format(index + 1))
 		window.transient(self.app.root)
 		frame = ttk.Frame(window, padding=12)
@@ -456,6 +472,8 @@ class ConfigurationForms:
 		ttk.Label(frame, text="Backend validation checks which codes this computation program accepts.", wraplength=460).grid(row=4, column=0, columnspan=2, sticky="w")
 
 		def accept():
+			if self.document is not document or self.app.monitor.active or self.app.jobs.busy or self.app.quit_pending:
+				return
 			self.worker_values[index] = {"directory": directory.get().strip(), "preference": preference.get().strip()}
 			self.changed()
 			self.show_workers()

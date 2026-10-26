@@ -16,6 +16,14 @@ from test_gui_monitor import fixture
 
 
 class ReportTests(unittest.TestCase):
+	def test_failed_export_does_not_leave_a_partial_private_report(self):
+		with tempfile.TemporaryDirectory() as directory:
+			document = fixture(directory)
+			with patch("gui_reports.backend_request", return_value={"text": "private fixture"}), patch("gui_reports.os.fsync", side_effect=OSError("fixture disk failure")):
+				with self.assertRaises(OSError):
+					export_debug_report(document)
+			self.assertFalse(list(Path(directory).glob(".gui-debug-report-*")))
+			self.assertEqual(document.path.read_bytes(), document.data)
 	def test_backend_tail_is_bounded_and_preserves_original_bytes(self):
 		with tempfile.TemporaryDirectory() as directory:
 			document = fixture(directory)

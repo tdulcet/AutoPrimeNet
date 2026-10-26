@@ -13,10 +13,25 @@ import json
 import io
 import subprocess
 
-from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request
+from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request, monitor_message
 
 
 class ControllerTests(unittest.TestCase):
+	def test_monitor_event_fields_cannot_break_tk_polling(self):
+		for message in (
+			{"event": "ready"}, {"event": "ready", "interval": True},
+			{"event": "ready", "operation": []}, {"event": "ready", "operation": "unknown"},
+			{"event": "ready", "interval": -1}, {"event": "failed", "error": {}},
+			{"event": "failed", "error": None}, {"event": "ready", "interval": 0, "assignment_backup": []},
+			{"event": "trace_created", "name": "../private"}, {"event": "trace_created", "name": ""},
+			*({"event": "cycle_finished", "time": value, "next_cycle": 1} for value in (None, True, "x", float("nan"), float("inf"), 10 ** 100)),
+		):
+			with self.subTest(message=message):
+				self.assertFalse(monitor_message(message))
+		for message in ({"event": "ready", "interval": 0}, {"event": "ready", "operation": "status"}, {"event": "failed", "error": "fixture"},
+			{"event": "cycle_finished", "time": 0, "next_cycle": 1.5},
+			{"event": "trace_created", "name": ".gui-backend-trace-fixture.log"}):
+			self.assertTrue(monitor_message(message))
 	def test_repeated_click_is_rejected_until_result_consumed(self):
 		jobs = BackgroundJobs()
 		release = threading.Event()

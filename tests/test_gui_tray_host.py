@@ -9,7 +9,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -19,6 +18,36 @@ from gui_tray_host import HostWatch, gtk_platform, load_pystray, status_notifier
 
 
 class TrayHostTests(unittest.TestCase):
+	def test_helper_ignores_malformed_states_and_stops_on_parent_eof(self):
+		code = r'''
+import json, sys, threading
+from types import SimpleNamespace
+import gui_tray
+sys.platform = 'win32'
+class Icon:
+    HAS_MENU = True
+    def __init__(self, *args, **kwargs): self.ended = threading.Event()
+    def update_menu(self): print(json.dumps({'event':'updated'}), flush=True)
+    def stop(self): self.ended.set()
+    def run(self, setup):
+        setup(self)
+        if not self.ended.wait(4): raise RuntimeError('parent EOF was lost')
+class Menu:
+    SEPARATOR = object()
+    def __init__(self, *args): pass
+fake = SimpleNamespace(Icon=Icon, Menu=Menu, MenuItem=lambda *args, **kwargs: None)
+draw = SimpleNamespace(ellipse=lambda *a, **kw: None, line=lambda *a, **kw: None)
+sys.modules['PIL'] = SimpleNamespace(Image=SimpleNamespace(new=lambda *a: object()), ImageDraw=SimpleNamespace(Draw=lambda *a: draw))
+gui_tray.load_pystray = lambda: fake
+sys.exit(gui_tray.main())
+'''
+		values = [None, [], {"state": []}, {"state": {}}, {"state": "unknown"}, {"state": "Stopped"}]
+		result = subprocess.run([sys.executable, "-B", "-c", code], input="\n".join(map(json.dumps, values)) + "\n",
+			capture_output=True, text=True, timeout=6)
+		self.assertEqual(result.returncode, 0, result.stderr)
+		self.assertEqual(result.stderr, "")
+		events = [json.loads(line)["event"] for line in result.stdout.splitlines()]
+		self.assertEqual(events.count("updated"), 1)
 	def test_supported_platforms_and_menu_requirement(self):
 		for platform in ("darwin", "win32", "linux", "linux2", "freebsd14"):
 			self.assertTrue(tray_platform(platform))

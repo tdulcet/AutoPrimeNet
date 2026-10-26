@@ -17,7 +17,13 @@ def gpu_settings(record):
 	for value in (cores, frequency, l1, l2, memory):
 		if value is None:
 			continue
-		if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 or value != int(value):
+		if isinstance(value, bool) or not isinstance(value, (int, float)):
+			raise ValueError("Invalid GPU hardware measurement.")
+		try:
+			valid = math.isfinite(value) and 0 <= value <= 2 ** 53 and value == int(value)
+		except OverflowError:
+			valid = False
+		if not valid:
 			raise ValueError("Invalid GPU hardware measurement.")
 	if frequency is None or memory is None:
 		raise ValueError("GPU frequency or memory is unavailable.")
