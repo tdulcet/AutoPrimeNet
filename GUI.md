@@ -1,15 +1,17 @@
 # AutoPrimeNet GUI
 
-The planned optional Tkinter/ttk GUI will provide a graphical interface to
-AutoPrimeNet. The current desktop foundation provides local previews, initial
-configuration forms with validated saving, scheduled CLI monitoring, confirmed
-one-shot commands and experimental macOS/Windows tray integration. Starting
-monitoring or confirming a server/email command performs real external
-operations. Graphical computer/exponent registration and private reports are
-available; immediate file watching and other parity gaps remain unfinished.
-This is not a complete GUI release. See [GUI_PARITY.md](GUI_PARITY.md) for the
-complete audited flag inventory and explicit coverage limits.
-See [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for prototype tests and results.
+The optional Tkinter/ttk GUI provides configuration forms with validated saving,
+local previews, native scheduled monitoring and file watching, confirmed one-shot
+commands, graphical computer/exponent registration, and private reports. Optional
+tray integration supports macOS, Windows and compatible Linux/FreeBSD desktops.
+Starting monitoring or confirming a server/email command performs real external
+operations.
+
+The ordinary CLI parser-entry inventory is covered, but platform and live-service
+acceptance remain pending. This is not a validated release. See
+[GUI_PARITY.md](GUI_PARITY.md) for the audited inventory and explicit limits,
+[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for automated test evidence, and
+[GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md) for the consolidated acceptance checklist.
 
 ## Python requirements
 
@@ -97,8 +99,9 @@ six, and platform bindings (PyObjC Cocoa/Quartz on macOS). These packages are no
 required by the CLI. They are declared separately in `requirements-gui-tray.txt`.
 
 Native tray integration has been programmatically tested on macOS with Python
-3.15.1. Windows remains untested. Linux/FreeBSD currently use taskbar minimization;
-their tray hosts have not yet been validated. This follows the event-loop and
+3.15.1. Windows remains untested. Linux/FreeBSD have optional GTK tray integration
+with taskbar fallback; their actual tray hosts have not yet been validated.
+This follows the event-loop and
 desktop constraints described in
 [pystray's integration documentation](https://pystray.readthedocs.io/en/latest/faq.html).
 If the helper fails while hidden, the GUI restores itself. The helper also exits
@@ -109,7 +112,9 @@ when its parent closes its input pipe, including after a parent-process failure.
 These instructions prepare an environment for the current GUI foundation. The
 backend and opt-in desktop test suites are documented in
 [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). Live PrimeNet monitoring has not been
-validated; lifecycle tests use simulated cycles. Full parity remains unfinished.
+validated; automated checks use simulated service responses, with native macOS
+tray and filesystem-event integration checks. Parser-entry coverage is complete
+within the documented limits; live-service and platform acceptance remain pending.
 All GUI-specific dependency declarations and documentation are new
 files; existing CLI installation instructions remain unchanged.
 
@@ -822,7 +827,10 @@ Original-file preservation remains a development policy, independently of ignore
 
 The development environment now has Python 3.15.1, working Tcl/Tk 9.1.0 bindings,
 and Requests inside `.venv`. A real Tk window smoke check has passed on macOS.
-The user also confirmed the manual macOS hide/reopen/Quit test passed.
+The user confirmed an earlier prototype's manual macOS hide/reopen/Quit test;
+that historical check does not validate the current implementation. Consolidated
+manual acceptance remains deferred and is tracked in
+[GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md).
 Complete GUI, Python 3.15.0-floor, and cross-platform validation remain pending;
 see [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for the scope of actual checks.
 

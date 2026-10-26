@@ -76,8 +76,16 @@ def backend_request(operation, **parameters):
 		response = json.loads(process.stdout)
 	except (OSError, ValueError, subprocess.TimeoutExpired) as error:
 		raise ControllerError("The offline backend could not complete. Check the selected Python environment.") from error
-	if response.get("protocol") != 1 or not response.get("ok") or process.returncode:
-		raise ControllerError(response.get("error", "Unexpected offline backend response."))
+	if not isinstance(response, dict) or response.get("protocol") != 1:
+		raise ControllerError("Unexpected offline backend response.")
+	if response.get("ok") is not True or process.returncode:
+		# Only the bridge's explicit failure envelope may supply an error.
+		error = response.get("error")
+		if response.get("ok") is not False or not isinstance(error, str) or not error:
+			error = "Unexpected offline backend response."
+		raise ControllerError(error)
+	if "result" not in response:
+		raise ControllerError("Unexpected offline backend response.")
 	return response["result"]
 
 

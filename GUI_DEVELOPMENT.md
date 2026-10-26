@@ -865,6 +865,32 @@ tests**, native macOS tray checks and filesystem-event integration, on Python
 against the audited baseline remain empty. No PrimeNet/provider/SMTP requests or
 assignment changes were performed.
 
+## Acceptance preparation and backend response handling
+
+Added GUI_ACCEPTANCE.md as the consolidated manual acceptance plan. It separates
+offline configuration checks, desktop lifecycle, controlled monitoring, deliberate
+live operations and platform/version completion. Each machine records its tested
+commit, interpreter/Tk/dependency versions, desktop and filesystem, outcomes and
+blocked prerequisites. It includes automated suite commands and expected results;
+unchecked items are explicitly unverified. Manual acceptance remains deferred.
+
+Updated GUI.md's stale overview, watching/tray statements and historical smoke
+test wording to distinguish implemented inventory coverage from current release
+validation. No new platform or live-service acceptance is claimed.
+
+Hardened the offline controller's JSON envelope handling: non-object responses,
+missing successful results, non-boolean success values and malformed error
+payloads now produce a controlled ControllerError instead of leaking unexpected
+AttributeError/KeyError or accepting a malformed success envelope. A regression
+test exercises these malformed responses while retaining the existing real
+offline-bridge failure test.
+
+Validated October 25, 2026 on macOS/Python 3.15.1/Tk 9.1: **176 tests passed**
+with desktop/native integration enabled. The default suite ran 176 tests with
+29 desktop/native cases skipped. Dependency checks and `git diff --check` passed;
+the original source hash and original-file baseline diff remain unchanged.
+No live-service operations, assignment changes or user manual tests were run.
+
 ## Original-file changes
 
 None. All GUI work so far is in newly added files. Existing upstream source,
