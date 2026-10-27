@@ -33,6 +33,7 @@ from gui_registration_form import RegistrationForm
 from gui_reports import BackendLogWindow, export_debug_report
 from gui_reference import reference_info
 from gui_trace import trace_notice
+from gui_preferences import preferences_path, read_workspace, remember_workspace
 
 
 TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
@@ -40,7 +41,7 @@ WORK_TYPES = {2: "TF", 3: "P-1", 4: "P-1", 5: "ECM", 6: "P+1", 100: "LL", 101: "
 
 
 class Application:
-	def __init__(self, root, tray=True):
+	def __init__(self, root, tray=True, remember=True):
 		self.root = root
 		self.jobs = BackgroundJobs()
 		self.tray = TrayController()
@@ -56,6 +57,14 @@ class Application:
 		self.refresh_pending = False
 		self.automatic_document = None
 		self.quit_after_save = False
+		self.preferences_path = preferences_path() if remember else None
+		self.restore_workspace = None
+		preference_error = False
+		if self.preferences_path is not None:
+			try:
+				self.restore_workspace = read_workspace(self.preferences_path)
+			except (OSError, ValueError):
+				preference_error = True
 		self.options = []
 		self.backend_version = "not loaded"
 		self.tray_deadline = time.monotonic() + 15
@@ -73,6 +82,8 @@ class Application:
 		if sys.platform == "darwin":
 			root.createcommand("tk::mac::Quit", self.quit)
 		self._build()
+		if preference_error:
+			self.log("Remembered workspace could not be read. Choose a working directory manually.")
 		self.set_busy(False)
 		if tray:
 			self.tray.start()
@@ -246,6 +257,13 @@ class Application:
 	def schedule_autosave(self):
 		if self.automatic_updates:
 			self.autosave_due = time.monotonic() + 2
+
+	def remember_selection(self, document):
+		if self.preferences_path is not None:
+			try:
+				remember_workspace(self.preferences_path, document)
+			except (OSError, ValueError):
+				self.log("Workspace is loaded, but its selection could not be remembered for next launch.")
 
 	def editor_dialog_open(self):
 		return any(window is not None and window.winfo_exists() for window in (
@@ -578,6 +596,7 @@ class Application:
 				self.backend_log.close()
 				self.display_workspace(value["snapshot"])
 				self.editor.load(value["document"])
+				self.remember_selection(value["document"])
 				self.set_busy(False)
 			elif name == "save":
 				self.backend_log.close()
@@ -683,6 +702,13 @@ class Application:
 			self.tray_status.set("Tray unavailable. Close minimizes to the taskbar/Dock.")
 			self.tray.stop()
 		if not self.closed:
+			if self.restore_workspace is not None and not self.jobs.busy:
+				directory, name = self.restore_workspace
+				self.restore_workspace = None
+				if self.editor.document is None and not self.directory.get():
+					self.directory.set(directory)
+					self.config_name.set(name)
+					self.refresh(confirm_discard=False)
 			self.automatic_update()
 			self.poll_after = self.root.after(100, self.poll)
 

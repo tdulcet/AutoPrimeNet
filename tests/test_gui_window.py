@@ -25,7 +25,7 @@ class WindowTests(unittest.TestCase):
 		from autoprimenet_gui import Application
 
 		self.root = tk.Tk()
-		self.app = Application(self.root, tray=False)
+		self.app = Application(self.root, tray=False, remember=False)
 		# Existing cases exercise explicit saves; dedicated cases enable automation.
 		self.app.automatic_updates = False
 		error_dialog = patch("autoprimenet_gui.messagebox.showerror")
@@ -50,6 +50,40 @@ class WindowTests(unittest.TestCase):
 			self.app.editor.dirty = False
 			self.app.registration.close()
 			self.app.quit()
+
+	def test_successful_workspace_selection_is_restored_after_restart(self):
+		import tkinter as tk
+		from autoprimenet_gui import Application
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			path = base / "preferences.json"
+			(base / "custom.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			self.app.preferences_path = path
+			self.app.directory.set(directory)
+			self.app.config_name.set("custom.ini")
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertTrue(path.exists())
+			self.app.quit()
+			self.root = tk.Tk()
+			with patch("autoprimenet_gui.preferences_path", return_value=path):
+				self.app = Application(self.root, tray=False)
+			self.app.automatic_updates = False
+			self.wait_until(lambda: self.app.editor.document is not None and not self.app.jobs.busy)
+			self.assertEqual(self.app.editor.document.directory, base.resolve())
+			self.assertEqual(self.app.config_name.get(), "custom.ini")
+			self.assertFalse(self.app.monitor.active)
+			self.assertFalse(self.app.editor.dirty)
+
+	def test_missing_remembered_workspace_does_not_create_or_replace_it(self):
+		with tempfile.TemporaryDirectory() as directory:
+			missing = str(Path(directory) / "missing")
+			self.app.restore_workspace = (missing, "prime.ini")
+			self.wait_until(lambda: self.app.restore_workspace is None and not self.app.jobs.busy)
+			self.assertIsNone(self.app.editor.document)
+			self.assertFalse(Path(missing).exists())
+			self.assertEqual(self.app.directory.get(), missing)
+			self.assertFalse(self.app.closed)
 
 	def load_automatic_workspace(self, directory):
 		path = Path(directory) / "prime.ini"
