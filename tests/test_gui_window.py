@@ -26,6 +26,8 @@ class WindowTests(unittest.TestCase):
 
 		self.root = tk.Tk()
 		self.app = Application(self.root, tray=False)
+		# Existing cases exercise explicit saves; dedicated cases enable automation.
+		self.app.automatic_updates = False
 		error_dialog = patch("autoprimenet_gui.messagebox.showerror")
 		self.save_error_dialog = error_dialog.start()
 		self.addCleanup(error_dialog.stop)
@@ -48,6 +50,108 @@ class WindowTests(unittest.TestCase):
 			self.app.editor.dirty = False
 			self.app.registration.close()
 			self.app.quit()
+
+	def load_automatic_workspace(self, directory):
+		path = Path(directory) / "prime.ini"
+		path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+		self.app.directory.set(directory)
+		self.app.refresh()
+		self.wait_until(lambda: not self.app.jobs.busy)
+		self.app.automatic_updates = True
+		return path
+
+	def test_automatic_save_and_preview_without_confirmation(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = self.load_automatic_workspace(directory)
+			self.app.editor.values["work_file"].set("worktodo.ini")
+			self.assertGreater(self.app.autosave_due, time.monotonic())
+			with patch("autoprimenet_gui.messagebox.askyesno") as confirm:
+				self.app.autosave_due = 0
+				self.wait_until(lambda: not self.app.editor.dirty and not self.app.jobs.busy and not self.app.refresh_pending)
+				confirm.assert_not_called()
+			self.assertIn("work_file=worktodo.ini", path.read_text())
+			worker = self.app.workers.item(self.app.workers.get_children()[0], "values")
+			self.assertTrue(worker[3].endswith("worktodo.ini"))
+
+	def test_automatic_save_conflict_preserves_draft_and_external_file(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = self.load_automatic_workspace(directory)
+			self.app.editor.values["work_file"].set("worktodo.ini")
+			external = path.read_text() + "ComputerID=external-fixture\n"
+			path.write_text(external)
+			self.app.autosave_due = 0
+			self.wait_until(lambda: self.save_error_dialog.called)
+			self.assertTrue(self.app.editor.dirty)
+			self.assertEqual(path.read_text(), external)
+			self.assertEqual(self.app.editor.values["work_file"].get(), "worktodo.ini")
+			self.assertIsNone(self.app.autosave_due)
+
+	def test_automatic_save_waits_for_dialog_apply_or_cancel(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = self.load_automatic_workspace(directory)
+			original = path.read_text()
+			self.app.editor.values["work_file"].set("worktodo.ini")
+			window = self.app.editor.edit_options(group="Behavior")
+			self.app.autosave_due = 0
+			self.app.automatic_update()
+			self.assertEqual(path.read_text(), original)
+			self.assertFalse(self.app.jobs.busy)
+			window.destroy()
+			self.wait_until(lambda: not self.app.editor.dirty and not self.app.jobs.busy and not self.app.refresh_pending)
+			self.assertIn("work_file=worktodo.ini", path.read_text())
+
+	def test_runner_exit_refreshes_backend_configuration_automatically(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = self.load_automatic_workspace(directory)
+			path.write_text(path.read_text() + "QuitGIMPS=True\n")
+			self.app.monitor.events.put({"event": "exited", "generation": self.app.monitor.generation})
+			self.wait_until(lambda: "New-work requests: disabled (configured state)" in self.app.summary.get())
+			self.assertTrue(self.app.editor.document.config.getboolean("PrimeNet", "QuitGIMPS"))
+
+	def test_automatic_refresh_preserves_draft(self):
+		with tempfile.TemporaryDirectory() as directory:
+			self.load_automatic_workspace(directory)
+			self.app.editor.values["work_file"].set("worktodo.ini")
+			self.app.refresh_pending = True
+			self.app.automatic_update()
+			self.assertTrue(self.app.editor.dirty)
+			self.assertFalse(self.app.jobs.busy)
+			self.assertEqual(self.app.editor.values["work_file"].get(), "worktodo.ini")
+			self.app.automatic_updates = False
+
+	def test_quit_flushes_pending_automatic_save(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = self.load_automatic_workspace(directory)
+			self.app.editor.values["work_file"].set("worktodo.ini")
+			self.app.quit()
+			self.wait_until(lambda: self.app.closed)
+			self.assertIn("work_file=worktodo.ini", path.read_text())
+
+	def test_invalid_automatic_save_reports_once_without_writing(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = self.load_automatic_workspace(directory)
+			original = path.read_text()
+			self.app.editor.values["username"].set("")
+			self.app.autosave_due = 0
+			self.wait_until(lambda: self.save_error_dialog.called)
+			self.app.automatic_update()
+			self.save_error_dialog.assert_called_once()
+			self.assertEqual(path.read_text(), original)
+			self.assertTrue(self.app.editor.dirty)
+
+	def test_quit_save_conflict_keeps_window_and_draft(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = self.load_automatic_workspace(directory)
+			self.app.editor.values["work_file"].set("worktodo.ini")
+			external = path.read_text() + "ComputerID=external-fixture\n"
+			path.write_text(external)
+			self.app.quit()
+			self.wait_until(lambda: self.save_error_dialog.called)
+			self.assertFalse(self.app.closed)
+			self.assertFalse(self.app.quit_after_save)
+			self.assertTrue(self.app.editor.dirty)
+			self.assertEqual(path.read_text(), external)
+			self.app.automatic_updates = False
 
 	def test_status_visible_at_minimum_size_with_long_error(self):
 		self.root.geometry("780x520")

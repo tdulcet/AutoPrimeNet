@@ -336,6 +336,29 @@ configuration is loaded without saving; a missing configuration starts with
 backend defaults. Choose a computation program and provide a GIMPS username or
 `ANONYMOUS` before the first save. These forms do not register the computer.
 
+For a new workspace:
+
+1. Select the computation engine's working directory using **Browse**, or enter
+   its path and select **Refresh preview**. This is the directory containing
+   the engine's work files, which may differ from the GUI source checkout.
+2. In **PrimeNet**, supply your GIMPS username or the literal `ANONYMOUS`.
+3. In **Workers**, select the computation program and apply the intended worker
+   count; configure per-worker directories where needed.
+4. In **Settings**, match the work/results filenames to the engine. Ubuntu's
+   packaged Mlucas 20.1.1 uses `worktodo.ini` and `results.txt`; explicitly change
+   the GUI's default `worktodo.txt` for this setup. Program selection does not
+   automatically change the work filename.
+5. Valid form edits save automatically after a two-second pause, once all editor
+   dialogs have closed. Apply a dialog's changes to include them; Cancel does
+   not apply its draft. Wait for the successful-save/automatic-refresh status.
+   **Save settings** remains available to save immediately with confirmation.
+   A validation failure leaves edits unsaved and displays an error; correct it
+   before refreshing. Decline any discard prompt to retain those edits.
+6. The preview refreshes automatically after saving. After quitting and reopening, reselect
+   the same working directory and configuration filename to reload them. The GUI
+   does not currently remember the last directory between launches. Keep
+   monitoring stopped until engine setup and intended live operations are ready.
+
 | Tab | Current graphical settings |
 | --- | --- |
 | PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day; hardware/resource settings dialog |
@@ -347,10 +370,10 @@ backend defaults. Choose a computation program and provide a GIMPS username or
 
 Choose **Edit advanced assignment settings…** to open the scrollable dialog.
 Blank values use the backend default; boolean fields also offer explicit True
-and False. **Apply to form** retains edits in the GUI; **Cancel** discards that
-dialog's edits. **Save settings** performs offline backend validation and writes
-the configuration. Merely opening or applying the dialog does not write files
-or contact a server. These settings can affect assignment selection and rewrite
+and False. **Apply to form** stages edits for automatic saving; **Cancel** discards
+that dialog's edits. Opening a dialog does not save it. Automatic saves and
+**Save settings** perform offline backend validation before writing; neither
+contacts a server. These settings can affect assignment selection and rewrite
 assignments when monitoring next runs. Opposite LL/PRP conversion directions
 cannot both be enabled. The P−1 retry threshold applies with force P−1; optimal
 bounds can also be used independently, following the CLI's semantics.
@@ -503,7 +526,7 @@ address. An unknown username retains the existing username; review it manually.
 A changed sender or workspace requires another lookup. Unknown connection
 security is rejected; explicitly advertised plain SMTP is shown as `plain` with
 both TLS switches off. Passwords, recipients and notification send policy remain
-unchanged. Use **Save settings** separately. A test email remains a separate,
+unchanged. Applied values enter the automatic-save workflow. A test email remains a separate,
 confirmed operation. Empty results or errors leave manual SMTP editing available.
 
 ### Connections and passwords
@@ -593,9 +616,23 @@ document changes.
 
 Changing program or computation hours resets cached speed/rolling estimates in
 the same way as setup; unrelated state and inactive worker sections remain.
-Reducing the active worker count does not delete any worker files. Refresh after
-saving to update the displayed local snapshot. Reload or Quit asks before
-discarding unsaved form changes; closing to the tray retains them in memory.
+Reducing the active worker count does not delete any worker files. Saves and
+completed backend runs automatically reload configuration and refresh the local
+snapshot after the owned runner exits. This includes one-shot commands, one-pass
+monitoring and normal Stop. Live operations still require their confirmations.
+
+Automatic saving waits while an editor or registration dialog is open, a local
+job is running or monitoring owns the workspace. A failed save is reported once
+per attempted edit/save; it is not repeatedly retried until another edit or
+explicit save. External-file conflicts retain both the file on disk and the GUI
+draft, requiring deliberate resolution. Automatic refresh never discards a dirty
+configuration or changes the selected workspace. A pending registration batch is
+retained but its old preview is invalidated when configuration reloads.
+
+Quit flushes a pending form save before exiting when no draft dialog is open;
+failed validation/conflict keeps the window and edits available. With an open
+dialog or queued batch, the discard confirmation still applies. Closing to the
+tray keeps the application running and allows eligible automatic saves.
 
 For backup recovery, stop the GUI and any AutoPrimeNet instance, review the
 content of the desired `.bak`, and copy it back to the original configuration
@@ -663,8 +700,8 @@ CLI output remains in the configured AutoPrimeNet log rather than being copied
 into GUI activity; open the separate private log viewer to read it. A zero exit
 code records local completion only; some CLI paths
 log server errors without returning failure. The GUI therefore leaves server
-acceptance and message delivery unverified. Review the log and refresh local
-snapshots after completion. CLI-reference navigation focuses the corresponding
+acceptance and message delivery unverified. Review the log; local snapshots
+refresh automatically after completion. CLI-reference navigation focuses the corresponding
 button without running it. Server acceptance remains unverified until you review
 the original log and relevant server state.
 
@@ -677,7 +714,7 @@ startup, then enters its setup-completion branch with saved graphical values.
 It calls the original computer-registration and program-options routines,
 including their configuration updates and server overrides, without running the
 terminal setup questions, automatically sending test email or fetching work.
-Refresh afterward. GPU discovery is available in the hardware dialog, and
+The workspace refreshes automatically afterward. GPU discovery is available in the hardware dialog, and
 SMTP-provider discovery is available in Notifications (see below).
 
 For explicit exponents, choose **Assignments → Register exponent batch…**:
@@ -727,8 +764,9 @@ data travels through stdin rather than command-line arguments, and the child
 rechecks the saved configuration fingerprint. Failures can leave appended or
 partially registered work, just as the original workflow can; snapshots do not
 undo server changes. Stop/Force/Quit retain the existing owned-process semantics.
-Inspect the original log and refresh after completion. Automated tests use
-simulated registration API responses; no live registration has been validated.
+Inspect the original log after completion; the workspace refreshes automatically.
+Automated tests use simulated registration API responses. Manual Ubuntu testing
+confirmed computer registration; live exponent registration remains unverified.
 
 ### Native logs, work status and private diagnostics
 
@@ -757,7 +795,7 @@ only; there is no automatic upload, email or public bug-report submission.
 
 **Pause new-work requests** and **Resume new-work requests** are local policy
 commands. They do not stop computation, stop monitoring, release reservations,
-or fetch work immediately. Refresh the preview afterward to see the configured
+or fetch work immediately. The preview refreshes afterward to show the configured
 request state. Stop an active GUI runner before changing this policy.
 
 Pause affected computation engines before recovery or unreservation. The GUI
@@ -893,8 +931,8 @@ The GUI holds `.gui-runner.guard` across monitoring/actions/saves and also
 attempts `~gui-monitor.lock`. The continuous CLI child holds its own normal
 `~lock` for its lifetime; one-shot/one-pass children acquire it for each process.
 Native lock files can remain after exit; their existence alone does not mean an
-OS lock is held. Do not delete them to bypass a live process. Refresh after
-stopping before editing/restarting, because backend state may have changed.
+OS lock is held. Do not delete them to bypass a live process. After stopping,
+the GUI reloads backend state automatically before further editing/restarting.
 
 ### Debug verbosity and private traces
 

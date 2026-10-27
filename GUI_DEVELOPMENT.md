@@ -1100,11 +1100,52 @@ reserved first, and messages wrap to its actual width. Failed background saves
 also display the same sanitized error in a dialog; unapplied edits remain intact.
 New desktop regressions cover a long message at the minimum window size and
 save failure notification with draft preservation. The underlying Ubuntu save
-failure remains undiagnosed until its now-visible message is obtained.
+failure was subsequently identified as the missing required GIMPS username (or
+literal ANONYMOUS). Once the user supplied a username, saving, refreshing and
+reloading the same workspace after a full GUI restart preserved the settings.
 
 Local desktop/native verification passed all 213 tests on macOS/Python 3.15.1/
 Tk 9.1, with no skips. Scoped Ruff and `git diff --check` passed. Ubuntu needs
-the updated GUI to verify the layout and reveal its original save error.
+the updated GUI to verify the layout. The user subsequently confirmed the error
+dialog exposed the missing username requirement and the configuration reload
+check passed. The user guide now includes the complete initial configuration
+sequence, save-success check, Mlucas filenames and explicit workspace reselection.
+
+## Automatic saving and post-operation refresh
+
+Ubuntu acceptance exposed repeated stale-document conflicts after the backend
+normalized or updated prime.ini. Automatic saving and refresh are now required
+behavior rather than release wishlist items. Valid form edits are submitted to
+the existing validated, locked, backed-up save path after a two-second debounce.
+Open editor/registration dialogs defer submission; Apply stages values and Cancel
+does not apply the dialog draft. Explicit Save retains its confirmation. Saves
+remain local and do not launch monitoring or server operations.
+
+Save completion refreshes the preview. Runner exit schedules a configuration and
+workspace reload after ownership ends, including failed runs that may have
+modified files before failing. Dirty forms and changed workspace selections are
+preserved, and pending exponent batches retain their entries but lose their old
+preview. Automatic saving never merges over an externally changed configuration;
+the existing fingerprint check refuses it and reports the failure. Failed saves
+are not repeatedly retried without another edit or an explicit save. Quit flushes
+eligible pending edits, remaining open when the save fails.
+
+Desktop regressions cover debouncing, automatic preview updates, operation-exit
+reload, open-dialog deferral, invalid input, external-file conflicts, preservation
+of drafts and Quit success/failure. Existing explicit-save tests disable automatic
+updates so they continue testing the manual action independently. Ubuntu manual
+retesting of the automatic behavior and computation integration remain pending.
+
+Automated verification on macOS/Python 3.15.1/Tk 9.1 passed all 221 tests with
+desktop/native checks enabled. The default run also passed (43 desktop/native
+skips). Scoped Ruff checks, Python parsing, original-file preservation and
+`git diff --check` passed. The eight added regressions use local fixtures and
+simulated runner-exit events; they do not establish live-service acceptance.
+
+Before the eventual PR, prepare gui_release_notes.md and review/remove
+agent-specific development material as requested. Retain user documentation and
+meaningful tests; no original upstream files are to be removed or changed without
+the user's approval.
 
 ## Original-file changes
 
