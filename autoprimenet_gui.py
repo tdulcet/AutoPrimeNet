@@ -72,7 +72,7 @@ class Application:
 		if tray:
 			self.tray.start()
 		self.jobs.submit("capabilities", backend_request, "capabilities")
-		self.root.after(100, self.poll)
+		self.poll_after = self.root.after(100, self.poll)
 
 	def _build(self):
 		menu = tk.Menu(self.root)
@@ -490,6 +490,7 @@ class Application:
 				self.config_entry.focus_set()
 
 	def poll(self):
+		self.poll_after = None
 		if self.closed:
 			return
 		result = self.jobs.take()
@@ -611,7 +612,7 @@ class Application:
 			self.tray_status.set("Tray unavailable. Close minimizes to the taskbar/Dock.")
 			self.tray.stop()
 		if not self.closed:
-			self.root.after(100, self.poll)
+			self.poll_after = self.root.after(100, self.poll)
 
 	def retry_tray(self):
 		if self.quit_pending or self.closed:
@@ -657,6 +658,9 @@ class Application:
 
 	def finish_quit(self):
 		self.closed = True
+		if self.poll_after is not None:
+			self.root.after_cancel(self.poll_after)
+			self.poll_after = None
 		self.tray.stop()
 		self.jobs.close()
 		self.root.destroy()

@@ -46,6 +46,15 @@ class WindowTests(unittest.TestCase):
 			self.app.registration.close()
 			self.app.quit()
 
+	def test_quit_cancels_pending_poll_callback(self):
+		pending = self.app.poll_after
+		self.assertIsNotNone(pending)
+		self.assertIn(pending, self.root.tk.call("after", "info"))
+		self.app.quit()
+		self.assertTrue(self.app.closed)
+		self.assertIsNone(self.app.poll_after)
+		self.assertNotIn(pending, self.root.tk.call("after", "info"))
+
 	def test_reload_closes_old_dialogs_and_clears_unapplied_passwords(self):
 		from gui_config import ConfigDocument
 		with tempfile.TemporaryDirectory() as directory:
