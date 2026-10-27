@@ -354,10 +354,27 @@ For a new workspace:
    **Save settings** remains available to save immediately with confirmation.
    A validation failure leaves edits unsaved and displays an error; correct it
    before refreshing. Decline any discard prompt to retain those edits.
-6. The preview refreshes automatically after saving. After quitting and reopening, reselect
-   the same working directory and configuration filename to reload them. The GUI
-   does not currently remember the last directory between launches. Keep
-   monitoring stopped until engine setup and intended live operations are ready.
+6. The preview refreshes automatically after saving. After quitting and reopening,
+   the last successfully loaded working directory and configuration filename
+   reopen automatically. This loads a local preview; it does not resume monitoring
+   or run server commands. Keep monitoring stopped until engine setup and intended
+   live operations are ready.
+
+The remembered selection is stored separately from prime.ini and the source
+checkout, in the current user's `AutoPrimeNetGUI/preferences.json`:
+
+* Windows: beneath `%APPDATA%` (normally `AppData/Roaming`).
+* macOS: beneath `~/Library/Application Support`.
+* Linux/FreeBSD: beneath absolute `$XDG_CONFIG_HOME`, or `~/.config` otherwise.
+
+Only the workspace path and configuration filename are stored, with a format
+version; credentials and monitoring state are not stored there. Successful
+workspace loading updates the selection atomically. An unavailable directory or
+invalid configuration produces a visible load error without creating the missing
+workspace. Browse to another directory to continue. Missing preferences start
+normally; malformed/unreadable preferences produce an activity message and allow
+manual selection. Preference-write failure leaves the loaded workspace usable.
+Deleting this preferences file forgets the selection without deleting work files.
 
 | Tab | Current graphical settings |
 | --- | --- |

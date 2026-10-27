@@ -1147,6 +1147,27 @@ agent-specific development material as requested. Retain user documentation and
 meaningful tests; no original upstream files are to be removed or changed without
 the user's approval.
 
+## Remembering the last workspace
+
+The GUI now remembers the last successfully loaded working directory and its
+configuration filename in per-user preferences outside the checkout and engine
+workspace. On restart it loads that local preview after offline capabilities
+initialization; monitoring and server operations are not resumed. Failed loads do
+not replace the remembered selection. Invalid preferences are ignored with an
+activity message, unavailable workspaces remain visible for manual correction,
+and preference-write failure does not prevent normal workspace use.
+
+Preferences use a bounded, versioned JSON record and atomic replacement with a
+private temporary file. They contain no credentials or runner state. Tests cover
+round-trip/non-ASCII paths, platform locations, malformed/oversized records,
+failed-write cleanup, actual GUI restart with a custom configuration filename,
+and a missing restored directory. Desktop tests use isolated preference paths so
+they do not read or overwrite the user's selection.
+
+Verification passed all 227 tests with desktop/native checks enabled on macOS/
+Python 3.15.1/Tk 9.1. The four isolated preference tests, scoped Ruff checks and
+`git diff --check` also passed. Ubuntu restart acceptance remains pending.
+
 ## Original-file changes
 
 None. All GUI work so far is in newly added files. Existing upstream source,
