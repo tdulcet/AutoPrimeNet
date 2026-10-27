@@ -1061,6 +1061,26 @@ artifacts stayed outside the repository. All ten original upstream files still
 match baseline b4426a1. No live-service operations or user manual acceptance
 tests were performed.
 
+## Fedora acceptance follow-up: pending Tk polling callback
+
+The Fedora GNOME/Wayland manual window/fallback and AppIndicator tray rounds
+passed, including extension disable/re-enable, Retry and shutdown. The subsequent
+desktop-enabled automated run reported 210 tests, OK with three skips, but also
+printed repeated Tcl `invalid command name ...poll` errors. This is not a clean
+desktop acceptance result despite the unittest success status. Computation/live
+acceptance was not established by these Fedora GUI/tray checks.
+
+Application shutdown now cancels its pending Tk polling callback before
+destroying the root window. Previously the callback's Tcl command was deleted
+while its timer remained queued, which could surface when later test windows
+pumped events. A desktop regression verifies that Quit removes the timer from
+Tk's pending callback list. Repeating the suite on Fedora remains necessary to
+confirm that the reported messages are gone.
+
+Local verification on macOS/Python 3.15.1/Tk 9.1 passed all 211 tests with
+desktop/native checks enabled, no skips and no Tcl callback errors. Scoped Ruff
+checks and `git diff --check` also passed. Only GUI-added files were changed.
+
 ## Original-file changes
 
 None. All GUI work so far is in newly added files. Existing upstream source,
