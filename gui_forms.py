@@ -375,6 +375,7 @@ class ConfigurationForms:
 		if not self.loading and self.document is not None:
 			self.dirty = True
 			self.app.status.set("Unsaved configuration changes — monitoring and server operations remain unavailable")
+			self.app.schedule_autosave()
 
 	def set_enabled(self, enabled):
 		for widget in self.widgets:

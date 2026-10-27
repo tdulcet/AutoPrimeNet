@@ -51,6 +51,11 @@ class Application:
 		self.quit_pending = False
 		self.hidden = False
 		self.closed = False
+		self.automatic_updates = True
+		self.autosave_due = None
+		self.refresh_pending = False
+		self.automatic_document = None
+		self.quit_after_save = False
 		self.options = []
 		self.backend_version = "not loaded"
 		self.tray_deadline = time.monotonic() + 15
@@ -174,7 +179,7 @@ class Application:
 		self.config_entry.pack(anchor="w", pady=8)
 		self.retry_tray_button = ttk.Button(self.tabs["Settings"], text="Retry tray integration", command=self.retry_tray)
 		self.retry_tray_button.pack(anchor="w", pady=8)
-		ttk.Label(self.tabs["Settings"], text="Closing hides to the tray/menu bar when ready; otherwise it minimizes.\nUse File → Quit to exit.\nSee GUI.md and GUI_DEVELOPMENT.md for requirements and current limitations.", justify="left", wraplength=720).pack(anchor="w", pady=12)
+		ttk.Label(self.tabs["Settings"], text="Valid edits save automatically after a short pause, once editor dialogs close.\nCompleted operations refresh the workspace automatically.\nClosing hides to the tray/menu bar when ready; otherwise it minimizes.\nUse File → Quit to exit.\nSee GUI.md for setup and requirements.", justify="left", wraplength=720).pack(anchor="w", pady=12)
 
 	def _table(self, parent, columns):
 		frame = ttk.Frame(parent)
@@ -238,7 +243,42 @@ class Application:
 			self.status.set("Reading local workspace…")
 			self.set_busy(True)
 
-	def save(self):
+	def schedule_autosave(self):
+		if self.automatic_updates:
+			self.autosave_due = time.monotonic() + 2
+
+	def editor_dialog_open(self):
+		return any(window is not None and window.winfo_exists() for window in (
+			self.editor.options_window, self.editor.password_window,
+			self.editor.mail_window, self.editor.worker_window, self.registration.window,
+		))
+
+	def automatic_update(self):
+		if not self.automatic_updates or self.closed or self.quit_pending or self.jobs.busy or self.monitor.active or self.editor_dialog_open():
+			return
+		if self.refresh_pending:
+			if self.editor.dirty:
+				self.refresh_pending = False
+				self.log("Automatic refresh paused to preserve unsaved configuration. Reload explicitly before saving if the backend changed it.")
+				return
+			document = self.editor.document
+			if document is None:
+				self.refresh_pending = False
+				return
+			if Path(self.directory.get()).expanduser().resolve() != document.directory or self.config_name.get() != document.path.name:
+				self.refresh_pending = False
+				return
+			if self.jobs.submit("automatic_workspace", load_editor_workspace, str(document.directory), document.path.name):
+				self.refresh_pending = False
+				self.automatic_document = document
+				self.set_busy(True)
+		elif self.autosave_due is not None and time.monotonic() >= self.autosave_due:
+			self.autosave_due = None
+			if self.editor.dirty:
+				self.save(automatic=True)
+
+	def save(self, automatic=False):
+		self.autosave_due = None
 		if self.jobs.busy or self.monitor.active or self.quit_pending or self.editor.document is None:
 			return
 		document = self.editor.document
@@ -249,8 +289,10 @@ class Application:
 			values, engine, workers, credentials = self.editor.collect()
 		except ValueError as error:
 			self.status.set(str(error))
+			if automatic:
+				messagebox.showerror("Configuration was not saved", str(error), parent=self.root)
 			return
-		if not messagebox.askyesno("Save local configuration", ("" if values["require_lock"] != "False" else "Native-lock success is not required for this save. Verify no independent AutoPrimeNet uses this workspace.\n\n") + "Validate and save the displayed settings locally? An existing configuration will be backed up. No server will be contacted. Stop any independently running AutoPrimeNet before saving.", parent=self.root):
+		if not automatic and not messagebox.askyesno("Save local configuration", ("" if values["require_lock"] != "False" else "Native-lock success is not required for this save. Verify no independent AutoPrimeNet uses this workspace.\n\n") + "Validate and save the displayed settings locally? An existing configuration will be backed up. No server will be contacted. Stop any independently running AutoPrimeNet before saving.", parent=self.root):
 			return
 		if self.jobs.submit("save", save_configuration, document, values, engine, workers, credentials):
 			self.status.set("Validating and saving local configuration…")
@@ -509,6 +551,7 @@ class Application:
 			elif name == "backend_log":
 				self.backend_log.complete(value, error)
 			elif error:
+				self.quit_after_save = False
 				# ConfigParser and OS exceptions can contain raw file contents or
 				# private paths. Keep the visible failure generic for this preview.
 				self.status.set(str(error) if isinstance(error, (WorkspaceError, ControllerError)) else "Preview failed; check the directory, configuration and Python environment.")
@@ -520,6 +563,16 @@ class Application:
 				self.options = value["cli_options"]
 				self.filter_options()
 				self.log("Offline backend ready; CLI reference loaded.")
+			elif name == "automatic_workspace":
+				if self.editor.document is self.automatic_document and not self.editor.dirty:
+					self.backend_log.close()
+					self.editor.load(value["document"])
+					self.registration.invalidate()
+					self.display_workspace(value["snapshot"])
+					self.status.set("Local configuration and workspace refreshed automatically. " + self.monitor.state)
+					self.log("Local configuration and workspace refreshed automatically.")
+				self.automatic_document = None
+				self.set_busy(False)
 			elif name == "workspace":
 				self.registration.close()
 				self.backend_log.close()
@@ -529,9 +582,15 @@ class Application:
 			elif name == "save":
 				self.backend_log.close()
 				self.editor.load(value["document"])
-				self.status.set("Configuration saved locally" + ("; backup created. " if value["backup"] else ". ") + "Refresh preview to update displayed assignments. No server contacted.")
+				self.status.set("Configuration saved locally" + ("; backup created. " if value["backup"] else ". ") + "No server contacted.")
+				self.refresh_pending = self.automatic_updates
 				self.log("Local configuration saved" + (" with a backup." if value["backup"] else "."))
 				self.set_busy(False)
+				if self.quit_after_save:
+					self.quit_after_save = False
+					self.quit()
+					if self.closed:
+						return
 			elif name == "debug_report":
 				self.status.set("Private diagnostics saved: " + value["path"])
 				self.log("Private diagnostic report: " + value["path"] + ". Review/redact before sharing.")
@@ -573,8 +632,15 @@ class Application:
 				self.update_monitor_state("Failed", message.get("error", "Check the workspace, locks and AutoPrimeNet log; reload before retrying."))
 				self.log("One-shot operation failed." if self.active_operation else "Scheduled monitoring failed.")
 			elif event == "stopped":
-				self.update_monitor_state("Stopped", "Forced stop; inspect runtime files and sidecar locks." if message.get("forced") else "One-shot command ended. Refresh before editing or running another command." if self.active_operation else "Stopped after active work finished. Refresh before editing or restarting.")
+				if message.get("forced"):
+					detail = "Forced stop; inspect runtime files and sidecar locks."
+				elif self.automatic_updates:
+					detail = "Local operation ended; configuration and workspace will refresh automatically."
+				else:
+					detail = "One-shot command ended. Refresh before editing or running another command." if self.active_operation else "Stopped after active work finished. Refresh before editing or restarting."
+				self.update_monitor_state("Stopped", detail)
 			elif event == "exited":
+				self.refresh_pending = self.automatic_updates
 				if self.monitor.state not in {"Failed", "Stopped"}:
 					self.update_monitor_state("Failed", "The scheduled runner exited unexpectedly.")
 				self.set_busy(self.jobs.busy)
@@ -617,6 +683,7 @@ class Application:
 			self.tray_status.set("Tray unavailable. Close minimizes to the taskbar/Dock.")
 			self.tray.stop()
 		if not self.closed:
+			self.automatic_update()
 			self.poll_after = self.root.after(100, self.poll)
 
 	def retry_tray(self):
@@ -650,6 +717,10 @@ class Application:
 		if self.jobs.busy:
 			self.show()
 			self.status.set("An operation is still running; quit when it completes.")
+			return
+		if self.automatic_updates and self.editor.dirty and not self.monitor.active and not self.editor_dialog_open():
+			self.save(automatic=True)
+			self.quit_after_save = self.jobs.busy
 			return
 		if not self.discard_changes():
 			return
