@@ -94,6 +94,10 @@ class Application:
 		help_menu.add_command(label="About", command=self.show_about)
 		menu.add_cascade(label="Help", menu=help_menu)
 		self.root.config(menu=menu)
+		# Reserve status space before the expanding notebook can consume it.
+		self.status_label = ttk.Label(self.root, textvariable=self.status, relief="sunken", anchor="w", padding=5, wraplength=760)
+		self.status_label.pack(fill="x", side="bottom")
+		self.status_label.bind("<Configure>", lambda event: self.status_label.configure(wraplength=max(1, event.width - 12)))
 		bar = ttk.Frame(self.root, padding=10)
 		bar.pack(fill="x")
 		ttk.Label(bar, text="Working directory").pack(side="left")
@@ -171,7 +175,6 @@ class Application:
 		self.retry_tray_button = ttk.Button(self.tabs["Settings"], text="Retry tray integration", command=self.retry_tray)
 		self.retry_tray_button.pack(anchor="w", pady=8)
 		ttk.Label(self.tabs["Settings"], text="Closing hides to the tray/menu bar when ready; otherwise it minimizes.\nUse File → Quit to exit.\nSee GUI.md and GUI_DEVELOPMENT.md for requirements and current limitations.", justify="left", wraplength=720).pack(anchor="w", pady=12)
-		ttk.Label(self.root, textvariable=self.status, relief="sunken", anchor="w", padding=5).pack(fill="x", side="bottom")
 
 	def _table(self, parent, columns):
 		frame = ttk.Frame(parent)
@@ -510,6 +513,8 @@ class Application:
 				# private paths. Keep the visible failure generic for this preview.
 				self.status.set(str(error) if isinstance(error, (WorkspaceError, ControllerError)) else "Preview failed; check the directory, configuration and Python environment.")
 				self.log("Local operation failed. Check the status message; reload before retrying a save.")
+				if name == "save":
+					messagebox.showerror("Configuration was not saved", self.status.get(), parent=self.root)
 			elif name == "capabilities":
 				self.backend_version = value["backend_version"]
 				self.options = value["cli_options"]

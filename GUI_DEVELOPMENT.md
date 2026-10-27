@@ -1081,6 +1081,31 @@ Local verification on macOS/Python 3.15.1/Tk 9.1 passed all 211 tests with
 desktop/native checks enabled, no skips and no Tcl callback errors. Scoped Ruff
 checks and `git diff --check` also passed. Only GUI-added files were changed.
 
+## PR notes: Ubuntu packaged Mlucas work filename
+
+Ubuntu 26.04.1 ARM64's packaged Mlucas 20.1.1 documents `worktodo.ini` as its
+assignment input. The GUI defaults to `worktodo.txt`; selecting Mlucas does not
+automatically change that filename. For this engine setup, users must explicitly
+set **Settings → Work filename** to `worktodo.ini` and save before starting
+monitoring. Otherwise the GUI/backend and engine may use different assignment
+files. Include this configuration requirement in the eventual PR description;
+it is not an automatic filename-selection feature or an upstream source change.
+
+## Ubuntu acceptance follow-up: visible save errors
+
+Ubuntu desktop testing exposed an inaccessible bottom status message while
+configuration saves were failing. The expanding notebook was packed before the
+status label and could consume its available space. The status area is now
+reserved first, and messages wrap to its actual width. Failed background saves
+also display the same sanitized error in a dialog; unapplied edits remain intact.
+New desktop regressions cover a long message at the minimum window size and
+save failure notification with draft preservation. The underlying Ubuntu save
+failure remains undiagnosed until its now-visible message is obtained.
+
+Local desktop/native verification passed all 213 tests on macOS/Python 3.15.1/
+Tk 9.1, with no skips. Scoped Ruff and `git diff --check` passed. Ubuntu needs
+the updated GUI to verify the layout and reveal its original save error.
+
 ## Original-file changes
 
 None. All GUI work so far is in newly added files. Existing upstream source,

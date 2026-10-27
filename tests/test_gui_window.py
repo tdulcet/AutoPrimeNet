@@ -26,6 +26,9 @@ class WindowTests(unittest.TestCase):
 
 		self.root = tk.Tk()
 		self.app = Application(self.root, tray=False)
+		error_dialog = patch("autoprimenet_gui.messagebox.showerror")
+		self.save_error_dialog = error_dialog.start()
+		self.addCleanup(error_dialog.stop)
 		self.addCleanup(self.close_app)
 		self.wait_until(lambda: not self.app.jobs.busy)
 
@@ -45,6 +48,27 @@ class WindowTests(unittest.TestCase):
 			self.app.editor.dirty = False
 			self.app.registration.close()
 			self.app.quit()
+
+	def test_status_visible_at_minimum_size_with_long_error(self):
+		self.root.geometry("780x520")
+		self.app.status.set("Configuration was not saved. " * 12)
+		self.root.update()
+		label = self.app.status_label
+		self.assertTrue(label.winfo_ismapped())
+		self.assertGreater(label.winfo_height(), 20)
+		self.assertLessEqual(label.winfo_y() + label.winfo_height(), self.root.winfo_height())
+		self.assertLessEqual(self.app.notebook.winfo_y() + self.app.notebook.winfo_height(), label.winfo_y())
+
+	def test_save_failure_shows_error_dialog_and_preserves_draft(self):
+		from gui_config import WorkspaceError
+		self.app.editor.dirty = True
+		self.app.editor.values["work_file"].set("worktodo.ini")
+		with patch.object(self.app.jobs, "take", return_value=("save", None, WorkspaceError("Test validation failure"))):
+			# Pump through Tk so the poll callback owns its normal timer lifecycle.
+			self.wait_until(lambda: self.save_error_dialog.called)
+		self.save_error_dialog.assert_called_once_with("Configuration was not saved", "Test validation failure", parent=self.root)
+		self.assertTrue(self.app.editor.dirty)
+		self.assertEqual(self.app.editor.values["work_file"].get(), "worktodo.ini")
 
 	def test_quit_cancels_pending_poll_callback(self):
 		pending = self.app.poll_after
