@@ -51,6 +51,30 @@ class WindowTests(unittest.TestCase):
 			self.app.registration.close()
 			self.app.quit()
 
+	def test_push_status_routes_idle_action_and_running_monitor_without_overlap(self):
+		from unittest.mock import Mock
+		with patch.object(self.app, "run_operation") as operation:
+			self.app.push_status()
+			operation.assert_called_once_with("push_status")
+		original = self.app.monitor
+		self.app.monitor = Mock(active=True, state="Waiting")
+		self.app.native_monitor = True
+		self.app.active_operation = None
+		try:
+			self.app.push_status()
+			self.app.monitor.push_status.assert_called_once_with()
+			self.assertIn("Monitoring continues", self.app.status.get())
+			self.app.monitor.state = "Stopping"
+			self.app.push_status()
+			self.app.monitor.push_status.assert_called_once_with()
+			self.app.monitor.state = "Waiting"
+			self.app.active_operation = "ping"
+			self.app.push_status()
+			self.app.monitor.push_status.assert_called_once_with()
+		finally:
+			self.app.monitor = original
+			self.app.active_operation = None
+
 	def test_successful_workspace_selection_is_restored_after_restart(self):
 		import tkinter as tk
 		from autoprimenet_gui import Application

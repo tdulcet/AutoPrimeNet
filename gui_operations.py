@@ -20,6 +20,7 @@ class Operation:
 
 
 OPERATIONS = {
+	"push_status": Operation("Push Status to PrimeNet Now", "Dashboard", (), "push_status", "Run a complete AutoPrimeNet communication pass with progress reporting now. This also reports results, handles proofs and requests work according to the saved configuration. Reports the latest engine progress written to disk; it does not force a computation checkpoint."),
 	"ping": Operation("Ping PrimeNet", "PrimeNet", ("--ping",), "ping", "Contact PrimeNet and write the server response/version information to the AutoPrimeNet log."),
 	"ping_v6": Operation("Ping experimental v6 API", "PrimeNet", ("--ping", "--v6"), "v6", "Contact the experimental PrimeNet v6 ping endpoint and log its response. This does not switch normal assignment operations to v6."),
 	"register_computer": Operation("Register or update computer", "PrimeNet", ("--setup",), "setup", "Register/update this computer and synchronize its program options using saved graphical settings. The graphical adapter skips terminal setup and does not request assignments or automatically send a test email."),

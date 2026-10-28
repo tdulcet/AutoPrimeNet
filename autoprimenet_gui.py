@@ -138,6 +138,8 @@ class Application:
 		self.operation_buttons = {}
 		operation_frames, operation_counts = {}, {}
 		for key, operation in OPERATIONS.items():
+			if key == "push_status":
+				continue
 			if operation.tab not in operation_frames:
 				frame = operation_frames[operation.tab] = ttk.Frame(self.tabs[operation.tab])
 				frame.pack(anchor="w", fill="x", pady=(0, 6))
@@ -148,6 +150,8 @@ class Application:
 			operation_counts[operation.tab] += 1
 			self.operation_buttons[key] = button
 		ttk.Label(self.tabs["Dashboard"], text="Local workspace", font=("TkDefaultFont", 16)).pack(anchor="w")
+		ttk.Label(self.tabs["Dashboard"], text="Start your computation program separately", font=("TkDefaultFont", 12, "bold")).pack(anchor="w", pady=(12, 4))
+		ttk.Label(self.tabs["Dashboard"], text="Start monitoring runs AutoPrimeNet to fetch assignments and report progress/results.\nIt does not start Mlucas or another computation program. Downloading an assignment does not start its calculation.", justify="left", wraplength=720).pack(anchor="w")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.summary, justify="left", wraplength=720).pack(anchor="w", pady=12)
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.monitor_status, justify="left").pack(anchor="w")
 		controls = ttk.Frame(self.tabs["Dashboard"])
@@ -158,6 +162,8 @@ class Application:
 		self.stop_button.pack(side="left", padx=8)
 		self.force_button = ttk.Button(controls, text="Force stop…", command=self.force_stop_monitoring)
 		self.force_button.pack(side="left")
+		self.push_status_button = ttk.Button(self.tabs["Dashboard"], text="Push Status to PrimeNet Now", command=self.push_status)
+		self.push_status_button.pack(anchor="w", pady=4)
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.tray_status, wraplength=720).pack(anchor="w", pady=16)
 		self.assignments = self._table(self.tabs["Assignments"], ("Worker", "Exponent", "Work type", "Local AID", "Server confirmation"))
 		ttk.Label(self.tabs["Assignments"], text="The table is a read-only preview. Parsed work lines and local AIDs do not confirm current server reservations. Actions above require confirmation.", wraplength=720).pack(anchor="w", pady=8)
@@ -246,6 +252,8 @@ class Application:
 			button.state(["disabled"] if busy or active or self.quit_pending or self.editor.document is None else ["!disabled"])
 		self.stop_button.state(["!disabled"] if active and self.monitor.state != "Stopping" else ["disabled"])
 		self.force_button.state(["!disabled"] if active else ["disabled"])
+		can_push = not busy and not self.quit_pending and self.editor.document is not None and (not active or (self.native_monitor and self.active_operation is None and self.monitor.state not in {"Starting", "Stopping"}))
+		self.push_status_button.state(["!disabled"] if can_push else ["disabled"])
 
 	def refresh(self, confirm_discard=True):
 		if self.jobs.busy or self.quit_pending or not self.directory.get().strip() or (confirm_discard and not self.discard_changes()):
@@ -354,7 +362,7 @@ class Application:
 			self.status.set("Correct and save debug verbosity or instance-lock policy before running AutoPrimeNet.")
 			return
 		cadence = "Run one complete pass, then stop." if interval == 0 else f"Poll every {interval} seconds; report progress every {hours} hour(s). " + ("Watch results and proof files immediately." if watch else "Check results and proofs at each poll.")
-		if not messagebox.askyesno("Start monitoring", cadence + trace_text + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. Computation engines are never started or stopped.", parent=self.root):
+		if not messagebox.askyesno("Start monitoring", "This starts AutoPrimeNet only. Start your computation program separately to calculate assignments.\n\n" + cadence + trace_text + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. Computation engines are never started or stopped.", parent=self.root):
 			return
 		try:
 			self.monitor.start(document)
@@ -471,6 +479,20 @@ class Application:
 		widget.insert("end", text)
 		widget.configure(state="disabled")
 		return window
+
+	def push_status(self):
+		if not self.monitor.active:
+			self.run_operation("push_status")
+			return
+		if self.jobs.busy or self.quit_pending or not self.native_monitor or self.active_operation is not None or self.monitor.state in {"Starting", "Stopping"}:
+			return
+		try:
+			self.monitor.push_status()
+		except ControllerError as error:
+			self.status.set(str(error))
+			return
+		self.status.set("PrimeNet update requested; waiting for any active cycle to finish. Monitoring continues.")
+		self.log("Requested a progress check-in using the latest saved engine progress. The normal communication cycle and saved work-request settings apply; consult the backend log for server responses.")
 
 	def stop_monitoring(self):
 		if self.monitor.active:
@@ -638,12 +660,17 @@ class Application:
 			elif event == "trace_warning":
 				self.log("Private trace capture was incomplete. Check workspace disk space and permissions.")
 			elif event == "cycle_started":
+				if message.get("push_status"):
+					self.status.set("Sending a PrimeNet progress update using the latest saved engine progress…")
+					self.log("Requested PrimeNet progress check-in started.")
 				if self.monitor.state != "Stopping":
 					self.update_monitor_state("Running cycle")
 				self.log((OPERATIONS[self.active_operation].title if self.active_operation else "AutoPrimeNet communication cycle") + " started.")
 			elif event == "operation_finished":
 				self.log("One-shot CLI exited zero; server acceptance and message delivery remain unverified. Consult the AutoPrimeNet log.")
 			elif event == "cycle_finished":
+				if message.get("push_status"):
+					self.status.set("PrimeNet update cycle finished; check the backend log for server acceptance. Monitoring continues.")
 				if self.monitor.state != "Stopping":
 					self.update_monitor_state("Watching files" if self.native_monitor and self.monitor_watch else "Waiting", "Last local cycle ended: {}\nNext poll planned: {}".format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["time"])), time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(message["next_cycle"]))))
 				self.log("Local cycle completed; individual server outcomes remain unverified. Consult the AutoPrimeNet log.")
