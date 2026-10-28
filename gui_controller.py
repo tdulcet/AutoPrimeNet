@@ -31,6 +31,8 @@ def monitor_message(message):
 	event = message["event"]
 	if event not in {"ready", "cycle_started", "cycle_finished", "operation_finished", "failed", "stopped", "trace_created", "trace_warning"}:
 		return False
+	if "push_status" in message and type(message["push_status"]) is not bool:
+		return False
 	if event == "ready":
 		if "operation" in message:
 			from gui_operations import OPERATIONS
@@ -314,6 +316,16 @@ class MonitorController:
 					pass
 			process.stdout.close()
 			self.events.put({"event": "exited", "exit_code": code, "generation": generation})
+
+	def push_status(self):
+		with self._control_lock:
+			if not self.active or self.state in {"Starting", "Stopping"}:
+				raise ControllerError("Wait until scheduled monitoring is running.")
+			try:
+				self.process.stdin.write(json.dumps({"command": "push-status"}) + "\n")
+				self.process.stdin.flush()
+			except (OSError, ValueError) as error:
+				raise ControllerError("Could not request a PrimeNet status update.") from error
 
 	def stop(self, force=False):
 		with self._control_lock:

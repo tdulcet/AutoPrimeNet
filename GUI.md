@@ -329,6 +329,17 @@ No tray lookup contacts PrimeNet or a mail provider, or changes assignments.
 
 ## Usage
 
+### Starting computation separately
+
+The GUI's **Start monitoring** button starts AutoPrimeNet's assignment handling:
+fetching work, reporting progress/results and handling supported proofs. It does
+not launch Mlucas or another computation engine. Downloading or reserving work
+does not start calculating it. Install and start the selected engine separately,
+using the same working directory and matching work/results filenames. Worker
+settings describe the files AutoPrimeNet manages; they do not launch engine
+processes. Stopping monitoring or quitting the GUI leaves independent computation
+programs running.
+
 ### Configuring AutoPrimeNet locally
 
 Load a working directory with **Refresh preview** before editing. An existing
@@ -1081,3 +1092,21 @@ registration previews, lifecycle/quit, and private logs/reports. Live provider o
 PrimeNet actions should be exercised deliberately with the intended account and
 workspace, with local backups and review of server state. Cross-platform runtime
 and live-service acceptance remain pending in GUI_PARITY.md.
+
+### Sending progress to PrimeNet immediately
+
+Click **Push Status to PrimeNet Now** on the Dashboard to request an immediate
+progress check-in. While scheduled monitoring is running, AutoPrimeNet finishes
+any active cycle, wakes its scheduler and reports progress without stopping
+monitoring or starting a second backend. Repeated pending requests are combined.
+The configured polling and check-in intervals remain unchanged.
+
+This runs the normal communication cycle: results/proofs and new-work requests
+are handled according to the saved settings. Paused new-work requests stay
+paused. With monitoring stopped, the button offers a confirmed single pass.
+It is unavailable during startup, shutdown or another one-shot operation.
+
+Progress comes from the computation program's most recently written progress
+files. This does not force Mlucas or another engine to write a checkpoint.
+A completed cycle does not by itself prove that PrimeNet accepted an update;
+check the private backend log for the server response.

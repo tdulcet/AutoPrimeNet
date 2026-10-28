@@ -76,6 +76,24 @@ class RuntimeTests(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			instrument(tree)  # A second transform must fail, not stack hooks.
 
+	def test_push_wakes_idle_scheduler_and_stop_takes_precedence(self):
+		stop, push = threading.Event(), threading.Event()
+		runtime = Runtime(stop, lambda event: None, 1800, push)
+		ended = threading.Event()
+		thread = threading.Thread(target=lambda: (runtime.pause(1800), ended.set()))
+		thread.start()
+		push.set()
+		self.assertTrue(ended.wait(1))
+		thread.join()
+		cycles = runtime.cycles()
+		self.assertEqual(next(cycles), 0)
+		self.assertTrue(runtime.push_cycle)
+		self.assertFalse(push.is_set())
+		stop.set()
+		push.set()
+		with self.assertRaises(StopIteration):
+			next(cycles)
+
 	def test_stopped_queue_refuses_new_jobs_and_wakes_idle_worker(self):
 		stop = threading.Event()
 		jobs = StoppingQueue(stop)
@@ -173,6 +191,49 @@ print(json.dumps(dict(result=result, polls=polls, events=events)))
 			self.assertEqual([item["event"] for item in result["events"]], ["cycle_started", "cycle_finished", "cycle_started", "cycle_finished"])
 			self.assertTrue(all(item.get("server_confirmation") == "unverified" for item in result["events"] if item["event"] == "cycle_finished"))
 
+	def test_manual_push_forces_one_checkin_without_changing_cadence(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\nComputerGUID=0123456789abcdef0123456789abcdef\nwatch=False\nHoursBetweenCheckins=2\n")
+			code = r'''
+import contextlib, hashlib, io, json, sys, threading
+from pathlib import Path
+import gui_backend, gui_runtime
+sys.addaudithook(gui_backend._network_guard)
+stop = threading.Event()
+events, polls = [], []
+def emit(event):
+    events.append(event)
+    if event['event'] == 'cycle_finished' and len(polls) >= 4:
+        stop.set()
+def prepare(ns, runtime):
+    for name in ('check_disk_space', 'process_add_file', 'get_cert_work', 'download_certs', 'adjust_rolling_average', 'version_check', 'register_instance'):
+        ns[name] = lambda *args, **kwargs: None
+    ns['read_workfile'] = lambda *args: []
+    ns['register_assignments'] = lambda *args: False
+    ns['submit_work'] = lambda *args: True
+    ns['update_progress_all'] = lambda *args: None
+    ns['upload_proofs'] = lambda *args: True
+    def poll(*args):
+        polls.append(args[-1])
+        if len(polls) == 2:
+            runtime.push.set()
+    ns['get_assignments'] = poll
+    ns['_gui_pause'] = lambda delay: runtime.finished(delay)
+path = Path(sys.argv[1]) / 'prime.ini'
+request = dict(protocol=1, directory=str(path.parent), config_name=path.name, interval=1800, config_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    result = gui_runtime.execute(request, stop, emit, prepare)
+print(json.dumps(dict(result=result, polls=polls, events=events)))
+'''
+			process = subprocess.run([sys.executable, "-B", "-c", code, directory], cwd=ROOT, capture_output=True, text=True, timeout=15)
+			self.assertEqual(process.returncode, 0, process.stderr)
+			result = json.loads(process.stdout)
+			self.assertEqual(result["result"], 0)
+			self.assertEqual(result["polls"], [True, False, True, False])
+			self.assertEqual([item["event"] for item in result["events"]], ["cycle_started", "cycle_finished"] * 4)
+			self.assertTrue(all(item.get("server_confirmation") == "unverified" for item in result["events"] if item["event"] == "cycle_finished"))
+
 	@unittest.skipUnless(sys.platform == "darwin" or sys.platform.startswith("linux") or sys.platform == "win32", "Native watcher platform test")
 	@unittest.skipUnless(os.environ.get("AUTOPRIMENET_GUI_DESKTOP_TESTS") == "1", "Requires enabled native OS integration tests")
 	def test_native_watcher_delivers_real_local_result_change_and_drains_worker(self):
@@ -220,6 +281,15 @@ print(json.dumps(dict(result=result, seen=seen, drained=all(not t.is_alive() for
 			self.assertEqual(result["result"], 0)
 			self.assertEqual(result["seen"], ["", "fixture-result"])
 			self.assertTrue(result["drained"])
+
+	def test_supervisor_forwards_status_request_to_existing_child(self):
+		from gui_monitor import _native_process
+		control = StopControl()
+		control.push.set()
+		code = "import json,sys; json.loads(sys.stdin.buffer.readline()); assert json.loads(sys.stdin.buffer.readline())['command']=='push-status'"
+		process = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE)
+		with patch("gui_monitor.subprocess.Popen", return_value=process):
+			self.assertEqual(_native_process("fixture", "prime.ini", control, 1800, "sha"), (0, False))
 
 	def test_supervisor_forwards_stop_and_force_targets_only_owned_child(self):
 		from gui_monitor import _native_process

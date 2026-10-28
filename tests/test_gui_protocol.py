@@ -42,15 +42,16 @@ class ProtocolTests(unittest.TestCase):
 	def test_native_entry_point_separates_console_output_and_observes_parent_eof(self):
 		code = '''
 import gui_runtime, sys
-def execute(request, stop, emit):
+def execute(request, stop, emit, push=None):
     assert stop.wait(2), 'control reader did not observe parent EOF'
+    assert push.is_set(), 'control reader did not forward the status request'
     print('private-native-console-fixture')
     emit({'event': 'cycle_started', 'time': 0})
     return 0
 gui_runtime.execute = execute
 sys.exit(gui_runtime.main())
 '''
-		process = subprocess.run([sys.executable, "-B", "-c", code], input="{}\n", capture_output=True, text=True, cwd=ROOT, timeout=5)
+		process = subprocess.run([sys.executable, "-B", "-c", code], input='{}\n{"command":"push-status"}\n', capture_output=True, text=True, cwd=ROOT, timeout=5)
 		self.assertEqual(process.returncode, 0, process.stderr)
 		self.assertEqual(json.loads(process.stdout), {"event": "cycle_started", "time": 0})
 		self.assertEqual(process.stderr.strip(), "private-native-console-fixture")

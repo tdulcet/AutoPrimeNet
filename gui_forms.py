@@ -72,6 +72,7 @@ class ConfigurationForms:
 		self.widgets.append(button)
 		frame = ttk.LabelFrame(app.tabs["Workers"], text="Program and worker configuration", padding=8)
 		frame.pack(fill="x", pady=(0, 8))
+		ttk.Label(app.tabs["Workers"], text="These settings tell AutoPrimeNet which work files to manage. They do not install, launch or stop the computation program. Run that program separately in its working directory.", justify="left", wraplength=720).pack(anchor="w", pady=(0, 8))
 		ttk.Label(frame, text="Computation program").grid(row=0, column=0, sticky="w")
 		program = ttk.Combobox(frame, textvariable=self.engine, values=ENGINES, state="readonly", width=20)
 		program.grid(row=0, column=1, sticky="w", padx=8)

@@ -27,6 +27,7 @@ class StopControl:
 		self.stop = threading.Event()
 		self.force = threading.Event()
 		self.begin = threading.Event()
+		self.push = threading.Event()
 
 	def read(self, stream):
 		for line in stream:
@@ -36,6 +37,8 @@ class StopControl:
 				continue
 			if command == "stop":
 				self.stop.set()
+			elif command == "push-status":
+				self.push.set()
 			elif command == "begin":
 				self.begin.set()
 			elif command == "force-stop":
@@ -183,6 +186,13 @@ def _native_process(directory, config_name, control, interval, expected_hash, ca
 						process.kill()
 						process.wait()
 					return process.returncode, True
+				if control.push.is_set() and not control.stop.is_set():
+					control.push.clear()
+					try:
+						process.stdin.write(b'{"command":"push-status"}\n')
+						process.stdin.flush()
+					except OSError:
+						pass
 				if control.stop.is_set() and not stop_sent:
 					try:
 						process.stdin.write(b'{"command":"stop"}\n')

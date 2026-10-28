@@ -1168,8 +1168,43 @@ Verification passed all 227 tests with desktop/native checks enabled on macOS/
 Python 3.15.1/Tk 9.1. The four isolated preference tests, scoped Ruff checks and
 `git diff --check` also passed. Ubuntu restart acceptance remains pending.
 
+## Clarifying monitoring versus computation
+
+Ubuntu live testing showed that a downloaded assignment could be mistaken for a
+running calculation. The Dashboard now prominently explains that the computation
+program must be started separately, Workers clarifies that its settings do not
+launch an engine, and the Start confirmation leads with this distinction. The
+user guide also documents this setup step. This is a wording/layout change;
+engine launch or shutdown management has not been added.
+
+All 44 desktop tests passed on macOS/Python 3.15.1/Tk 9.1. A minimum-size
+780×520 layout check kept the monitoring controls above the visible status bar.
+Scoped Ruff checks and `git diff --check` passed.
+
 ## Original-file changes
 
 None. All GUI work so far is in newly added files. Existing upstream source,
 README, pyproject.toml, and workflows remain unchanged. No files have been staged
 or committed by the agent.
+
+### Immediate PrimeNet progress check-in
+
+The Dashboard's **Push Status to PrimeNet Now** button sends an IPC request to
+an existing GUI-owned native scheduler. A pending request wakes the scheduler's
+idle wait and forces the next cycle's progress check-in; active cycles finish
+first. Stop takes precedence, and pending requests coalesce. The regular
+communication cycle still observes configured work-request settings and handles
+results/proofs. Idle use runs a confirmed zero-timeout pass. No upstream source
+file is modified; the reviewed runtime AST adapter adds the check-in hook in
+memory and rejects an unexpected scheduler layout.
+
+Offline regression tests cover scheduler wake-up, forced check-ins between
+regular check-ins, subsequent normal cadence, stop precedence, IPC forwarding
+and GUI routing without launching overlapping backends. Live PrimeNet acceptance
+and Ubuntu button use still require manual verification.
+
+Validation: the full opt-in native GUI suite passed all 231 tests on the local
+macOS development host. Scoped lint and whitespace checks passed. At 780×520,
+the new button remained above the reserved status bar. All 10 original upstream
+files remain unchanged against baseline `b4426a1`. Ubuntu live-server verification
+of the new button remains pending.

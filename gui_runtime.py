@@ -55,10 +55,12 @@ class StoppingQueue(queue.Queue):
 
 
 class Runtime:
-	def __init__(self, stop, emit, interval):
+	def __init__(self, stop, emit, interval, push=None):
 		self.stop = stop
 		self.emit = emit
 		self.interval = interval
+		self.push = push if push is not None else threading.Event()
+		self.push_cycle = False
 		self.workers = []
 		self.errors = []
 		self.active_cycle = False
@@ -69,8 +71,11 @@ class Runtime:
 		while not self.stop.is_set():
 			if self.errors:
 				raise RuntimeError("An AutoPrimeNet background worker failed.")
+			self.push_cycle = self.push.is_set()
+			if self.push_cycle:
+				self.push.clear()
 			self.active_cycle = True
-			self.emit({"event": "cycle_started", "time": time.time()})
+			self.emit({"event": "cycle_started", "time": time.time(), "push_status": self.push_cycle})
 			yield index
 			self.finished(0)
 			index += 1
@@ -78,13 +83,13 @@ class Runtime:
 	def finished(self, delay):
 		if self.active_cycle:
 			self.active_cycle = False
-			self.emit({"event": "cycle_finished", "time": time.time(), "next_cycle": time.time() + delay, "server_confirmation": "unverified", "native_scheduler": True})
+			self.emit({"event": "cycle_finished", "time": time.time(), "next_cycle": time.time() + delay, "server_confirmation": "unverified", "native_scheduler": True, "push_status": self.push_cycle})
 
 	def pause(self, delay):
 		self.finished(delay)
 		# Also notice background worker failures without waiting a full interval.
 		deadline = time.monotonic() + delay
-		while not self.stop.is_set() and not self.errors:
+		while not self.stop.is_set() and not self.errors and not self.push.is_set():
 			if self.stop.wait(min(max(deadline - time.monotonic(), 0), 0.2)) or time.monotonic() >= deadline:
 				break
 		if self.errors:
@@ -125,6 +130,10 @@ def instrument(tree):
 	if len(loops) != 1:
 		raise ValueError("Unsupported native scheduler loop.")
 	loops[0].iter = ast.Call(func=ast.Name(id="_gui_cycles", ctx=ast.Load()), args=[], keywords=[])
+	checkins = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "checkin" for target in node.targets)]
+	if len(checkins) != 1:
+		raise ValueError("Unsupported native check-in layout.")
+	checkins[0].value = ast.BoolOp(op=ast.Or(), values=[ast.Call(func=ast.Name(id="_gui_force_checkin", ctx=ast.Load()), args=[], keywords=[]), checkins[0].value])
 	counts = {}
 	starts = 0
 	for node in ast.walk(main):
@@ -151,7 +160,7 @@ def instrument(tree):
 	return ast.fix_missing_locations(tree)
 
 
-def execute(request, stop, emit, before_main=None):
+def execute(request, stop, emit, before_main=None, push=None):
 	if not isinstance(request, dict) or request.get("protocol") != 1:
 		raise ValueError("Unsupported runtime request.")
 	interval = request.get("interval")
@@ -166,8 +175,8 @@ def execute(request, stop, emit, before_main=None):
 	calls = [i for i, node in enumerate(tree.body) if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "main"]
 	if len(calls) != 1:
 		raise ValueError("Unsupported native main entry point.")
-	runtime = Runtime(stop, emit, interval)
-	namespace = {"__name__": "__main__", "__file__": str(path), "_gui_cycles": runtime.cycles, "_gui_pause": runtime.pause, "_gui_idle": stop.wait, "_gui_start": runtime.start_worker}
+	runtime = Runtime(stop, emit, interval, push)
+	namespace = {"__name__": "__main__", "__file__": str(path), "_gui_force_checkin": lambda: runtime.push_cycle, "_gui_cycles": runtime.cycles, "_gui_pause": runtime.pause, "_gui_idle": stop.wait, "_gui_start": runtime.start_worker}
 	argv = sys.argv
 	sys.argv = [str(path), "--workdir", str(document.directory), "--config-file", document.path.name, "--timeout", str(interval), *debug_arguments(document.config)]
 	code = 0
@@ -207,6 +216,7 @@ def main():
 	def emit(message):
 		print(json.dumps(message), file=output, flush=True)
 	stop = threading.Event()
+	push = threading.Event()
 	try:
 		stream = os.fdopen(sys.stdin.fileno(), "rb", buffering=0, closefd=False)
 		line = stream.readline(65537)
@@ -216,15 +226,18 @@ def main():
 		def control():
 			for line in stream:
 				try:
-					if json.loads(line).get("command") == "stop":
+					command = json.loads(line).get("command")
+					if command == "stop":
 						stop.set()
+					elif command == "push-status":
+						push.set()
 				except (ValueError, AttributeError):
 					pass
 			stop.set()
 		threading.Thread(target=control, name="RuntimeControl", daemon=True).start()
 		# Native console/HTTP output must not corrupt the event channel.
 		with contextlib.redirect_stdout(sys.stderr):
-			return execute(request, stop, emit)
+			return execute(request, stop, emit, push=push)
 	except (Exception, SystemExit):
 		emit({"event": "failed", "error": "Native monitoring failed. Inspect the private backend log and refresh before restarting."})
 		return 1
