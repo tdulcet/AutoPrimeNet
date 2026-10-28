@@ -19,8 +19,8 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 ## Remaining workflow gaps
 
 * Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
-* Linux/FreeBSD GTK tray integration is implemented with simulated host checks; actual desktop/library/display-server validation remains pending.
-* Live registration, assignment changes, email, proof/result operations and v6 ping remain unvalidated. Tests use offline probes or simulated API responses. Python 3.15.0 itself and Windows/Linux/FreeBSD runtime coverage remain pending.
+* GTK tray integration passed manual GNOME/Wayland checks on Fedora and Ubuntu. Other Linux desktops, X11 and FreeBSD remain unverified.
+* Ubuntu validated Python 3.15.0, live computer registration, assignment download, pause/resume and immediate progress updates. Real-result acceptance, valid-proof upload, recovery/unreservation and experimental v6 ping remain unverified; email delivery was deliberately skipped. Windows, current macOS manual acceptance and FreeBSD remain pending. See the current acceptance record in GUI_DEVELOPMENT.md.
 
 ## Interactive workflows and state
 
@@ -31,7 +31,8 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 | Notifications | SMTP/recipient/TLS forms, send policy, masked encrypted password replacement, confirmed test email and reviewed provider discovery; no per-event editor |
 | Exponent registration | Batch form for the eight original work types, explicit parameters/factors, source-based offline preview, typed confirmation, work snapshots and original registration function; no implicit exponent metadata lookup |
 | Recovery and unreservation | Dedicated confirmations, structured exponent input and work/certification snapshots; no automatic reservation rollback or restore |
-| Status/logs/diagnostics | Original status report to native log, bounded private log/trace viewer, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
+| Status/logs/diagnostics | Dashboard immediate PrimeNet check-in while monitoring continues; original local status report to native log, bounded private log/trace viewer, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
+| Configuration persistence | Valid edits save automatically after a short pause; completed saves/operations refresh safely, conflicts preserve drafts, and per-user preferences remember the last workspace without restarting monitoring |
 | Lifecycle | Owned native scheduler with separate polling/check-ins, native file watching, one-pass mode, worker-draining Stop, explicit force, optional macOS/Windows/GTK tray with host-loss recovery and taskbar fallback and asynchronous Quit; no computation-engine process management |
 
 Batch registration supports one configured worker and up to 100 entries per operation, a 48 KiB normalized plan, and bounded integer/factor sizes. It also registers other unregistered work already in the selected worker file, matching upstream behavior. All graphical file/worker/preview/snapshot limits are documented in GUI.md.

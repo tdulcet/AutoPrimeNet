@@ -7,18 +7,22 @@ tray integration supports macOS, Windows and compatible Linux/FreeBSD desktops.
 Starting monitoring or confirming a server/email command performs real external
 operations.
 
-The ordinary CLI parser-entry inventory is covered, but platform and live-service
-acceptance remain pending. This is not a validated release. See
+The ordinary CLI parser-entry inventory is covered. Fedora desktop/tray checks
+and the Ubuntu GUI test round have passed, including the exact Python 3.15.0
+minimum and selected live PrimeNet operations. Other platform/live-service
+acceptance remains incomplete; this is not a validated release. See
 [GUI_PARITY.md](GUI_PARITY.md) for the audited inventory and explicit limits,
 [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for automated test evidence, and
 [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md) for the consolidated acceptance checklist.
 
 ## Features
 
-* Graphical configuration, worker editing and validated local saving
+* Graphical configuration, worker editing, validated automatic saving/refresh
+  and remembered workspace selection
 * Offline assignment and exponent-registration previews
 * Confirmed computer registration and one-shot CLI operations
-* Native monitoring, file watching and graceful worker shutdown
+* Native monitoring, immediate PrimeNet progress check-ins, file watching and
+  graceful worker shutdown
 * Optional tray/menu-bar integration with a reachable fallback
 * Reviewed GPU/SMTP discovery, masked password replacement and private reports
 
@@ -97,12 +101,12 @@ when its parent closes its input pipe, including after a parent-process failure.
 
 ## Installation
 
-These instructions prepare an environment for the current GUI foundation. The
-backend and opt-in desktop test suites are documented in
-[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). Live PrimeNet monitoring has not been
-validated; automated checks use simulated service responses, with native macOS
-tray and filesystem-event integration checks. Parser-entry coverage is complete
-within the documented limits; live-service and platform acceptance remain pending.
+These instructions prepare an environment for the current GUI. Automated checks
+and the Fedora/Ubuntu manual results are recorded in
+[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). Ubuntu validated selected live PrimeNet
+operations; automated service checks use simulated responses. Other platform and
+live-operation acceptance remains incomplete. Parser-entry coverage is complete
+within the documented limits.
 All GUI-specific dependency declarations and documentation are new
 files; existing CLI installation instructions remain unchanged.
 
@@ -258,8 +262,9 @@ original work-status reporting and offline diagnostic export.
 The optional helper now attempts menu-capable GTK 3/AppIndicator backends on
 Linux and FreeBSD. Native toolkit work runs in its own process, separate from
 Tkinter. Base GUI use still needs only requirements-gui.txt and matching Tk;
-GTK/GObject dependencies are optional. Real Linux/FreeBSD desktop acceptance is
-pending; current tests simulate GTK/D-Bus behavior on the macOS development host.
+GTK/GObject dependencies are optional. Manual tray/fallback checks passed on
+Fedora and Ubuntu GNOME/Wayland. Other Linux desktops, X11 and FreeBSD remain
+unverified; simulated GTK/D-Bus tests provide additional development coverage.
 
 For this optional feature, the **system** needs GTK **3**, GLib/GIO/GObject
 introspection runtime data, Cairo and any build tools/headers required by the
@@ -334,10 +339,11 @@ For a new workspace:
 2. In **PrimeNet**, supply your GIMPS username or the literal `ANONYMOUS`.
 3. In **Workers**, select the computation program and apply the intended worker
    count; configure per-worker directories where needed.
-4. In **Settings**, match the work/results filenames to the engine. Ubuntu's
-   packaged Mlucas 20.1.1 uses `worktodo.ini` and `results.txt`; explicitly change
-   the GUI's default `worktodo.txt` for this setup. Program selection does not
-   automatically change the work filename.
+4. In **Settings**, match the work/results filenames to the engine version.
+   Ubuntu's packaged Mlucas 20.1.1 documents `worktodo.ini`; the source-built
+   Mlucas 21.0.2 tested on Ubuntu uses `worktodo.txt`. Both use `results.txt`.
+   Change the GUI's `worktodo.txt` default when the engine requires another
+   filename. Selecting Mlucas does not automatically change the work filename.
 5. Valid form edits save automatically after a two-second pause, once all editor
    dialogs have closed. Apply a dialog's changes to include them; Cancel does
    not apply its draft. Wait for the successful-save/automatic-refresh status.
@@ -655,6 +661,27 @@ The watch preference is the original `[PrimeNet] watch` setting and also applies
 to the standalone CLI. A validated configuration is not evidence of registration,
 connectivity or successful server operations.
 
+### Sending progress to PrimeNet immediately
+
+Click **Push Status to PrimeNet Now** on the Dashboard to request an immediate
+progress check-in. While scheduled monitoring is running, AutoPrimeNet finishes
+any active cycle, wakes its scheduler and reports progress without stopping
+monitoring or starting a second backend. Repeated pending requests are combined.
+The configured polling and check-in intervals remain unchanged.
+
+This runs the normal communication cycle: results/proofs and new-work requests
+are handled according to the saved settings. Paused new-work requests stay
+paused. With monitoring stopped, the button offers a confirmed single pass.
+It is unavailable during startup, shutdown or another one-shot operation.
+
+The button uses the existing backend reporting path for all eight supported
+computation programs, not just Mlucas. Live manual button testing so far used
+Mlucas on Ubuntu. Progress comes from the configured computation program's
+most recently written progress files. This does not force Mlucas or another
+engine to write a checkpoint.
+A completed cycle does not by itself prove that PrimeNet accepted an update;
+check the private backend log for the server response.
+
 ### One-shot commands
 
 Save or reload unsaved edits before running these commands. Each button asks
@@ -662,6 +689,7 @@ for confirmation, describing its effects and showing the related CLI flags:
 
 | Tab and action | Original CLI flags | Effect |
 | --- | --- | --- |
+| Dashboard → Push Status to PrimeNet Now (monitoring stopped) | `--timeout 0` | Confirm one complete communication pass, including progress reporting; while scheduled monitoring runs, the same button requests a forced check-in through that runner |
 | PrimeNet → Ping PrimeNet… | `--ping` | Contacts the normal PrimeNet API and logs its response/version information |
 | PrimeNet → Ping experimental v6 API… | `--ping --v6` | Pings the experimental endpoint; does not switch assignment operations to v6 |
 | PrimeNet → Register or update computer… | Graphical `--setup` completion | Sends saved registration/program settings without terminal prompts or automatic work fetching |
@@ -885,13 +913,14 @@ logic and proof archival/deletion behavior remain original. No computation engin
 is launched or terminated. Stop before changing and saving monitoring preferences.
 
 The separate GUI runtime adds reviewed, in-memory lifecycle hooks to the audited
-source: scheduler-boundary stops, wakeable idle waits and reporting/upload worker
-draining. The original file is not edited. Native watchers only enqueue file names;
+source: scheduler-boundary stops, wakeable idle waits, requested progress
+check-ins and reporting/upload worker draining. The original file is not edited. Native watchers only enqueue file names;
 they remain daemon threads whose OS handles close when this owned child exits.
 Watcher or worker failure stops monitoring and drains active writers; inspect the
 private backend log and retry with watching disabled if the filesystem cannot
 support it. Native FSEvents delivery has been tested on macOS with simulated
-server calls; other platform/runtime acceptance remains pending.
+server calls. Ubuntu monitoring/watcher startup passed; live completed-result
+and proof delivery remain pending. See the acceptance record for platform scope.
 
 Each Start creates an owner-private configuration snapshot named
 `<config-name>.gui-monitor-backup-<unique-id>.bak` before beginning a cycle. The
@@ -1051,41 +1080,24 @@ The development environment now has Python 3.15.1, working Tcl/Tk 9.1.0 bindings
 and Requests inside `.venv`. A real Tk window smoke check has passed on macOS.
 The user confirmed an earlier prototype's manual macOS hide/reopen/Quit test;
 that historical check does not validate the current implementation. Consolidated
-manual acceptance remains pending and is tracked in
-[GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md).
-Release acceptance, Python 3.15.0-floor, and cross-platform validation remain pending;
-see [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for the scope of actual checks.
+manual acceptance uses the reusable plan in
+[GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md). Ubuntu validated the exact Python 3.15.0
+floor; Fedora and Ubuntu results are recorded in
+[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). Windows/current macOS manual rounds,
+FreeBSD and remaining live-service checks are still pending.
 
+### Manual acceptance status
 
+Fedora's GNOME/Wayland desktop/tray round passed, followed by a clean 211-test
+run with three skips after the Tk shutdown-callback fix. Ubuntu 26.04.1 ARM64
+completed its planned GUI round on Python 3.15.0, including automatic saves,
+refresh, remembered workspace, lifecycle/ownership, live computer registration,
+assignment download and the immediate-update button while monitoring ran. Its
+final automated run passed 231 tests with three skips.
 
-
-### Planned manual acceptance testing
-
-Manual acceptance testing remains pending; the implemented feature inventory is
-ready for acceptance testing within the documented limits. Automated
-checks recorded in GUI_DEVELOPMENT.md are separate evidence and do not imply the
-user has tested these workflows. Use disposable workspaces on the available test
-machines first. Record OS, Python/Tk versions, computation engine, tray support,
-and results for workspace loading, preservation/validation, GPU/mail discovery,
-registration previews, lifecycle/quit, and private logs/reports. Live provider or
-PrimeNet actions should be exercised deliberately with the intended account and
-workspace, with local backups and review of server state. Cross-platform runtime
-and live-service acceptance remain pending in GUI_PARITY.md.
-
-### Sending progress to PrimeNet immediately
-
-Click **Push Status to PrimeNet Now** on the Dashboard to request an immediate
-progress check-in. While scheduled monitoring is running, AutoPrimeNet finishes
-any active cycle, wakes its scheduler and reports progress without stopping
-monitoring or starting a second backend. Repeated pending requests are combined.
-The configured polling and check-in intervals remain unchanged.
-
-This runs the normal communication cycle: results/proofs and new-work requests
-are handled according to the saved settings. Paused new-work requests stay
-paused. With monitoring stopped, the button offers a confirmed single pass.
-It is unavailable during startup, shutdown or another one-shot operation.
-
-Progress comes from the computation program's most recently written progress
-files. This does not force Mlucas or another engine to write a checkpoint.
-A completed cycle does not by itself prove that PrimeNet accepted an update;
-check the private backend log for the server response.
+These results do not validate every engine or live operation. Real-result
+submission/acceptance and valid-proof upload remain pending; email delivery was
+skipped by request. Windows and current macOS manual rounds are separate work;
+FreeBSD remains unverified. Detailed evidence and Mlucas numerical-test limits
+are recorded in [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). The reusable per-machine
+plan is in [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md).
