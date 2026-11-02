@@ -4,7 +4,7 @@ This inventory covers the 96 argparse entries (including inverse flags, aliases 
 
 Source SHA-256: `05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7ec12`.
 
-Generated from the same option inventory and coverage metadata used by the GUI reference. The original source is unchanged. See [GUI.md](GUI.md) for behavior/limits and [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for test evidence.
+Generated from the same option inventory and coverage metadata used by the GUI reference. The original source is unchanged. See [GUI.md](GUI.md) for behavior/limits and [GUI_TESTING.md](GUI_TESTING.md) for test evidence.
 
 ## Coverage meaning
 
@@ -20,7 +20,7 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 
 * Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
 * GTK tray integration passed manual GNOME/Wayland checks on Fedora and Ubuntu. Other Linux desktops, X11 and FreeBSD remain unverified.
-* Ubuntu validated Python 3.15.0, live computer registration, assignment download, pause/resume and immediate progress updates. Real-result acceptance, valid-proof upload, recovery/unreservation and experimental v6 ping remain unverified; email delivery was deliberately skipped. Windows, current macOS manual acceptance and FreeBSD remain pending. See the current acceptance record in GUI_DEVELOPMENT.md.
+* Ubuntu validated Python 3.15.0, live computer registration, assignment download, pause/resume and immediate progress updates. Real-result acceptance, valid-proof upload, recovery/unreservation and experimental v6 ping remain unverified; email delivery was deliberately skipped. Windows 11 ARM completed its main desktop round and live Mlucas progress reporting; completed-result/proof handling, SMTP and sleep/resume remain unverified there. Current macOS manual acceptance and FreeBSD remain pending. See the current acceptance record in GUI_TESTING.md.
 
 ## Interactive workflows and state
 

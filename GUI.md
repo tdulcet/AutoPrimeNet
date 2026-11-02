@@ -7,12 +7,13 @@ tray integration supports macOS, Windows and compatible Linux/FreeBSD desktops.
 Starting monitoring or confirming a server/email command performs real external
 operations.
 
-The ordinary CLI parser-entry inventory is covered. Fedora desktop/tray checks
-and the Ubuntu GUI test round have passed, including the exact Python 3.15.0
-minimum and selected live PrimeNet operations. Other platform/live-service
-acceptance remains incomplete; this is not a validated release. See
+The ordinary CLI parser-entry inventory is covered. Fedora, Ubuntu ARM64 and
+Windows 11 ARM have completed their main desktop acceptance rounds. Ubuntu and
+Windows exercised Python 3.15.0 and selected live PrimeNet operations. Remaining
+platform and live-service gaps are recorded explicitly; this is not a fully
+validated release. See
 [GUI_PARITY.md](GUI_PARITY.md) for the audited inventory and explicit limits,
-[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md) for automated test evidence, and
+[GUI_TESTING.md](GUI_TESTING.md) for automated test evidence, and
 [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md) for the consolidated acceptance checklist.
 
 ## Features
@@ -90,9 +91,9 @@ license is compatible with the GUI's GPLv3 licensing. Dependencies include Pillo
 six, and platform bindings (PyObjC Cocoa/Quartz on macOS). These packages are not
 required by the CLI. They are declared separately in `requirements-gui-tray.txt`.
 
-Native tray integration has been programmatically tested on macOS with Python
-3.15.1. Windows remains untested. Linux/FreeBSD have optional GTK tray integration
-with taskbar fallback; their actual tray hosts have not yet been validated.
+Native tray integration has automated coverage on macOS with Python 3.15.1
+and manual acceptance on Windows 11 ARM. GTK tray hosts passed GNOME/Wayland
+checks on Fedora and Ubuntu. Other Linux desktops and FreeBSD remain unverified.
 This follows the event-loop and
 desktop constraints described in
 [pystray's integration documentation](https://pystray.readthedocs.io/en/latest/faq.html).
@@ -103,7 +104,7 @@ when its parent closes its input pipe, including after a parent-process failure.
 
 These instructions prepare an environment for the current GUI. Automated checks
 and the Fedora/Ubuntu manual results are recorded in
-[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). Ubuntu validated selected live PrimeNet
+[GUI_TESTING.md](GUI_TESTING.md). Ubuntu validated selected live PrimeNet
 operations; automated service checks use simulated responses. Other platform and
 live-operation acceptance remains incomplete. Parser-entry coverage is complete
 within the documented limits.
@@ -196,7 +197,8 @@ python3.15 -m venv .venv
 
 Use the actual interpreter path if it has another name. A failed display test
 may indicate a missing graphical session or display access, not a missing pip
-dependency. Linux/FreeBSD setup and tray behavior have not yet been tested.
+dependency. GNOME/Wayland setup and tray behavior passed on Fedora and Ubuntu;
+other Linux desktops and FreeBSD remain unverified.
 
 ### Optional SOCKS proxies and environment records
 
@@ -1041,8 +1043,8 @@ proof that its child has finished draining active work. Never remove a guard
 belonging to an active run. Locking behavior on real network/unsupported
 filesystems remains part of deferred manual acceptance testing.
 
-Automated tests use disposable workspaces and simulated cycles. A live monitoring
-trial has not been performed. Starting against a real workspace is an operational
+Automated tests use disposable workspaces and simulated cycles. Live monitoring has been exercised on Ubuntu and Windows 11 ARM; see
+[GUI_TESTING.md](GUI_TESTING.md) for the tested scope. Starting against a real workspace is an operational
 action with the side effects above, not a read-only test.
 
 ### Local files and Git hygiene
@@ -1061,43 +1063,9 @@ yourself. Review `git status --short` before staging. `.gitignore` does not prot
 tracked upstream files from edits or prevent changes to files already tracked.
 The GUI additions leave the original CLI files unchanged.
 
-## Development and validation
+## Development and testing
 
-* Test GUI startup, forms, background operations, configuration handling, and
-  backend integration on Python 3.15.0, then on selected later releases.
-* Reject older interpreters with a clear version message before importing
-  supporting GUI modules. The small launcher version check must itself use
-  syntax understood by the older interpreters it is intended to diagnose.
-* Scope GUI linting and test configuration to the GUI's minimum version.
-  The existing repository-wide Ruff and Pylint settings target older versions;
-  changing them globally could affect the independent CLI and requires review.
-* Preserve the CLI's independence by avoiding imports of GUI code from existing
-  CLI entry points.
-* Target macOS, Windows, Linux, and FreeBSD where practically testable. Record
-  actual runtime/platform results; intended support is not evidence of testing.
-
-The development environment now has Python 3.15.1, working Tcl/Tk 9.1.0 bindings,
-and Requests inside `.venv`. A real Tk window smoke check has passed on macOS.
-The user confirmed an earlier prototype's manual macOS hide/reopen/Quit test;
-that historical check does not validate the current implementation. Consolidated
-manual acceptance uses the reusable plan in
-[GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md). Ubuntu validated the exact Python 3.15.0
-floor; Fedora and Ubuntu results are recorded in
-[GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). Windows/current macOS manual rounds,
-FreeBSD and remaining live-service checks are still pending.
-
-### Manual acceptance status
-
-Fedora's GNOME/Wayland desktop/tray round passed, followed by a clean 211-test
-run with three skips after the Tk shutdown-callback fix. Ubuntu 26.04.1 ARM64
-completed its planned GUI round on Python 3.15.0, including automatic saves,
-refresh, remembered workspace, lifecycle/ownership, live computer registration,
-assignment download and the immediate-update button while monitoring ran. Its
-final automated run passed 231 tests with three skips.
-
-These results do not validate every engine or live operation. Real-result
-submission/acceptance and valid-proof upload remain pending; email delivery was
-skipped by request. Windows and current macOS manual rounds are separate work;
-FreeBSD remains unverified. Detailed evidence and Mlucas numerical-test limits
-are recorded in [GUI_DEVELOPMENT.md](GUI_DEVELOPMENT.md). The reusable per-machine
-plan is in [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md).
+See [GUI_TESTING.md](GUI_TESTING.md) for architecture, test commands, platform
+results and remaining validation gaps, and [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md)
+for the reusable manual checklist. The original CLI source and its dependencies
+remain independent of the GUI.

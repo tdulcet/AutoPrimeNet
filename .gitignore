@@ -62,3 +62,10 @@ Desktop.ini
 # Explicitly designated disposable local workspaces
 /.local-work/
 /test-output/
+
+# Local development notes and assistance configuration
+/LOCAL_DEVELOPMENT_NOTES.md
+/AGENTS.md
+/CLAUDE.md
+/.agents/
+/.codex/
