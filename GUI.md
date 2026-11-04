@@ -1253,3 +1253,7 @@ See [GUI_TESTING.md](GUI_TESTING.md) for architecture, test commands, platform
 results and remaining validation gaps, and [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md)
 for the reusable manual checklist. The original CLI source and its dependencies
 remain independent of the GUI.
+
+To stop any computation worker, follow the GUI guidance: **Stop this worker in
+terminal**. Use the program's normal stop procedure in its terminal; this applies
+to both GUI-launched and independently discovered workers.

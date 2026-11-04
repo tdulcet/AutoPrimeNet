@@ -25,7 +25,7 @@ class ProgressView:
 		self.observed = {}
 		frame = app.tabs["Progress"]
 		ttk.Label(frame, text="Running computation programs", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
-		ttk.Label(frame, text="Automatically discovers local processes and reads their saved progress. Updates at the configured time interval while this tab is open (default: 90 seconds).\nCheckpoints can lag computation; data older than 15 minutes is marked stale, which does not establish a stall.\nSelect a row for its full assignment and file paths. No PrimeNet connection or monitoring is required.", wraplength=940, justify="left").pack(anchor="w", pady=8)
+		ttk.Label(frame, text="Automatically discovers local processes and reads their saved progress. Updates at the configured time interval while this tab is open (default: 90 seconds).\nCheckpoints can lag computation; data older than 15 minutes is marked stale, which does not establish a stall.\nSelect a row for its full assignment and file paths. No PrimeNet connection or monitoring is required.\nStop this worker in terminal.", wraplength=940, justify="left").pack(anchor="w", pady=8)
 		controls = ttk.Frame(frame)
 		controls.pack(fill="x")
 		self.button = ttk.Button(controls, text="Refresh progress", command=self.refresh)

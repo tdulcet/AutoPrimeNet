@@ -112,7 +112,7 @@ def prepare_launch(base, profile, expected):
 	name, executable = select_terminal(plan["terminal"])
 	matches, inaccessible = duplicate_processes(plan)
 	if matches:
-		raise LaunchError("A matching computation program is already running in this directory (PID(s): " + ", ".join(map(str, matches)) + ").")
+		raise LaunchError("A matching computation program is already running in this directory (PID(s): " + ", ".join(map(str, matches)) + "). Stop this worker in terminal.")
 	return {"plan": plan, "terminal": name, "terminal_executable": executable, "inaccessible": inaccessible}
 
 
@@ -230,7 +230,7 @@ def run_computation(payload, pause=True):
 		with computation_guard(payload, plan):
 			matches, _ = duplicate_processes(plan)
 			if matches:
-				raise LaunchError("A matching computation is already running in the selected directory.")
+				raise LaunchError("A matching computation is already running in the selected directory. Stop this worker in terminal.")
 			print("Starting " + plan["name"] + " in " + plan["directory"], flush=True)
 			process = subprocess.Popen(plan["argv"], cwd=plan["directory"])
 			publish_status(status, {"state": "running", "pid": process.pid, "time": time.time()})

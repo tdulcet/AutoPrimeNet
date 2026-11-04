@@ -34,7 +34,7 @@ class LauncherView:
 		self.status.trace_add("write", lambda *_: self.app.status.set(self.status.get()))
 		frame = app.tabs["Launchers"]
 		ttk.Label(frame, text="Computation launch profiles", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
-		ttk.Label(frame, text="Profiles belong to the selected workspace. Each starts one engine invocation in an independent terminal.\nStart computation is separate from Start monitoring. Closing or quitting the GUI leaves computations running.\nEngine configuration controls workers and GPUs; supply any required startup arguments explicitly.", wraplength=920, justify="left").pack(anchor="w", pady=8)
+		ttk.Label(frame, text="Profiles belong to the selected workspace. Each starts one engine invocation in an independent terminal.\nStart computation is separate from Start monitoring. Closing or quitting the GUI leaves computations running.\nStop this worker in terminal. Engine configuration controls workers and GPUs; supply any required startup arguments explicitly.", wraplength=920, justify="left").pack(anchor="w", pady=8)
 		controls = ttk.Frame(frame)
 		controls.pack(fill="x")
 		self.buttons = []
