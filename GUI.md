@@ -1,7 +1,8 @@
 # AutoPrimeNet GUI
 
 The optional Tkinter/ttk GUI provides configuration forms with validated saving,
-local previews, native scheduled monitoring and file watching, confirmed one-shot
+local previews, automatic discovery and saved progress for running computation
+programs, native scheduled monitoring and file watching, confirmed one-shot
 commands, graphical computer/exponent registration, and private reports. Optional
 tray integration supports macOS, Windows and compatible Linux/FreeBSD desktops.
 Starting monitoring or confirming a server/email command performs real external
@@ -20,6 +21,8 @@ validated release. See
 
 * Graphical configuration, worker editing, validated automatic saving/refresh
   and remembered workspace selection
+* Automatic discovery of running computation programs, with saved progress,
+  worker statistics and queue/completion estimates
 * Offline assignment and exponent-registration previews
 * Confirmed computer registration and one-shot CLI operations
 * Native monitoring, immediate PrimeNet progress check-ins, file watching and
@@ -40,10 +43,12 @@ versions must be verified rather than assumed.
 
 The GUI interpreter must have working Tkinter and ttk bindings. AutoPrimeNet's
 existing Requests dependency must also be available to the backend interpreter.
-A virtual environment does not supply missing native Tk bindings.
+The GUI additionally uses psutil for local computation-process discovery. Both
+Python packages are declared in `requirements-gui.txt`. A virtual environment
+does not supply missing native Tk bindings.
 
-The intended default is to run the GUI and its AutoPrimeNet backend with the same
-Python 3.15.0-or-later interpreter, in an isolated development environment.
+The GUI runs its AutoPrimeNet backend with the same Python 3.15.0-or-later
+interpreter and selected virtual environment.
 
 ## Independent CLI compatibility
 
@@ -58,7 +63,7 @@ the CLI's historical compatibility claim.
 
 ## Background operation and window closing
 
-The intended default is **close to tray/menu bar and keep monitoring**. Closing
+The default is **close to tray/menu bar and keep monitoring**. Closing
 the main window hides it while both the GUI and its managed AutoPrimeNet backend
 remain running. This differs from exiting the GUI and leaving a detached backend.
 
@@ -67,22 +72,20 @@ remain running. This differs from exiting the GUI and leaving a detached backend
 * Linux and FreeBSD desktops: use an available compatible tray/status-item host.
   Availability depends on the desktop session, not just the operating system.
 
-The tray/menu-bar menu should offer **Open AutoPrimeNet GUI**, monitoring status,
-start/stop controls for the GUI-managed backend, and **Quit**. Callbacks must
-dispatch GUI updates onto Tk's main thread. Hiding and reopening must not start
-duplicate backend processes.
+The tray/menu-bar menu offers **Open AutoPrimeNet GUI**, monitoring status,
+start/stop controls for the GUI-managed backend, and **Quit**. Hiding and reopening
+preserves the existing backend process.
 
-Hide the window only after establishing a working restore control. If no usable
-tray host exists, minimize to the taskbar/Dock instead and explain the fallback.
-If tray support fails while hidden, restore the window or another reachable
-control. Do not leave an inaccessible hidden application.
+The window hides only after a working tray restore control is available. Without
+a usable tray host, closing minimizes to the taskbar/Dock instead. If tray support
+fails while hidden, the GUI restores the window so it remains reachable.
 
 **Quit** is separate from closing the window. When monitoring is active, Quit
-should explain that it will stop the GUI-managed AutoPrimeNet backend and confirm
-that action. An AutoPrimeNet instance launched independently remains outside the
-GUI's shutdown control. Hiding or quitting the GUI must never terminate Mlucas,
-Prime95, or another computation engine, unreserve assignments, or change the
-stop/resume-new-work setting as a side effect.
+explains that it will stop the GUI-managed AutoPrimeNet backend and asks for
+confirmation. An AutoPrimeNet instance launched independently remains outside the
+GUI's shutdown control. Hiding or quitting leaves Mlucas, Prime95 and other
+computation engines running, preserves assignments, and does not change the
+stop/resume-new-work setting.
 
 The GUI uses optional `pystray` in a separate child process with its own
 native event loop. Tkinter does not directly provide a portable tray API; using
@@ -118,7 +121,7 @@ files; existing CLI installation instructions remain unchanged.
 | System/interpreter installation | Python 3.15.0 or later | Runs the GUI and, by default, its backend |
 | System/interpreter installation | Matching Tcl/Tk and working `tkinter`/`ttk` bindings | Provides the graphical toolkit; cannot be supplied by a venv alone |
 | User session | Graphical desktop/display | Displays Tk windows; headless CLI operation is separate |
-| Project `.venv` | Packages from `requirements-gui.txt` (currently Requests and its resolved dependencies) | Existing backend HTTP support |
+| Project `.venv` | Packages from `requirements-gui.txt`: Requests, psutil and their resolved dependencies | Backend HTTP support and local computation-process discovery |
 | Optional `.venv` extra | Requests SOCKS extra, only for SOCKS proxy users | Adds PySocks support |
 | System/interpreter library, required for password replacement or existing encrypted passwords | Loadable OpenSSL `libcrypto` compatible with the original backend | Existing AES-256-GCM password encryption; this is a native library, not a pip package |
 | Optional `.venv` packages on macOS/Windows | `requirements-gui-tray.txt`: pystray, Pillow, six and platform dependencies | Tray/menu-bar helper; no tray packages needed for taskbar-only mode |
@@ -130,8 +133,7 @@ use standard-library `unittest` and disposable fixtures; no pytest,
 Ruff, or Pylint installation is currently required. Backend dependencies should
 be installed even for mocked integration tests that load backend definitions.
 No real account, assignments, proof upload, or email send is needed for isolated
-tests. Future dependency additions must update this table and the requirements
-files in the same change.
+tests.
 
 ### macOS with Homebrew
 
@@ -1064,14 +1066,7 @@ yourself. Review `git status --short` before staging. `.gitignore` does not prot
 tracked upstream files from edits or prevent changes to files already tracked.
 The GUI additions leave the original CLI files unchanged.
 
-## Development and testing
-
-See [GUI_TESTING.md](GUI_TESTING.md) for architecture, test commands, platform
-results and remaining validation gaps, and [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md)
-for the reusable manual checklist. The original CLI source and its dependencies
-remain independent of the GUI.
-
-### Progress for running computation programs
+## Progress for running computation programs
 
 Open **Progress** to discover local running computation programs automatically.
 No working directory selection, AutoPrimeNet monitoring session or PrimeNet
@@ -1111,9 +1106,9 @@ unavailable, and a blocked process listing produces an explicit notice.
 For an independently discovered process the reader checks `worktodo.txt`, then
 `worktodo.ini`; PRPLL uses indexed `worktodo-N.txt` files with worker numbers
 shown as N + 1. If a detected process's program and working directory match the
-loaded GUI workspace (or a configured worker directory), the reader uses the matching configured worker paths
-and custom work filenames. Multiple matching processes sharing a directory are
-grouped, with all process IDs listed, so shared work files are not counted once
+loaded GUI workspace (or a configured worker directory), the reader uses the
+matching configured worker paths and custom work filenames. Multiple matching
+processes sharing a directory are grouped, with all process IDs listed, so shared work files are not counted once
 per process. Worker numbers describe work files; they do not assert a one-to-one
 mapping between OS processes, engine threads and GPUs. Missing, empty or
 unrecognized work files are reported without hiding the detected program.
@@ -1142,3 +1137,10 @@ malformed file can time out a scan. A failed scan clears the old table and asks
 for a retry. Progress reading makes no configuration, assignment, checkpoint or
 server changes and never starts or stops a computation engine. Closing or
 quitting the GUI leaves independently running computations alone.
+
+## Development and testing
+
+See [GUI_TESTING.md](GUI_TESTING.md) for architecture, test commands, platform
+results and remaining validation gaps, and [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md)
+for the reusable manual checklist. The original CLI source and its dependencies
+remain independent of the GUI.

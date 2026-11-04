@@ -230,9 +230,14 @@ class NativeDiscoveryTests(unittest.TestCase):
 				subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(executable)], check=True, capture_output=True)
 			(directory / "worktodo.txt").write_text(f"Test={P},60,1\n")
 			(directory / f"p{P}.stat").write_text("Iter# = 10000 [ 10.00% complete] foo [ 2.000 msec/iter]\n")
-			process = subprocess.Popen([str(executable), "30"], cwd=directory)
+			# Multicall coreutils builds dispatch on argv[0], so retain "sleep"
+			# there while the executable path gives the OS its Mlucas name.
+			process = subprocess.Popen(["sleep", "30"], executable=str(executable), cwd=directory,
+				stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 			try:
 				result = backend_request("progress")
+				if process.poll() is not None:
+					self.fail("Discovery fixture exited before inspection: " + process.communicate(timeout=5)[1].strip())
 				rows = [row for row in result["rows"] if str(process.pid) in row["pids"].split(", ")]
 				self.assertEqual(len(rows), 1, result["notice"])
 				self.assertEqual(rows[0]["engine"], "Mlucas")
@@ -241,3 +246,4 @@ class NativeDiscoveryTests(unittest.TestCase):
 			finally:
 				process.terminate()
 				process.wait(timeout=5)
+				process.stderr.close()

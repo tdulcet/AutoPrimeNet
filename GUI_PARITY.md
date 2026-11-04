@@ -32,6 +32,7 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 | Exponent registration | Batch form for the eight original work types, explicit parameters/factors, source-based offline preview, typed confirmation, work snapshots and original registration function; no implicit exponent metadata lookup |
 | Recovery and unreservation | Dedicated confirmations, structured exponent input and work/certification snapshots; no automatic reservation rollback or restore |
 | Status/logs/diagnostics | Dashboard immediate PrimeNet check-in while monitoring continues; original local status report to native log, bounded private log/trace viewer, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
+| Local computation progress | Progress tab automatically discovers accessible running engines and reads saved checkpoints/logs for the eight fully supported programs; refreshes independently of monitoring; partial/result-reporting programs show detection without a progress reader |
 | Configuration persistence | Valid edits save automatically after a short pause; completed saves/operations refresh safely, conflicts preserve drafts, and per-user preferences remember the last workspace without restarting monitoring |
 | Lifecycle | Owned native scheduler with separate polling/check-ins, native file watching, one-pass mode, worker-draining Stop, explicit force, optional macOS/Windows/GTK tray with host-loss recovery and taskbar fallback and asynchronous Quit; no computation-engine process management |
 
