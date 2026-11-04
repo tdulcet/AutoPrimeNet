@@ -20,17 +20,24 @@ class ProgressView:
 		self.jobs = BackgroundJobs()
 		self.configured = None
 		self.due = 0
+		self.seconds = 90
 		self.records = {}
 		self.observed = {}
 		frame = app.tabs["Progress"]
 		ttk.Label(frame, text="Running computation programs", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
-		ttk.Label(frame, text="Automatically discovers local processes and reads their saved progress. Updates every 15 seconds while this tab is open.\nCheckpoints can lag computation; data older than 15 minutes is marked stale, which does not establish a stall.\nSelect a row for its full assignment and file paths. No PrimeNet connection or monitoring is required.", wraplength=940, justify="left").pack(anchor="w", pady=8)
+		ttk.Label(frame, text="Automatically discovers local processes and reads their saved progress. Updates at the configured time interval while this tab is open (default: 90 seconds).\nCheckpoints can lag computation; data older than 15 minutes is marked stale, which does not establish a stall.\nSelect a row for its full assignment and file paths. No PrimeNet connection or monitoring is required.", wraplength=940, justify="left").pack(anchor="w", pady=8)
 		controls = ttk.Frame(frame)
 		controls.pack(fill="x")
 		self.button = ttk.Button(controls, text="Refresh progress", command=self.refresh)
 		self.button.pack(side="left")
 		self.automatic = tk.BooleanVar(value=True)
 		ttk.Checkbutton(controls, text="Automatic refresh", variable=self.automatic).pack(side="left", padx=12)
+		ttk.Label(controls, text="Refresh seconds").pack(side="left")
+		self.interval = tk.StringVar(value="90")
+		self.interval_entry = ttk.Spinbox(controls, from_=1, to=86400, textvariable=self.interval, width=7)
+		self.interval_entry.pack(side="left", padx=6)
+		self.interval_button = ttk.Button(controls, text="Save interval", command=self.save_interval, state="disabled")
+		self.interval_button.pack(side="left")
 		self.status = tk.StringVar(value="Open this tab to discover running computation programs.")
 		ttk.Label(frame, textvariable=self.status, wraplength=940).pack(anchor="w", pady=6)
 		area = ttk.Frame(frame)
@@ -52,6 +59,20 @@ class ProgressView:
 		ttk.Label(frame, textvariable=self.details, wraplength=940, justify="left").pack(anchor="w", pady=8)
 		self.table.bind("<<TreeviewSelect>>", self.select)
 
+	def set_interval(self, seconds, enabled=True):
+		self.seconds = seconds
+		self.interval.set(str(seconds))
+		self.interval_button.state(["!disabled"] if enabled else ["disabled"])
+		self.due = time.monotonic() + seconds
+
+	def save_interval(self):
+		try:
+			seconds = int(self.interval.get())
+		except ValueError:
+			seconds = 0
+		if self.app.launchers.save_interval(seconds):
+			self.status.set("Progress refresh interval saved for this workspace.")
+
 	def refresh(self):
 		if self.jobs.busy or self.app.closed or self.app.quit_pending:
 			return
@@ -64,7 +85,7 @@ class ProgressView:
 		if result:
 			_, value, error = result
 			self.button.configure(state="normal")
-			self.due = time.monotonic() + 15
+			self.due = time.monotonic() + self.seconds
 			if error:
 				self.table.delete(*self.table.get_children())
 				self.records.clear()

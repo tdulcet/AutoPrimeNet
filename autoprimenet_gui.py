@@ -34,10 +34,11 @@ from gui_reports import BackendLogWindow, export_debug_report
 from gui_reference import reference_info
 from gui_trace import trace_notice
 from gui_progress_view import ProgressView
+from gui_launcher_view import LauncherView
 from gui_preferences import preferences_path, read_workspace, remember_workspace
 
 
-TABS = ("Dashboard", "Progress", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
+TABS = ("Dashboard", "Progress", "Launchers", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
 WORK_TYPES = {2: "TF", 3: "P-1", 4: "P-1", 5: "ECM", 6: "P+1", 100: "LL", 101: "LL double-check", 150: "PRP", 200: "Certification"}
 
 
@@ -137,6 +138,7 @@ class Application:
 		self.registration = RegistrationForm(self)
 		self.backend_log = BackendLogWindow(self)
 		self.progress_view = ProgressView(self)
+		self.launchers = LauncherView(self)
 		self.operation_buttons = {}
 		operation_frames, operation_counts = {}, {}
 		for key, operation in OPERATIONS.items():
@@ -152,7 +154,7 @@ class Application:
 			operation_counts[operation.tab] += 1
 			self.operation_buttons[key] = button
 		ttk.Label(self.tabs["Dashboard"], text="Local workspace", font=("TkDefaultFont", 16)).pack(anchor="w")
-		ttk.Label(self.tabs["Dashboard"], text="Start your computation program separately", font=("TkDefaultFont", 12, "bold")).pack(anchor="w", pady=(12, 4))
+		ttk.Label(self.tabs["Dashboard"], text="Computation and monitoring", font=("TkDefaultFont", 12, "bold")).pack(anchor="w", pady=(12, 4))
 		ttk.Label(self.tabs["Dashboard"], text="Start monitoring runs AutoPrimeNet to fetch assignments and report progress/results.\nIt does not start Mlucas or another computation program. Downloading an assignment does not start its calculation.", justify="left", wraplength=720).pack(anchor="w")
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.summary, justify="left", wraplength=720).pack(anchor="w", pady=12)
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.monitor_status, justify="left").pack(anchor="w")
@@ -164,6 +166,7 @@ class Application:
 		self.stop_button.pack(side="left", padx=8)
 		self.force_button = ttk.Button(controls, text="Force stop…", command=self.force_stop_monitoring)
 		self.force_button.pack(side="left")
+		self.launchers.build_dashboard(self.tabs["Dashboard"])
 		self.push_status_button = ttk.Button(self.tabs["Dashboard"], text="Push Status to PrimeNet Now", command=self.push_status)
 		self.push_status_button.pack(anchor="w", pady=4)
 		ttk.Label(self.tabs["Dashboard"], textvariable=self.tray_status, wraplength=720).pack(anchor="w", pady=16)
@@ -235,9 +238,12 @@ class Application:
 			self.refresh(confirm_discard=False)
 
 	def discard_changes(self):
-		return not (self.editor.dirty or self.registration.dirty) or messagebox.askyesno("Unsaved changes", "Discard unsaved configuration or queued registration edits?", parent=self.root)
+		return not (self.editor.dirty or self.registration.dirty or self.launchers.dirty) or messagebox.askyesno("Unsaved changes", "Discard unsaved configuration, launch profile or queued registration edits?", parent=self.root)
 
 	def set_busy(self, busy):
+		busy = busy or self.launchers.jobs.busy
+		self.launchers.set_busy(busy)
+		self.progress_view.interval_button.state(["!disabled"] if self.launchers.available and not busy and not self.quit_pending else ["disabled"])
 		active = self.monitor.active
 		self.reload_button.state(["disabled"] if busy or self.quit_pending else ["!disabled"])
 		for widget in (self.browse_button, self.directory_entry, self.config_entry):
@@ -278,7 +284,7 @@ class Application:
 	def editor_dialog_open(self):
 		return any(window is not None and window.winfo_exists() for window in (
 			self.editor.options_window, self.editor.password_window,
-			self.editor.mail_window, self.editor.worker_window, self.registration.window,
+			self.editor.mail_window, self.editor.worker_window, self.registration.window, self.launchers.window,
 		))
 
 	def automatic_update(self):
@@ -364,7 +370,7 @@ class Application:
 			self.status.set("Correct and save debug verbosity or instance-lock policy before running AutoPrimeNet.")
 			return
 		cadence = "Run one complete pass, then stop." if interval == 0 else f"Poll every {interval} seconds; report progress every {hours} hour(s). " + ("Watch results and proof files immediately." if watch else "Check results and proofs at each poll.")
-		if not messagebox.askyesno("Start monitoring", "This starts AutoPrimeNet only. Start your computation program separately to calculate assignments.\n\n" + cadence + trace_text + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. Computation engines are never started or stopped.", parent=self.root):
+		if not messagebox.askyesno("Start monitoring", "This starts AutoPrimeNet only. Use Start computation or launch your engine in a terminal to calculate assignments.\n\n" + cadence + trace_text + "\n\nAutoPrimeNet can register/update this computer, request/register assignments, report results/progress, download certification data, upload proofs and send configured notifications. Uploaded proofs are archived or deleted according to the saved configuration.\n\nStop finishes active work and waits for reporting/upload workers to exit. This monitoring control does not start or stop computation engines.", parent=self.root):
 			return
 		try:
 			self.monitor.start(document)
@@ -508,6 +514,7 @@ class Application:
 
 	def display_workspace(self, snapshot):
 		self.progress_view.configured = {key: snapshot[key] for key in ("engine", "directory", "workers")}
+		self.launchers.set_workspace(snapshot)
 		self.progress_view.due = 0
 		identity = snapshot["identity"]
 		self.summary.set("Username: {}\nComputer: {}\nProgram: {}\nConfiguration: {}\nWorkers: {}\nFree disk space: {:.1f} GiB\nNew-work requests: {} (configured state)".format(
@@ -582,6 +589,7 @@ class Application:
 		self.poll_after = None
 		if self.closed:
 			return
+		self.launchers.tick()
 		self.progress_view.tick()
 		result = self.jobs.take()
 		if result:
@@ -772,7 +780,7 @@ class Application:
 	def quit(self):
 		# Finish bounded local operations, then stop owned monitoring at a cycle
 		# boundary. Closing the window instead retains background monitoring.
-		if self.jobs.busy:
+		if self.jobs.busy or self.launchers.jobs.busy:
 			self.show()
 			self.status.set("An operation is still running; quit when it completes.")
 			return
@@ -796,6 +804,7 @@ class Application:
 			self.root.after_cancel(self.poll_after)
 			self.poll_after = None
 		self.tray.stop()
+		self.launchers.close()
 		self.progress_view.close()
 		self.jobs.close()
 		self.root.destroy()

@@ -21,8 +21,9 @@ validated release. See
 
 * Graphical configuration, worker editing, validated automatic saving/refresh
   and remembered workspace selection
+* Workspace-local computation launch profiles and independent terminal startup
 * Automatic discovery of running computation programs, with saved progress,
-  worker statistics and queue/completion estimates
+  worker statistics, queue/completion estimates and a configurable refresh interval
 * Offline assignment and exponent-registration previews
 * Confirmed computer registration and one-shot CLI operations
 * Native monitoring, immediate PrimeNet progress check-ins, file watching and
@@ -317,16 +318,21 @@ No tray lookup contacts PrimeNet or a mail provider, or changes assignments.
 
 ## Usage
 
-### Starting computation separately
+### Starting computation and monitoring
 
-The GUI's **Start monitoring** button starts AutoPrimeNet's assignment handling:
-fetching work, reporting progress/results and handling supported proofs. It does
-not launch Mlucas or another computation engine. Downloading or reserving work
-does not start calculating it. Install and start the selected engine separately,
-using the same working directory and matching work/results filenames. Worker
-settings describe the files AutoPrimeNet manages; they do not launch engine
-processes. Stopping monitoring or quitting the GUI leaves independent computation
-programs running.
+**Start monitoring** starts AutoPrimeNet's assignment handling: fetching work,
+reporting progress/results and handling supported proofs. **Start computation**
+is a separate action that opens the selected computation profile in a terminal.
+Downloading or reserving assignments does not start calculating them.
+
+Install the selected engine and configure its work/results filenames and worker
+or GPU settings normally. Use **Launchers** to save a profile for it, then use
+**Start computation…** on the Dashboard or Launchers tab. You can also continue
+to start engines manually in their terminals. AutoPrimeNet's Workers settings
+describe the files it manages; they do not automatically create launch profiles
+or infer engine startup arguments. Stopping monitoring or quitting the GUI
+leaves computation programs running. See [Computation launch profiles](#computation-launch-profiles)
+for setup and supported terminal choices.
 
 ### Configuring AutoPrimeNet locally
 
@@ -379,6 +385,7 @@ Deleting this preferences file forgets the selection without deleting work files
 | Tab | Current graphical settings |
 | --- | --- |
 | PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day; hardware/resource settings dialog |
+| Launchers | Workspace-local executable, directory, arguments and terminal profiles; separate Start computation control |
 | Progress | Automatic local running-program discovery, saved progress and queue/completion estimates; no monitoring required |
 | Workers | One of the eight supported computation programs, worker count, per-worker directories and preference codes |
 | Assignments | Days of queued work and legacy extra-assignment cache |
@@ -1066,12 +1073,114 @@ yourself. Review `git status --short` before staging. `.gitignore` does not prot
 tracked upstream files from edits or prevent changes to files already tracked.
 The GUI additions leave the original CLI files unchanged.
 
+## Computation launch profiles
+
+Choose a working directory and load its preview. Open **Launchers → Add profile…**
+and give the profile a name, choose its computation program, and browse to its
+installed executable. Set the engine working directory and any arguments it
+needs, then select a terminal preference and choose **Save profile**. The
+Dashboard's profile selector and the Launchers table share the same profiles.
+Adding, editing, deleting, reloading or selecting a profile never starts it.
+
+A workspace can hold profiles for multiple programs or worker arrangements.
+One click launches one selected profile, representing one engine invocation.
+Some engines manage multiple workers in that invocation; others use separate
+processes and work directories. Set those worker/thread/GPU options in the engine's
+own configuration or explicit startup arguments. No engine-specific options,
+PRPLL worker indices, device selections or engine configuration files are inferred
+or rewritten. The program selector labels the profile for discovery/duplicate
+checks; it does not install the program or guarantee a build exists for this OS.
+
+A blank working directory uses the selected workspace. Relative working-directory
+and executable paths start at that workspace; use `./Mlucas`, for example, to
+select a workspace-relative executable. A bare executable name is resolved using
+the GUI process's PATH. Absolute paths and the Browse controls are useful when
+an engine is installed elsewhere. Moving a workspace to another computer can
+require editing executable paths, arguments and terminal preferences. Windows
+profiles launch the engine's `.exe` or `.com` binary, rather than a batch file.
+
+Enter arguments **one exact argument per line**, without shell quoting. A path
+containing spaces belongs on a single line. Shell expressions, pipelines and
+environment-variable expansion are not supported: arguments are passed literally
+to the engine. Empty argument lines and Unicode characters are preserved when
+a profile is edited. Profile arguments are stored as plain text, so keep passwords and
+other secrets out of them.
+
+Profiles and the Progress refresh interval are saved in
+**`autoprimenet-gui-launchers.json` in the selected working directory**. This is
+separate from `prime.ini` and every engine's own configuration. It uses versioned
+JSON, supports at most 128 uniquely named profiles (80 characters per name),
+128 arguments per profile and 128 KiB total. Saving is atomic, checks for external
+edits and uses a workspace lock. Symlink/nonregular settings files and malformed
+or unsupported data are refused. Use **Reload launchers** after repairing an
+external edit; unsaved profile changes require confirmation before a workspace
+change or Quit. The settings file is created only when a profile or interval is
+saved, never merely by loading a workspace. There is no automatic launch when
+loading a workspace or opening the GUI.
+
+Choose the profile, click **Start computation…**, review the resolved executable,
+arguments, directory and terminal, then confirm. Both the GUI and terminal helper
+check for a matching executable or program already running in the same directory.
+A per-workspace launch lock also refuses concurrent helper launches of the same
+executable/directory. These checks are best effort: OS permissions, renamed
+executables, other users and unusual process arrangements can limit detection.
+A duplicate is refused rather than automatically stopped or overridden.
+
+Supported terminal preferences are:
+
+| OS | Terminal choices |
+| --- | --- |
+| macOS | `auto` or `Terminal`, through the system AppleScript interface; allow Terminal automation if macOS asks |
+| Windows | `auto`, `PowerShell` or `Cmd`; auto tries PowerShell 7, then Windows PowerShell, then Command Prompt |
+| Linux/FreeBSD | `auto`, `ptyxis`, `gnome-terminal`, `konsole`, `xfce4-terminal` or `xterm`; auto chooses the first installed terminal in that order |
+
+The terminal must be available in the GUI's environment and have access to the
+interactive desktop. Explicitly selecting an unavailable or wrong-platform
+terminal produces an error. Custom terminal templates, Flatpak/container launch
+wrappers and arbitrary terminal executables are not supported in this version.
+
+Opening a terminal is reported as a request, not computation success. The
+independent helper confirms the launched engine PID or reports its exit/failure.
+The GUI waits up to 30 seconds for that startup confirmation, then asks you to
+check the terminal and Progress before retrying. Terminal invocation failures
+produce a startup error. OS permission dialogs or delayed desktop startup can
+outlast this timeout, so confirm that an engine did not start before retrying.
+If a status-file write fails after the engine starts, the helper reports the
+problem in its terminal, keeps its launch lock and waits for the engine normally.
+The GUI can time out in that case; check the terminal and Progress before retrying.
+After the helper responds, Progress refreshes immediately. Progress still depends
+on supported process names and saved files; starting an engine does not force it
+to write a checkpoint or make every statistic available immediately.
+
+Engine output remains in its terminal. After the engine exits or cannot start,
+the helper displays the result and waits for Enter, allowing errors to be read;
+PowerShell/Cmd can retain their shell afterward. Hiding or quitting the GUI does
+not terminate the terminal, helper or computation. Closing the computation's
+terminal is a separate action and can interrupt its processes. The launcher does
+not provide computation Stop, Restart, Start all or automatic-start controls.
+It tracks the initially launched process; engines that detach or spawn another
+independent instance may continue after that initial process exits.
+
+Launch requests and small status files are stored under
+`.autoprimenet-gui-launches/` in the workspace. `.autoprimenet-gui-launchers.lock`
+protects profile saves; per-computation lock files live in the session directory.
+These are GUI-owned files and may contain local paths and arguments. The root
+checkout ignore rules exclude them and the profile JSON. For workspaces elsewhere,
+keep them out of version control as appropriate. Leave active session/lock files
+alone; completed session subdirectories may be removed after their terminal
+helpers exit. Keep the GUI checkout and its Python environment available until
+requested terminals have started their helpers.
+
 ## Progress for running computation programs
 
 Open **Progress** to discover local running computation programs automatically.
 No working directory selection, AutoPrimeNet monitoring session or PrimeNet
 connection is required. **Refresh progress** scans immediately; **Automatic
-refresh** repeats the scan every 15 seconds while the Progress tab is selected.
+refresh** repeats scans every **90 seconds by default** while the Progress tab
+is selected. Enter **Refresh seconds** (1–86400), then **Save interval** to persist
+a different interval for the loaded workspace in `autoprimenet-gui-launchers.json`.
+Without a loaded workspace, discovery uses the 90-second default. The interval
+is independent of AutoPrimeNet polling/check-ins and engine output/iteration settings.
 Switching tabs pauses automatic scans. An in-flight scan finishes independently
 of configuration editing and monitoring. Install the updated
 `requirements-gui.txt` in the GUI's Python environment; discovery uses `psutil`.

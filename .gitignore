@@ -65,3 +65,8 @@ Desktop.ini
 
 # Local-only notes
 /LOCAL_DEVELOPMENT_NOTES.md
+
+# Workspace-local computation launch settings and sessions
+/autoprimenet-gui-launchers.json
+/.autoprimenet-gui-launches/
+/.autoprimenet-gui-launchers.lock

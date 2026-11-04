@@ -583,6 +583,8 @@ class WindowTests(unittest.TestCase):
 		view.display({"rows": [{**row, "iteration": 11000}], "notice": "Fixture rescan"})
 		self.assertTrue(view.table.selection())
 		self.assertIn("advanced", view.table.item(view.table.get_children()[0], "values")[10])
+		view.display({"rows": [{**row, "completion": 1e100}], "notice": "Fixture invalid date"})
+		self.assertEqual(view.table.item(view.table.get_children()[0], "values")[8], "Unavailable")
 		with patch("gui_progress_view.backend_request", return_value=result):
 			self.app.notebook.select(self.app.tabs["Progress"])
 			view.refresh()
@@ -590,8 +592,291 @@ class WindowTests(unittest.TestCase):
 		self.assertFalse(self.app.monitor.active)
 		self.assertEqual(len(view.table.get_children()), 1)
 
+	def test_workspace_launch_profiles_and_progress_interval_persist_without_starting(self):
+		with tempfile.TemporaryDirectory() as temp:
+			self.app.directory.set(temp)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			view = self.app.launchers
+			self.assertEqual(self.app.progress_view.seconds, 90)
+			view.add()
+			view.editor_variables["name"].set("Worker one")
+			view.editor_variables["executable"].set(sys.executable)
+			view.editor_arguments.insert("1.0", "--literal space argument")
+			view.editor_save()
+			self.assertIsNone(view.window)
+			self.assertEqual(view.current()["arguments"], ["--literal space argument"])
+			self.app.progress_view.interval.set("42")
+			self.app.progress_view.save_interval()
+			self.assertEqual(self.app.progress_view.seconds, 42)
+			from gui_launch_profiles import load_settings
+			settings, _ = load_settings(temp)
+			self.assertEqual(settings["refresh_seconds"], 42)
+			self.assertEqual(settings["profiles"][0]["name"], "Worker one")
+			self.app.progress_view.interval.set("not a number")
+			self.app.progress_view.save_interval()
+			self.assertEqual(self.app.progress_view.seconds, 42)
+			self.app.progress_view.interval.set("0")
+			self.app.progress_view.save_interval()
+			self.assertEqual(self.app.progress_view.seconds, 42)
+			self.assertFalse(self.app.monitor.active)
+			self.assertFalse(view.jobs.busy)
+			view.add()
+			view.editor_variables["name"].set("Unsaved")
+			with patch("autoprimenet_gui.messagebox.askyesno", return_value=False):
+				self.assertFalse(self.app.discard_changes())
+			view.close_editor()
+			self.root.geometry("780x520")
+			self.app.notebook.select(self.app.tabs["Launchers"])
+			self.root.update()
+			button_bottom = view.launch_button.winfo_rooty() + view.launch_button.winfo_height()
+			tab_bottom = self.app.tabs["Launchers"].winfo_rooty() + self.app.tabs["Launchers"].winfo_height()
+			self.assertLessEqual(button_bottom, tab_bottom)
+
+	def test_computation_review_cancel_startup_handshake_and_workspace_switch(self):
+		from gui_launch_profiles import defaults, save_settings, write_json
+		from gui_computation import resolve_profile
+		with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as other:
+			profile = {"name": "Fixture", "program": "Mlucas", "executable": sys.executable, "directory": "", "arguments": [], "terminal": "auto"}
+			save_settings(temp, {**defaults(), "profiles": [profile], "refresh_seconds": 12}, None)
+			self.app.directory.set(temp)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			view = self.app.launchers
+			prepared = {"plan": resolve_profile(temp, profile), "terminal": "Fixture terminal", "inaccessible": 2}
+			with patch("gui_launcher_view.prepare_launch", return_value=prepared), patch("gui_launcher_view.launch_computation") as launch, patch("gui_launcher_view.messagebox.askyesno", return_value=False):
+				view.start()
+				self.wait_until(lambda: not view.jobs.busy)
+				launch.assert_not_called()
+			session = Path(temp, "session")
+			session.mkdir()
+			write_json(session / "status.json", {"state": "running", "pid": 12345})
+			with patch("gui_launcher_view.prepare_launch", return_value=prepared), patch("gui_launcher_view.launch_computation", return_value={"session": str(session), "name": "Fixture", "directory": temp}), patch("gui_launcher_view.messagebox.askyesno", return_value=True), patch.object(self.app.progress_view, "refresh") as refresh:
+				view.start()
+				self.wait_until(lambda: not view.jobs.busy)
+				self.assertIn("12345", view.status.get())
+				refresh.assert_called_once()
+			self.assertFalse(self.app.monitor.active)
+			self.app.directory.set(other)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			self.assertEqual(view.settings["profiles"], [])
+			self.assertEqual(self.app.progress_view.seconds, 90)
+
+	def launcher_fixture(self, directory):
+		from gui_launch_profiles import defaults, save_settings
+		profile = {"name": "Fixture", "program": "Mlucas", "executable": sys.executable, "directory": "", "arguments": [], "terminal": "auto"}
+		save_settings(directory, {**defaults(), "profiles": [profile]}, None)
+		self.app.directory.set(directory)
+		self.app.refresh()
+		self.wait_until(lambda: not self.app.jobs.busy)
+		return self.app.launchers
+
+	def test_launcher_edit_delete_reload_and_external_edit_conflict(self):
+		from gui_launch_profiles import FILENAME, load_settings, write_json
+		with tempfile.TemporaryDirectory() as temp:
+			view = self.launcher_fixture(temp)
+			view.edit()
+			view.editor_variables["name"].set("Edited")
+			view.editor_save()
+			self.assertEqual(view.current()["name"], "Edited")
+			view.edit()
+			view.editor_variables["name"].set("Draft")
+			with patch("gui_launcher_view.messagebox.askyesno", return_value=False):
+				view.reload()
+			self.assertEqual(view.editor_variables["name"].get(), "Draft")
+			settings, _ = load_settings(temp)
+			settings["refresh_seconds"] = 23
+			write_json(Path(temp, FILENAME), settings)
+			before = Path(temp, FILENAME).read_bytes()
+			view.editor_save()
+			self.assertEqual(Path(temp, FILENAME).read_bytes(), before)
+			self.assertTrue(view.window.winfo_exists())
+			with patch("gui_launcher_view.messagebox.askyesno", return_value=True):
+				view.reload()
+			self.assertIsNone(view.window)
+			self.assertEqual(self.app.progress_view.seconds, 23)
+			with patch("gui_launcher_view.messagebox.askyesno", return_value=False):
+				view.delete()
+			self.assertEqual(len(view.settings["profiles"]), 1)
+			with patch("gui_launcher_view.messagebox.askyesno", return_value=True):
+				view.delete()
+			self.assertEqual(load_settings(temp)[0]["profiles"], [])
+			self.assertTrue(view.launch_button.instate(["disabled"]))
+
+	def test_launcher_edit_preserves_empty_and_unicode_separator_arguments(self):
+		from gui_launch_profiles import load_settings, save_settings
+		with tempfile.TemporaryDirectory() as temp:
+			view = self.launcher_fixture(temp)
+			settings, version = load_settings(temp)
+			arguments = ["literal space", "unicode\u2028separator", ""]
+			settings["profiles"][0]["arguments"] = arguments
+			save_settings(temp, settings, version)
+			view.reload()
+			view.edit()
+			self.assertFalse(view.dirty)
+			view.editor_variables["name"].set("Renamed")
+			view.editor_save()
+			self.assertEqual(load_settings(temp)[0]["profiles"][0]["arguments"], arguments)
+
+	def test_launcher_browse_selection_invalid_save_and_readonly_failures(self):
+		with tempfile.TemporaryDirectory() as temp:
+			view = self.launcher_fixture(temp)
+			view.add()
+			window = view.window
+			view.add()
+			self.assertIs(view.window, window)
+			view.editor_variables["name"].set("Second")
+			outer = window.winfo_children()[0]
+			browse = {int(widget.grid_info()["row"]): widget for widget in outer.winfo_children() if widget.winfo_class() == "TButton" and widget.cget("text") == "Browse…"}
+			with patch("gui_launcher_view.filedialog.askopenfilename", return_value=sys.executable), patch("gui_launcher_view.filedialog.askdirectory", return_value=temp):
+				browse[2].invoke()
+				browse[3].invoke()
+			self.assertEqual(view.editor_variables["executable"].get(), sys.executable)
+			self.assertEqual(view.editor_variables["directory"].get(), temp)
+			with patch("gui_launcher_view.prepare_launch") as prepare:
+				view.start()
+				prepare.assert_not_called()
+			view.editor_save()
+			view.table.selection_set("0")
+			view.selected()
+			self.assertEqual(view.current()["name"], "Fixture")
+			view.edit()
+			view.editor_variables["name"].set("Second")
+			view.editor_save()
+			self.assertIsNotNone(view.window)
+			self.assertEqual(len(view.settings["profiles"]), 2)
+			view.close_editor()
+			with patch("gui_launcher_view.save_settings", side_effect=OSError("fixture read-only workspace")), patch("gui_launcher_view.messagebox.askyesno", return_value=True):
+				view.delete()
+				self.assertEqual(len(view.settings["profiles"]), 2)
+				self.assertFalse(view.save_interval(12))
+				self.assertEqual(self.app.progress_view.seconds, 90)
+
+	def test_launcher_malformed_settings_recover_and_reserved_work_filename_refuses(self):
+		from gui_launch_profiles import FILENAME, defaults, write_json
+		with tempfile.TemporaryDirectory() as temp:
+			path = Path(temp, FILENAME)
+			path.write_text("malformed fixture")
+			self.app.directory.set(temp)
+			self.app.refresh()
+			self.wait_until(lambda: not self.app.jobs.busy)
+			view = self.app.launchers
+			self.assertFalse(view.available)
+			self.assertTrue(view.buttons[0].instate(["disabled"]))
+			self.assertTrue(self.app.progress_view.interval_button.instate(["disabled"]))
+			write_json(path, defaults())
+			view.reload()
+			self.assertTrue(view.available)
+			view.set_workspace({"directory": temp, "engine": "mlucas", "workers": [{"work_file": str(path)}]})
+			self.assertFalse(view.available)
+			self.assertEqual(__import__('json').loads(path.read_text()), defaults())
+
+	def test_launcher_timeout_missing_malformed_and_finished_startup_status(self):
+		from gui_launch_profiles import write_json
+		with tempfile.TemporaryDirectory() as temp:
+			view = self.launcher_fixture(temp)
+			session = Path(temp, "session")
+			session.mkdir()
+			cases = [({"state": "waiting"}, "not confirmed"), ({"state": "finished", "pid": 22, "exit_code": 7}, "status 7"), ({"state": "failed", "reason": "terminal"}, "terminal request failed"), ([], "could not start")]
+			with patch.object(self.app.progress_view, "refresh"):
+				for value, message in cases:
+					write_json(session / "status.json", value)
+					view.pending = {"session": str(session), "deadline": 0}
+					view.tick()
+					self.assertIsNone(view.pending)
+					self.assertIn(message, view.status.get())
+				(session / "status.json").unlink()
+				view.pending = {"session": str(session), "deadline": time.monotonic() + 100}
+				with patch("gui_launcher_view.prepare_launch") as prepare:
+					view.start()
+					prepare.assert_not_called()
+				view.tick()
+				self.assertIsNotNone(view.pending)
+				view.pending["deadline"] = 0
+				view.tick()
+				self.assertIsNone(view.pending)
+
+	def test_launcher_repeated_clicks_and_quit_wait_for_prepare_failure(self):
+		import threading
+		from gui_launch_profiles import LaunchError
+		with tempfile.TemporaryDirectory() as temp:
+			view = self.launcher_fixture(temp)
+			release = threading.Event()
+			def prepare(*_args):
+				release.wait(5)
+				raise LaunchError("fixture preflight failure")
+			with patch("gui_launcher_view.prepare_launch", side_effect=prepare) as preflight, patch("gui_launcher_view.launch_computation") as launch:
+				try:
+					view.start()
+					view.start()
+					self.app.quit()
+					self.assertFalse(self.app.closed)
+				finally:
+					release.set()
+					self.wait_until(lambda: not view.jobs.busy)
+				preflight.assert_called_once()
+				launch.assert_not_called()
+				self.assertIn("preflight failure", view.status.get())
+
+	def test_launcher_edit_and_start_are_blocked_while_workspace_is_busy(self):
+		from unittest.mock import Mock
+		with tempfile.TemporaryDirectory() as temp:
+			view = self.launcher_fixture(temp)
+			with patch.object(self.app, "jobs", Mock(busy=True)), patch("gui_launcher_view.prepare_launch") as prepare:
+				self.app.set_busy(True)
+				view.edit()
+				view.start()
+				self.assertIsNone(view.window)
+				prepare.assert_not_called()
+				self.assertTrue(self.app.progress_view.interval_button.instate(["disabled"]))
+			self.app.set_busy(False)
+			self.assertFalse(self.app.progress_view.interval_button.instate(["disabled"]))
+
+	def test_progress_interval_clock_manual_refresh_and_no_overlap(self):
+		from unittest.mock import Mock
+		view = self.app.progress_view
+		self.app.notebook.select(self.app.tabs["Progress"])
+		with patch("gui_progress_view.time.monotonic", return_value=100), patch.object(view, "refresh") as refresh:
+			view.set_interval(90)
+			self.assertEqual(view.due, 190)
+			view.tick()
+			refresh.assert_not_called()
+			view.due = 100
+			view.tick()
+			refresh.assert_called_once()
+			refresh.reset_mock()
+			view.automatic.set(False)
+			view.tick()
+			refresh.assert_not_called()
+			view.automatic.set(True)
+			self.app.notebook.select(self.app.tabs["Dashboard"])
+			view.tick()
+			refresh.assert_not_called()
+		jobs = Mock(busy=False)
+		jobs.submit.return_value = True
+		with patch.object(view, "jobs", jobs):
+			view.automatic.set(False)
+			view.refresh()
+			jobs.submit.assert_called_once()
+			jobs.busy = True
+			view.refresh()
+			jobs.submit.assert_called_once()
+			jobs.busy = False
+			with patch.object(self.app, "quit_pending", True):
+				view.refresh()
+			jobs.submit.assert_called_once()
+			jobs.take.return_value = ("progress", {"rows": [], "notice": "fixture"}, None)
+			with patch("gui_progress_view.time.monotonic", return_value=100):
+				view.tick()
+				self.assertEqual(view.due, 190)
+			jobs.take.return_value = ("progress", None, ValueError("fixture failure"))
+			view.tick()
+			self.assertIn("failed", view.status.get())
+			self.assertEqual(view.records, {})
+
 	def test_navigation_search_workspace_and_repeated_refresh(self):
-		self.assertEqual(len(self.app.notebook.tabs()), 9)
+		self.assertEqual(len(self.app.notebook.tabs()), 10)
 		for frame in self.app.tabs.values():
 			self.app.notebook.select(frame)
 			self.root.update()
