@@ -23,6 +23,7 @@ from gui_options import FIELDS, validate_fields
 
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
+_STAT_CTIME_IS_CHANGE_TIME = os.name != "nt"
 ENGINES = ("mlucas", "gpuowl", "prpll", "prmers", "cudalucas", "mfaktc", "mfakto", "primepath")
 
 
@@ -48,8 +49,11 @@ def _read_stable_file(path, description, follow_symlinks=False, missing_ok=False
 		raise WorkspaceError("Configuration saving does not follow symbolic links.")
 	if not stat.S_ISREG(before.st_mode):
 		raise WorkspaceError(description + " must be a regular file.")
-	identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-	flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+	# Windows pathname and handle queries can report different legacy ctimes
+	# (creation versus change time). Compare only consistent fields there.
+	identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
+		value.st_ctime_ns if _STAT_CTIME_IS_CHANGE_TIME else None)
+	flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
 	if not follow_symlinks:
 		flags |= getattr(os, "O_NOFOLLOW", 0)
 	with os.fdopen(os.open(path, flags), "rb") as stream:

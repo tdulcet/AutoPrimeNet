@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 import os
 import tempfile
 import unittest
@@ -14,6 +15,22 @@ from gui_config import ConfigDocument, WorkspaceError, inspect_workspace, read_s
 
 
 class WorkspaceTests(unittest.TestCase):
+	def test_windows_legacy_ctime_mismatch_does_not_reject_unchanged_file(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "prime.ini"
+			data = b"[PrimeNet]\r\nusername=tester\r\n;\x1a\r\n"
+			path.write_bytes(data)
+			original_fstat = os.fstat
+			def different_ctime(descriptor):
+				value = original_fstat(descriptor)
+				return SimpleNamespace(**{name: getattr(value, name) + (1 if name == "st_ctime_ns" else 0)
+					for name in ("st_mode", "st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")})
+			with patch("gui_config._STAT_CTIME_IS_CHANGE_TIME", False), patch("gui_config.os.fstat", side_effect=different_ctime):
+				self.assertEqual(ConfigDocument(directory).data, data)
+			with patch("gui_config._STAT_CTIME_IS_CHANGE_TIME", True), patch("gui_config.os.fstat", side_effect=different_ctime):
+				with self.assertRaisesRegex(WorkspaceError, "changed while opening"):
+					ConfigDocument(directory)
+
 	def test_modification_or_disappearance_during_read_is_not_accepted(self):
 		for change in ("modify", "remove"):
 			with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:

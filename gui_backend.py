@@ -239,14 +239,14 @@ def _dispatch(request, path):
 	if not isinstance(request, dict) or request.get("protocol") != PROTOCOL_VERSION:
 		raise BackendError("Unsupported GUI backend protocol.")
 	operation = request.get("operation")
-	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus"}:
+	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus", "progress"}:
 		raise BackendError("Unsupported offline bridge operation.")
 	_source, tree, boundary = _read_source(path)
 	if operation == "capabilities":
 		return {
 			"backend_version": ast.literal_eval(next(node.value for node in tree.body if _assignment_target(node, "VERSION"))),
 			"source_sha256": AUDITED_SOURCE_SHA256,
-			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus"],
+			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus", "progress"],
 			"network_enabled": False,
 			"cli_options": _parser_inventory(tree),
 		}
@@ -256,6 +256,9 @@ def _dispatch(request, path):
 		raise BackendError("Work preview requires a list of at most 1000 text lines.")
 	namespace = _load_definitions(path, tree, boundary)
 	try:
+		if operation == "progress":
+			from gui_progress import progress_snapshot
+			return progress_snapshot(namespace, request.get("configured"))
 		if operation == "discover_gpus":
 			from gui_hardware import gpu_settings
 			devices = []

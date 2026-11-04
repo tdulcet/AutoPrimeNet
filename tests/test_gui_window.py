@@ -571,8 +571,27 @@ class WindowTests(unittest.TestCase):
 		self.assertFalse(self.app.hidden)
 		self.assertIn("taskbar", self.app.tray_status.get())
 
+	def test_progress_tab_refresh_is_independent_and_preserves_selection(self):
+		view = self.app.progress_view
+		row = {"engine": "Mlucas", "pids": "123", "worker": "1", "directory": "/fixture", "exponent": "100003", "stage": "LL", "percent": 10.0, "iteration": 10000, "remaining": 180, "completion": time.time() + 180, "updated": time.time(), "speed": 2.0, "state": "Saved progress", "queue": 2}
+		result = {"rows": [row], "notice": "Fixture scan"}
+		view.display(result)
+		item = view.table.get_children()[0]
+		view.table.selection_set(item)
+		view.select()
+		self.assertIn("/fixture", view.details.get())
+		view.display({"rows": [{**row, "iteration": 11000}], "notice": "Fixture rescan"})
+		self.assertTrue(view.table.selection())
+		self.assertIn("advanced", view.table.item(view.table.get_children()[0], "values")[10])
+		with patch("gui_progress_view.backend_request", return_value=result):
+			self.app.notebook.select(self.app.tabs["Progress"])
+			view.refresh()
+			self.wait_until(lambda: not view.jobs.busy)
+		self.assertFalse(self.app.monitor.active)
+		self.assertEqual(len(view.table.get_children()), 1)
+
 	def test_navigation_search_workspace_and_repeated_refresh(self):
-		self.assertEqual(len(self.app.notebook.tabs()), 8)
+		self.assertEqual(len(self.app.notebook.tabs()), 9)
 		for frame in self.app.tabs.values():
 			self.app.notebook.select(frame)
 			self.root.update()

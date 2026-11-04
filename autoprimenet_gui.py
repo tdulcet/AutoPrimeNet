@@ -33,10 +33,11 @@ from gui_registration_form import RegistrationForm
 from gui_reports import BackendLogWindow, export_debug_report
 from gui_reference import reference_info
 from gui_trace import trace_notice
+from gui_progress_view import ProgressView
 from gui_preferences import preferences_path, read_workspace, remember_workspace
 
 
-TABS = ("Dashboard", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
+TABS = ("Dashboard", "Progress", "Assignments", "Workers", "PrimeNet", "Advanced", "Notifications", "Logs & Status", "Settings")
 WORK_TYPES = {2: "TF", 3: "P-1", 4: "P-1", 5: "ECM", 6: "P+1", 100: "LL", 101: "LL double-check", 150: "PRP", 200: "Certification"}
 
 
@@ -135,6 +136,7 @@ class Application:
 		self.editor = ConfigurationForms(self)
 		self.registration = RegistrationForm(self)
 		self.backend_log = BackendLogWindow(self)
+		self.progress_view = ProgressView(self)
 		self.operation_buttons = {}
 		operation_frames, operation_counts = {}, {}
 		for key, operation in OPERATIONS.items():
@@ -505,6 +507,8 @@ class Application:
 			self.update_monitor_state("Stopping", "Forced shutdown requested; runtime files may need inspection.")
 
 	def display_workspace(self, snapshot):
+		self.progress_view.configured = {key: snapshot[key] for key in ("engine", "directory", "workers")}
+		self.progress_view.due = 0
 		identity = snapshot["identity"]
 		self.summary.set("Username: {}\nComputer: {}\nProgram: {}\nConfiguration: {}\nWorkers: {}\nFree disk space: {:.1f} GiB\nNew-work requests: {} (configured state)".format(
 			identity["username"], identity["computer"], snapshot["engine"],
@@ -578,6 +582,7 @@ class Application:
 		self.poll_after = None
 		if self.closed:
 			return
+		self.progress_view.tick()
 		result = self.jobs.take()
 		if result:
 			name, value, error = result
@@ -791,6 +796,7 @@ class Application:
 			self.root.after_cancel(self.poll_after)
 			self.poll_after = None
 		self.tray.stop()
+		self.progress_view.close()
 		self.jobs.close()
 		self.root.destroy()
 

@@ -102,16 +102,16 @@ class SaveTests(unittest.TestCase):
 		with tempfile.TemporaryDirectory() as directory:
 			path = Path(directory) / "prime.ini"
 			original = "# retained\n[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n[Email]\nfrom_email=sender@example.org\nsmtp_server=localhost\nusername=account\npassword=fixture-secret\nsend=yes\nCustom=keep\n"
-			path.write_text(original)
+			path.write_bytes(original.replace("\n", "\r\n").encode("utf-8"))
 			document = ConfigDocument(directory)
 			result = save_configuration(document, form(document, notification_send="False"), "mlucas", [{"directory": "", "preference": ""}])
 			self.assertFalse(result["document"].config.getboolean("Email", "send"))
-			self.assertIn("password=fixture-secret\n", result["document"].text)
-			self.assertIn("Custom=keep\n", result["document"].text)
+			self.assertIn("password=fixture-secret", result["document"].text.splitlines())
+			self.assertIn("Custom=keep", result["document"].text.splitlines())
 			self.assertEqual(Path(result["backup"]).read_text(), original)
 			inherited = save_configuration(result["document"], form(result["document"], notification_send=""), "mlucas", [{"directory": "", "preference": ""}])
 			self.assertFalse(inherited["document"].config.has_option("Email", "send"))
-			self.assertIn("password=fixture-secret\n", inherited["document"].text)
+			self.assertIn("password=fixture-secret", inherited["document"].text.splitlines())
 
 	def test_advanced_options_round_trip_through_real_backend(self):
 		with tempfile.TemporaryDirectory() as directory:
@@ -197,10 +197,10 @@ class SaveTests(unittest.TestCase):
 	def test_unchanged_interpolation_and_implicit_defaults_are_not_materialized(self):
 		with tempfile.TemporaryDirectory() as directory:
 			path = Path(directory) / "prime.ini"
-			path.write_text("[PrimeNet]\nusername=old\nmlucas=True\nNameBase=box\nComputerID=%(NameBase)s\n")
+			path.write_bytes(b"[PrimeNet]\r\nusername=old\r\nmlucas=True\r\nNameBase=box\r\nComputerID=%(NameBase)s\r\n")
 			document = ConfigDocument(directory)
 			result = save_configuration(document, form(document), "mlucas", [{"directory": "", "preference": ""}])
-			self.assertIn("ComputerID=%(NameBase)s\n", result["document"].text)
+			self.assertIn("ComputerID=%(NameBase)s", result["document"].text.splitlines())
 			self.assertFalse(result["document"].config.has_option("PrimeNet", "HoursBetweenCheckins"))
 
 	def test_literal_percent_paths_and_multiple_worker_preferences(self):

@@ -63,9 +63,5 @@ Desktop.ini
 /.local-work/
 /test-output/
 
-# Local development notes and assistance configuration
+# Local-only notes
 /LOCAL_DEVELOPMENT_NOTES.md
-/AGENTS.md
-/CLAUDE.md
-/.agents/
-/.codex/

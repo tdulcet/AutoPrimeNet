@@ -377,6 +377,7 @@ Deleting this preferences file forgets the selection without deleting work files
 | Tab | Current graphical settings |
 | --- | --- |
 | PrimeNet | Username, computer name, progress check-in hours, expected computation hours per day; hardware/resource settings dialog |
+| Progress | Automatic local running-program discovery, saved progress and queue/completion estimates; no monitoring required |
 | Workers | One of the eight supported computation programs, worker count, per-worker directories and preference codes |
 | Assignments | Days of queued work and legacy extra-assignment cache |
 | Settings | Work/results filenames, activity-log path, optional proof-archive directory; connection/password management; version-check channel/enablement and native console-color preference |
@@ -1069,3 +1070,75 @@ See [GUI_TESTING.md](GUI_TESTING.md) for architecture, test commands, platform
 results and remaining validation gaps, and [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md)
 for the reusable manual checklist. The original CLI source and its dependencies
 remain independent of the GUI.
+
+### Progress for running computation programs
+
+Open **Progress** to discover local running computation programs automatically.
+No working directory selection, AutoPrimeNet monitoring session or PrimeNet
+connection is required. **Refresh progress** scans immediately; **Automatic
+refresh** repeats the scan every 15 seconds while the Progress tab is selected.
+Switching tabs pauses automatic scans. An in-flight scan finishes independently
+of configuration editing and monitoring. Install the updated
+`requirements-gui.txt` in the GUI's Python environment; discovery uses `psutil`.
+
+The table shows program, process IDs, worker number, exponent, work stage/curve,
+completion percentage, speed, estimated remaining time, estimated completion
+date, last saved-data update, data state, worker queue count and FFT length when
+available. Scroll horizontally for additional columns. Select a row to see the
+full local assignment, working directory and work-file path. These details can
+contain private assignment IDs and filesystem paths. Refresh preserves the
+selected assignment while it remains present.
+
+Native progress readers cover **Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc,
+mfakto and PrimePath**. This is saved-file progress, not a view into the engine's
+memory or terminal output. A detected process does not prove that a particular
+queued assignment is executing. Rows distinguish saved progress, no saved
+progress/queued work, unreadable data, and data older than 15 minutes. The stale
+threshold is informational: long checkpoint intervals do not establish a stall.
+When an iteration/work counter increases between scans, the row reports
+**Progress advanced since previous scan**. Percentage can describe the current
+stage rather than the entire multi-stage assignment. Unknown values display
+**Unavailable**, never an assumed zero percent.
+
+Discovery matches executable basenames (case-insensitive, with `.exe` and common
+version/architecture suffixes accepted) and reads accessible process working
+directories. Renamed executables and engines writing work/checkpoints somewhere
+other than their working directory may not be identified correctly. The tab
+does not search the entire disk, infer paths from arbitrary command lines, or
+request elevated privileges. Permission-restricted processes/directories remain
+unavailable, and a blocked process listing produces an explicit notice.
+
+For an independently discovered process the reader checks `worktodo.txt`, then
+`worktodo.ini`; PRPLL uses indexed `worktodo-N.txt` files with worker numbers
+shown as N + 1. If a detected process's program and working directory match the
+loaded GUI workspace (or a configured worker directory), the reader uses the matching configured worker paths
+and custom work filenames. Multiple matching processes sharing a directory are
+grouped, with all process IDs listed, so shared work files are not counted once
+per process. Worker numbers describe work files; they do not assert a one-to-one
+mapping between OS processes, engine threads and GPUs. Missing, empty or
+unrecognized work files are reported without hiding the detected program.
+
+Prime95/MPrime and other programs supported only partially or for result
+reporting (CUDAPm1, cofact, gvtf and Mp_p-1_gpu) are listed when detected, with an
+explicit message that a native progress reader is unavailable. Their detection
+does not imply the eight-engine progress coverage above.
+
+Timing estimates use native calculations and measured saved-file speed, assuming
+24 hours of computation per day and a neutral rolling average. They do not apply
+the selected workspace's PrimeNet scheduling/resource settings to unrelated
+processes. Compatible later TF, LL or PRP assignments can receive estimates from
+an earlier assignment's measured speed. Their percentage and update time remain
+unavailable until saved progress exists. Completion dates accumulate work-file
+order only while all preceding estimates are known, anchored to the first
+available saved-data timestamp; repeatedly reading an unchanged checkpoint does
+not move its completion date forward. Actual engine scheduling, changed hardware,
+stale checkpoints and mixed work types can make these estimates inaccurate.
+
+Each scan is bounded by the offline helper's 30-second timeout, 128 matching
+processes, up to 128 worker files per process group, 1000 recognized assignments
+in total, and 2 MiB per work file. A limit notice identifies truncated displays.
+Native checkpoint/log parsing retains the upstream readers' behavior; a slow or
+malformed file can time out a scan. A failed scan clears the old table and asks
+for a retry. Progress reading makes no configuration, assignment, checkpoint or
+server changes and never starts or stops a computation engine. Closing or
+quitting the GUI leaves independently running computations alone.
