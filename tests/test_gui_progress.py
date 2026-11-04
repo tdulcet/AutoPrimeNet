@@ -215,14 +215,16 @@ class ProgressTests(unittest.TestCase):
 		self.assertIsInstance(result['notice'], str)
 
 
-@unittest.skipUnless(os.environ.get("AUTOPRIMENET_GUI_DESKTOP_TESTS") == "1" and Path("/bin/sleep").exists(), "Requires opt-in native process discovery and /bin/sleep")
+@unittest.skipUnless(os.environ.get("AUTOPRIMENET_GUI_DESKTOP_TESTS") == "1" and Path("/bin/sh").exists(), "Requires opt-in native process discovery and /bin/sh")
 class NativeDiscoveryTests(unittest.TestCase):
 	def test_real_process_is_discovered_without_selected_workspace(self):
 		from gui_controller import backend_request
 		with tempfile.TemporaryDirectory() as temp:
 			directory = Path(temp)
 			executable = directory / "Mlucas"
-			shutil.copyfile("/bin/sleep", executable)
+			# macOS /bin/sh can delegate to /bin/bash, changing process identity.
+			shell = Path("/bin/bash") if Path("/bin/bash").exists() else Path("/bin/sh")
+			shutil.copyfile(shell, executable)
 			executable.chmod(0o700)
 			if sys.platform == "darwin":
 				# Copied Apple binaries retain a restricted signature and are killed.
@@ -230,10 +232,10 @@ class NativeDiscoveryTests(unittest.TestCase):
 				subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(executable)], check=True, capture_output=True)
 			(directory / "worktodo.txt").write_text(f"Test={P},60,1\n")
 			(directory / f"p{P}.stat").write_text("Iter# = 10000 [ 10.00% complete] foo [ 2.000 msec/iter]\n")
-			# Multicall coreutils builds dispatch on argv[0], so retain "sleep"
-			# there while the executable path gives the OS its Mlucas name.
-			process = subprocess.Popen(["sleep", "30"], executable=str(executable), cwd=directory,
-				stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+			# The shell's builtin read blocks on a private pipe without spawning
+			# another process or relying on a renamed multicall coreutils binary.
+			process = subprocess.Popen(["Mlucas", "-c", "read fixture_line"], executable=str(executable), cwd=directory,
+				stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 			try:
 				result = backend_request("progress")
 				if process.poll() is not None:
@@ -244,6 +246,11 @@ class NativeDiscoveryTests(unittest.TestCase):
 				self.assertGreater(rows[0]["percent"], 0)
 				self.assertIsNone(process.poll(), "Progress reading must not terminate computation")
 			finally:
-				process.terminate()
-				process.wait(timeout=5)
-				process.stderr.close()
+				process.stdin.close()
+				try:
+					process.wait(timeout=5)
+				except subprocess.TimeoutExpired:
+					process.kill()
+					process.wait(timeout=5)
+				finally:
+					process.stderr.close()
