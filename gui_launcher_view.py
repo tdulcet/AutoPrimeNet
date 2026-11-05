@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from gui_computation import launch_computation, prepare_launch, session_status
 from gui_controller import BackgroundJobs
-from gui_launch_profiles import FILENAME, LaunchError, PROGRAMS, TERMINALS, defaults, load_settings, save_settings
+from gui_computation import FILENAME, LaunchError, PROGRAMS, TERMINALS, defaults, load_settings, save_settings
 
 
 def parse_arguments(text):
@@ -259,7 +259,7 @@ class LauncherView:
 				if value["inaccessible"]:
 					text += "\nSome processes could not be inspected; duplicate detection is incomplete."
 				if self.directory == self.launch_base and not self.app.quit_pending and messagebox.askyesno("Start computation", text, parent=self.app.root):
-					self.jobs.submit("launch", launch_computation, self.launch_base, self.launch_profile, self.launch_version)
+					self.jobs.submit("launch", launch_computation, self.launch_base, self.launch_profile, self.launch_version, value)
 				else:
 					self.status.set("Computation launch cancelled.")
 			else:

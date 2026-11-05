@@ -1,5 +1,5 @@
 # Current GUI/backend Python dependency. Native Tcl/Tk is installed separately.
-# Optional native tray dependencies are in requirements-gui-tray.txt; see GUI.md.
+# Optional native tray dependencies are in requirements-gui-tray.txt; see GUI_README.md.
 requests
 # Cross-platform discovery of running computation engines and working directories.
 psutil>=7.2.2

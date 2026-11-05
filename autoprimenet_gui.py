@@ -21,17 +21,16 @@ try:
 	import tkinter as tk
 	from tkinter import filedialog, messagebox, simpledialog, ttk
 except ImportError:
-	print("Tkinter is unavailable. Install the Tk bindings matching this Python; see GUI.md.", file=sys.stderr)
+	print("Tkinter is unavailable. Install the Tk bindings matching this Python; see GUI_README.md.", file=sys.stderr)
 	sys.exit(2)
 
 from gui_config import WorkspaceError, load_editor_workspace, save_configuration, lock_policy_notice
 from gui_controller import BackgroundJobs, ControllerError, MonitorController, TrayController, backend_request
 from gui_forms import ConfigurationForms
-from gui_options import field_for_destination
+from gui_options import field_for_destination, reference_info
 from gui_operations import OPERATIONS, operation_arguments, operation_for_destination
 from gui_registration_form import RegistrationForm
 from gui_reports import BackendLogWindow, export_debug_report
-from gui_reference import reference_info
 from gui_trace import trace_notice
 from gui_progress_view import ProgressView
 from gui_launcher_view import LauncherView
@@ -201,7 +200,7 @@ class Application:
 		self.config_entry.pack(anchor="w", pady=8)
 		self.retry_tray_button = ttk.Button(self.tabs["Settings"], text="Retry tray integration", command=self.retry_tray)
 		self.retry_tray_button.pack(anchor="w", pady=8)
-		ttk.Label(self.tabs["Settings"], text="Valid edits save automatically after a short pause, once editor dialogs close.\nCompleted operations refresh the workspace automatically.\nClosing hides to the tray/menu bar when ready; otherwise it minimizes.\nUse File → Quit to exit.\nSee GUI.md for setup and requirements.", justify="left", wraplength=720).pack(anchor="w", pady=12)
+		ttk.Label(self.tabs["Settings"], text="Valid edits save automatically after a short pause, once editor dialogs close.\nCompleted operations refresh the workspace automatically.\nClosing hides to the tray/menu bar when ready; otherwise it minimizes.\nUse File → Quit to exit.\nSee GUI_README.md for setup and requirements.", justify="left", wraplength=720).pack(anchor="w", pady=12)
 
 	def _table(self, parent, columns):
 		frame = ttk.Frame(parent)

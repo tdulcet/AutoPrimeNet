@@ -16,6 +16,13 @@ from test_gui_monitor import fake_monitor_process, fixture, wait_event
 
 
 class PathTests(unittest.TestCase):
+	def test_backend_reserves_launcher_files_and_session_directory(self):
+		with tempfile.TemporaryDirectory() as directory:
+			for setting in ("logfile=autoprimenet-gui-launchers.json", "results_file=.autoprimenet-gui-launchers.lock",
+					"logfile=.autoprimenet-gui-launches/one/status.json"):
+				with self.subTest(setting=setting), self.assertRaisesRegex(ControllerError, "conflict"):
+					self.validate(directory, setting)
+
 	def test_case_only_role_names_follow_guest_filesystem_policy(self):
 		with tempfile.TemporaryDirectory() as directory:
 			insensitive = os.name == "nt" or (sys.platform == "darwin" and os.pathconf(directory, 11) != 1)

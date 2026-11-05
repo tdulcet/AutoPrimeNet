@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from gui_controller import TrayController
-from gui_tray_host import HostWatch, gtk_platform, load_pystray, status_notifier_host, tray_host_available, tray_platform
+from gui_tray import HostWatch, gtk_platform, load_pystray, status_notifier_host, tray_host_available, tray_platform
 
 
 class TrayHostTests(unittest.TestCase):
@@ -53,7 +53,7 @@ sys.exit(gui_tray.main())
 			self.assertTrue(tray_platform(platform))
 		self.assertFalse(tray_platform("sunos5"))
 		self.assertFalse(gtk_platform("darwin"))
-		with patch("gui_tray_host.sys.platform", "linux"):
+		with patch("gui_tray.sys.platform", "linux"):
 			self.assertFalse(tray_host_available(SimpleNamespace(HAS_MENU=False)))
 			self.assertFalse(tray_host_available(SimpleNamespace(HAS_MENU=True)))
 			status = Mock()
@@ -79,18 +79,18 @@ sys.exit(gui_tray.main())
 			self.assertFalse(status_notifier_host())
 
 	def test_backend_selection_falls_back_from_missing_typelib_and_preserves_environment(self):
-		with patch("gui_tray_host.sys.platform", "linux"), patch.dict(os.environ, {}, clear=True), patch("gui_tray_host.status_notifier_host", return_value=True):
+		with patch("gui_tray.sys.platform", "linux"), patch.dict(os.environ, {}, clear=True), patch("gui_tray.status_notifier_host", return_value=True):
 			attempts = []
 			def load(name):
 				attempts.append(os.environ["PYSTRAY_BACKEND"])
 				if attempts[-1] == "appindicator":
 					raise ValueError("missing typelib")
 				return "gtk-module"
-			with patch("gui_tray_host.importlib.import_module", side_effect=load):
+			with patch("gui_tray.importlib.import_module", side_effect=load):
 				self.assertEqual(load_pystray(), "gtk-module")
 			self.assertEqual(attempts, ["appindicator", "gtk"])
 			self.assertNotIn("PYSTRAY_BACKEND", os.environ)
-		with patch("gui_tray_host.sys.platform", "freebsd14"), patch.dict(os.environ, {"PYSTRAY_BACKEND": "gtk"}), patch("gui_tray_host.importlib.import_module", return_value="explicit") as load:
+		with patch("gui_tray.sys.platform", "freebsd14"), patch.dict(os.environ, {"PYSTRAY_BACKEND": "gtk"}), patch("gui_tray.importlib.import_module", return_value="explicit") as load:
 			self.assertEqual(load_pystray(), "explicit")
 			load.assert_called_once_with("pystray")
 			self.assertEqual(os.environ["PYSTRAY_BACKEND"], "gtk")
@@ -121,7 +121,7 @@ sys.exit(gui_tray.main())
 		def factory(_command, **kwargs):
 			return subprocess.Popen([sys.executable, "-B", "-c", code], **kwargs)
 		controller = TrayController(process_factory=factory)
-		with patch("gui_tray_host.sys.platform", "linux"):
+		with patch("gui_tray.sys.platform", "linux"):
 			controller.start()
 		try:
 			event = controller.events.get(timeout=5)

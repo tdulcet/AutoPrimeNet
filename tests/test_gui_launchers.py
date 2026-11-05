@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from gui_computation import ROOT, computation_guard, console_python, launch_computation, prepare_launch, resolve_profile, run_computation, select_terminal, session_status, terminal_command
-from gui_launch_profiles import FILENAME, LaunchError, defaults, load_settings, save_settings, write_json
+from gui_computation import FILENAME, LaunchError, defaults, load_settings, save_settings, write_json
 
 
 def profile():
@@ -110,7 +110,7 @@ class TerminalTests(unittest.TestCase):
 	def test_linux_terminals_use_argument_arrays_without_shell_interpolation(self):
 		payload = Path("/tmp/work space/'literal;$()/launch.json")
 		for name in ("ptyxis", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"):
-			argv, options = terminal_command(name, "/bin/" + name, payload, python="/python with spaces", platform="linux")
+			argv, options = terminal_command(name, "/bin/" + name, payload, "0" * 64, python="/python with spaces", platform="linux")
 			self.assertEqual(argv[-1], str(payload))
 			self.assertIn("/python with spaces", argv)
 			self.assertTrue(options["start_new_session"])
@@ -118,7 +118,7 @@ class TerminalTests(unittest.TestCase):
 
 	def test_powershell_payload_only_contains_quoted_helper_paths(self):
 		payload = Path("/tmp/quote's $() & space/launch.json")
-		argv, options = terminal_command("PowerShell", "powershell.exe", payload, python="C:/Python's/python.exe", platform="win32")
+		argv, options = terminal_command("PowerShell", "powershell.exe", payload, "0" * 64, python="C:/Python's/python.exe", platform="win32")
 		command = base64.b64decode(argv[-1]).decode("utf-16-le")
 		self.assertIn("'C:/Python''s/python.exe'", command)
 		self.assertIn("quote''s $() & space", command)
@@ -127,7 +127,7 @@ class TerminalTests(unittest.TestCase):
 
 	def test_cmd_uses_static_script_and_environment_for_dynamic_paths(self):
 		payload = Path("/tmp/%PATH%! & work/launch.json")
-		argv, options = terminal_command("Cmd", "cmd.exe", payload, python="C:/Python & literal/python.exe", platform="win32")
+		argv, options = terminal_command("Cmd", "cmd.exe", payload, "0" * 64, python="C:/Python & literal/python.exe", platform="win32")
 		self.assertEqual(argv, ["cmd.exe", "/D", "/V:OFF", "/K", "launch.cmd"])
 		self.assertEqual(options["env"]["APN_GUI_PAYLOAD"], str(payload))
 		self.assertEqual(options["env"]["APN_GUI_PYTHON"], "C:/Python & literal/python.exe")
@@ -135,7 +135,7 @@ class TerminalTests(unittest.TestCase):
 	def test_macos_quotes_helper_command_and_uses_fixed_applescript(self):
 		import shlex
 		payload = Path("/tmp/quote's & work/launch.json")
-		argv, options = terminal_command("Terminal", "/usr/bin/osascript", payload, python="/Python 'two'/python", platform="darwin")
+		argv, options = terminal_command("Terminal", "/usr/bin/osascript", payload, "0" * 64, python="/Python 'two'/python", platform="darwin")
 		self.assertEqual(shlex.split(argv[-1])[-1], str(payload))
 		self.assertEqual(shlex.split(argv[-1])[0], "/Python 'two'/python")
 		self.assertNotIn(str(payload), argv[2])
@@ -149,12 +149,48 @@ class TerminalTests(unittest.TestCase):
 			with self.assertRaisesRegex(LaunchError, "changed"):
 				prepare_launch(temp, profile(), "old")
 
+	def test_changed_engine_requires_another_review(self):
+		with tempfile.TemporaryDirectory() as temp:
+			engine = Path(temp, "engine.exe")
+			engine.write_bytes(b"first")
+			engine.chmod(0o700)
+			item = {**profile(), "executable": str(engine)}
+			with patch("gui_computation.select_terminal", return_value=("xterm", "xterm")), patch("gui_computation.duplicate_processes", return_value=([], 0)), patch("gui_computation.subprocess.Popen") as spawn:
+				review = prepare_launch(temp, item, None)
+				engine.write_bytes(b"replacement")
+				with self.assertRaisesRegex(LaunchError, "changed after review"):
+					launch_computation(temp, item, None, review)
+				payload = Path(temp, "session", "one", "launch.json")
+				payload.parent.mkdir(parents=True)
+				write_json(payload, review["plan"])
+				self.assertEqual(run_computation(payload, pause=False), 1)
+				spawn.assert_not_called()
+
+	def test_retargeted_symlink_never_starts_an_unreviewed_engine(self):
+		with tempfile.TemporaryDirectory() as temp:
+			base = Path(temp)
+			for name in ("first.exe", "second.exe"):
+				(base / name).touch(mode=0o700)
+			link = base / "engine.exe"
+			try:
+				link.symlink_to(base / "first.exe")
+			except OSError:
+				self.skipTest("Symlink creation not permitted")
+			item = {**profile(), "executable": str(link)}
+			with patch("gui_computation.select_terminal", return_value=("xterm", "xterm")), patch("gui_computation.duplicate_processes", return_value=([], 0)), patch("gui_computation.subprocess.Popen") as spawn:
+				review = prepare_launch(temp, item, None)
+				link.unlink()
+				link.symlink_to(base / "second.exe")
+				with self.assertRaisesRegex(LaunchError, "changed after review"):
+					launch_computation(temp, item, None, review)
+				spawn.assert_not_called()
+
 	def test_terminal_failure_and_session_creation_do_not_touch_engine_files(self):
 		with tempfile.TemporaryDirectory() as temp:
 			Path(temp, "worktodo.txt").write_text("untouched")
 			with patch("gui_computation.select_terminal", return_value=("xterm", "/bin/missing")), patch("gui_computation.duplicate_processes", return_value=([], 0)), patch("gui_computation.subprocess.Popen", side_effect=OSError):
 				with self.assertRaises(LaunchError):
-					launch_computation(temp, profile(), None)
+					launch_computation(temp, profile(), None, prepare_launch(temp, profile(), None))
 			self.assertEqual(Path(temp, "worktodo.txt").read_text(), "untouched")
 			statuses = list(Path(temp).glob(".autoprimenet-gui-launches/*/status.json"))
 			self.assertEqual(json.loads(statuses[0].read_text())["state"], "failed")
@@ -185,7 +221,7 @@ class HelperTests(unittest.TestCase):
 
 	def test_malformed_startup_status_is_rejected_before_tk(self):
 		with tempfile.TemporaryDirectory() as temp:
-			for value in ([], {"state": "unknown"}, {"state": "running", "pid": True}, {"state": "finished", "pid": 1, "exit_code": "0"}):
+			for value in ([], {"state": []}, {"state": {}}, {"state": "unknown"}, {"state": "running", "pid": True}, {"state": "finished", "pid": 1, "exit_code": "0"}):
 				write_json(Path(temp, "status.json"), value)
 				with self.assertRaises(LaunchError):
 					session_status(temp)

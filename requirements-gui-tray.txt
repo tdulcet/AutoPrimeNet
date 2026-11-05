@@ -1,4 +1,4 @@
 # Optional menu-bar/tray integration. Linux/FreeBSD additionally require GTK
-# bindings and a compatible tray host; see requirements-gui-tray-gtk.txt and GUI.md.
+# bindings and a compatible tray host; see requirements-gui-tray-gtk.txt and GUI_README.md.
 -r requirements-gui.txt
 pystray==0.19.5

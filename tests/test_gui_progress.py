@@ -78,6 +78,11 @@ class ProgressTests(unittest.TestCase):
 			start, end = (1 << 60) // (P << 1), (1 << 61) // (P << 1)
 			(directory / f'mersenne_tf_checkpoint_M{P}.txt').write_text(f'exponent {P}\nbit_lo 60\nbit_hi 61\ncurrent_k {(start + end) // 2}\ntested 1\nelapsed_sec 20\nassignment_key fixture\ntimestamp 2026-11-03 01:00:00\n')
 
+	def test_invalid_file_time_does_not_break_progress_display(self):
+		from gui_progress_view import display_time
+		self.assertEqual(display_time(10 ** 15), "Unavailable")
+		self.assertNotEqual(display_time(0), "Unavailable")
+
 	def test_native_progress_for_all_eight_engines_is_read_only(self):
 		for engine in ENGINES:
 			with self.subTest(engine=engine), tempfile.TemporaryDirectory() as temp:

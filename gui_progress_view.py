@@ -14,6 +14,15 @@ from gui_controller import BackgroundJobs, backend_request
 from gui_progress import format_duration
 
 
+def display_time(timestamp):
+	if timestamp is not None:
+		try:
+			return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+		except (OverflowError, OSError, TypeError, ValueError):
+			pass
+	return "Unavailable"
+
+
 class ProgressView:
 	def __init__(self, app):
 		self.app = app
@@ -114,16 +123,12 @@ class ProgressView:
 			remaining, updated = row.get("remaining"), row.get("updated")
 			# Anchor the estimate to the saved-data time: rereading an unchanged
 			# checkpoint must not move its estimated completion forward each scan.
-			try:
-				completion = datetime.fromtimestamp(row["completion"]).strftime("%Y-%m-%d %H:%M:%S") if row.get("completion") is not None else "Unavailable"
-			except (OverflowError, OSError, ValueError):
-				completion = "Unavailable"
 			values = (
 				row["engine"], row["pids"], row["worker"], row.get("exponent", "—"), row.get("stage", "Unavailable"),
 				f'{row["percent"]:.2f}%' if row.get("percent") is not None else "Unavailable",
 				(f'{row["speed"]:.3f} ms/GHz-day' if row.get("stage") == "TF" else f'{row["speed"]:.3f} ms/iteration') if row.get("speed") is not None else "Unavailable",
-				format_duration(remaining), completion,
-				datetime.fromtimestamp(updated).strftime("%Y-%m-%d %H:%M:%S") if updated else "Unavailable",
+				format_duration(remaining), display_time(row.get("completion")),
+				display_time(updated),
 				state, row.get("queue", "—"), row.get("fft") or "Unavailable",
 			)
 			item = self.table.insert("", "end", values=values)

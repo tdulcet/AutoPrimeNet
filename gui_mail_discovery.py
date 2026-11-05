@@ -13,11 +13,52 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 from gui_backend import _assignment_target, _load_definitions, _read_source, _validate_config
 
 ROOT = Path(__file__).resolve().parent
 MAX_BYTES = 16384
+
+
+MAX_LOOKUP_BYTES = 1024 * 1024
+
+
+def limit_lookup_responses(namespace):
+	"""Bound all bodies in one lookup, including DNS replies and redirects."""
+	from requests import Session
+
+	remaining = MAX_LOOKUP_BYTES
+
+	def receive(response, **_kwargs):
+		nonlocal remaining
+		try:
+			# Reject unsolicited compression before decoding it. Even a short
+			# compressed body could otherwise expand beyond the lookup budget.
+			if response.headers.get("Content-Encoding", "identity").strip().lower() not in {"", "identity"}:
+				raise ValueError("Unexpected compressed mail discovery response.")
+			body = bytearray()
+			for part in response.iter_content(chunk_size=16384):
+				if len(part) > remaining:
+					raise ValueError("Mail discovery exceeded its response size limit.")
+				body.extend(part)
+				remaining -= len(part)
+			# Requests calls response hooks before consuming redirect bodies.
+			# Cache the bounded body for the upstream .content and .json() calls.
+			response._content = bytes(body)
+		finally:
+			response.close()
+		return response
+
+	def configure(session):
+		session.headers["Accept-Encoding"] = "identity"
+		session.hooks["response"].append(receive)
+		return session
+
+	configure(namespace["session"])
+	# Provider XML uses fresh sessions; DNS uses the existing backend session.
+	# Only override the audited namespace, never the installed requests module.
+	namespace["requests"] = SimpleNamespace(Session=lambda: configure(Session()))
 
 
 def mail_settings(record):
@@ -66,6 +107,7 @@ def execute(request, before_discovery=None):
 			raise ValueError("Unsupported proxy startup layout.")
 		exec(compile(ast.Module(body=tree.body[index:index + 2], type_ignores=[]), str(path), "exec"), namespace)
 		namespace["TIMEOUT"] = 8
+		limit_lookup_responses(namespace)
 		if before_discovery is not None:
 			before_discovery(namespace)  # Test injection is not part of JSON IPC.
 		record = namespace["email_autoconfig"](namespace["args"], email)

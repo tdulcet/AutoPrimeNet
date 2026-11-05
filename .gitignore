@@ -35,7 +35,7 @@ Desktop.ini
 !.env.*.example
 
 # Runtime data accidentally created in the repository root.
-# Keep real computation workspaces outside this checkout; see GUI.md.
+# Keep real computation workspaces outside this checkout; see GUI_README.md.
 /prime.ini
 /prime.ini.*
 /autoprimenet.log

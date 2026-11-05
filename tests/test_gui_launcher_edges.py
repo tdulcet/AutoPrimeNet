@@ -1,6 +1,5 @@
 """Failure, concurrency and lifecycle boundaries for computation launchers."""
 
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -13,8 +12,8 @@ from unittest.mock import Mock, patch
 
 import psutil
 
-from gui_computation import ROOT, computation_guard, duplicate_processes, launch_computation, resolve_profile, run_computation, select_terminal, session_status
-from gui_launch_profiles import FILENAME, MAX_BYTES, LaunchError, defaults, file_lock, load_settings, read_bytes, save_settings, validate_settings, write_json
+from gui_computation import ROOT, computation_guard, duplicate_processes, launch_computation, plan_digest, prepare_launch, resolve_profile, run_computation, select_terminal, session_status
+from gui_computation import FILENAME, MAX_BYTES, LaunchError, defaults, file_lock, load_settings, read_bytes, save_settings, validate_settings, write_json
 
 
 def profile(**changes):
@@ -23,7 +22,7 @@ def profile(**changes):
 
 class StorageEdges(unittest.TestCase):
 	def test_schema_limits_and_all_supported_program_profiles(self):
-		from gui_launch_profiles import PROGRAMS
+		from gui_computation import PROGRAMS
 		for program in PROGRAMS:
 			self.assertEqual(validate_settings({**defaults(), "profiles": [profile(program=program)]})["profiles"][0]["program"], program)
 		valid = {**defaults(), "profiles": [profile(name="x" * 80, arguments=["x" * 4096])], "refresh_seconds": 86400}
@@ -54,7 +53,7 @@ class StorageEdges(unittest.TestCase):
 			with self.assertRaises(LaunchError):
 				write_json(path, {"too_large": "x" * MAX_BYTES})
 			self.assertEqual(path.read_bytes(), before)
-			with patch("gui_launch_profiles.os.replace", side_effect=OSError("fixture disk error")):
+			with patch("gui_computation.os.replace", side_effect=OSError("fixture disk error")):
 				with self.assertRaises(OSError):
 					save_settings(temp, {**settings, "refresh_seconds": 10}, version)
 			self.assertEqual(path.read_bytes(), before)
@@ -71,7 +70,7 @@ class StorageEdges(unittest.TestCase):
 			original_open = os.open
 			def replacement(path, flags, *args):
 				return original_open(second if Path(path) == first else path, flags, *args)
-			with patch("gui_launch_profiles.os.open", side_effect=replacement):
+			with patch("gui_computation.os.open", side_effect=replacement):
 				with self.assertRaises(LaunchError):
 					read_bytes(first)
 			if hasattr(os, "mkfifo"):
@@ -86,7 +85,7 @@ class StorageEdges(unittest.TestCase):
 	def test_interprocess_profile_lock_refuses_writes_and_releases(self):
 		with tempfile.TemporaryDirectory() as temp:
 			lock, ready = Path(temp, ".autoprimenet-gui-launchers.lock"), Path(temp, "ready")
-			code = "from gui_launch_profiles import file_lock; from pathlib import Path; import sys\nwith file_lock(sys.argv[1]):\n Path(sys.argv[2]).touch()\n sys.stdin.read()"
+			code = "from gui_computation import file_lock; from pathlib import Path; import sys\nwith file_lock(sys.argv[1]):\n Path(sys.argv[2]).touch()\n sys.stdin.read()"
 			child = subprocess.Popen([sys.executable, "-B", "-c", code, str(lock), str(ready)], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 			try:
 				deadline = time.monotonic() + 10
@@ -119,7 +118,7 @@ class StorageEdges(unittest.TestCase):
 			(base / ".autoprimenet-gui-launches").symlink_to(outside, target_is_directory=True)
 			with patch("gui_computation.prepare_launch", return_value={"plan": {}, "terminal": "xterm", "terminal_executable": "xterm"}), patch("gui_computation.subprocess.Popen") as spawn:
 				with self.assertRaises(LaunchError):
-					launch_computation(temp, profile(), None)
+					launch_computation(temp, profile(), None, {"plan": {}, "terminal": "xterm", "terminal_executable": "xterm"})
 				spawn.assert_not_called()
 			self.assertEqual(list(outside.iterdir()), [])
 
@@ -144,9 +143,9 @@ class LaunchEdges(unittest.TestCase):
 
 	def test_terminal_auto_priority_and_wrong_platform_combinations(self):
 		for executable, expected in (("pwsh.exe", "PowerShell"), ("powershell.exe", "PowerShell"), ("cmd.exe", "Cmd")):
-			self.assertEqual(select_terminal("auto", "win32", lambda name: name if name == executable else None)[0], expected)
+			self.assertEqual(select_terminal("auto", "win32", lambda name, executable=executable: name if name == executable else None)[0], expected)
 		for name in ("ptyxis", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"):
-			self.assertEqual(select_terminal("auto", "freebsd14", lambda value: value if value == name else None)[0], name)
+			self.assertEqual(select_terminal("auto", "freebsd14", lambda value, name=name: value if value == name else None)[0], name)
 		for preference, platform in (("PowerShell", "linux"), ("xterm", "win32"), ("auto", "darwin"), ("unknown", "linux")):
 			with self.assertRaises(LaunchError):
 				select_terminal(preference, platform, lambda _: None)
@@ -189,7 +188,8 @@ class LaunchEdges(unittest.TestCase):
 			with self.subTest(terminal=terminal), tempfile.TemporaryDirectory() as temp:
 				with patch("gui_computation.sys.platform", "win32"), patch("gui_computation.select_terminal", return_value=(terminal, "terminal.exe")), patch("gui_computation.duplicate_processes", return_value=([], 0)), patch("gui_computation.subprocess.Popen") as spawn:
 					spawn.return_value.wait.return_value = 0
-					result = launch_computation(temp, profile(arguments=["%PATH%! & λ"]), None)
+					item = profile(arguments=["%PATH%! & λ"])
+					result = launch_computation(temp, item, None, prepare_launch(temp, item, None))
 					options = spawn.call_args.kwargs
 					for key in ("stdin", "stdout", "stderr", "start_new_session"):
 						self.assertNotIn(key, options)
@@ -203,14 +203,14 @@ class LaunchEdges(unittest.TestCase):
 	def test_terminal_nonzero_exit_does_not_overwrite_engine_acknowledgement(self):
 		for running in (False, True):
 			with self.subTest(running=running), tempfile.TemporaryDirectory() as temp:
-				def wait():
+				def wait(running=running):
 					if running:
 						path = next(Path(temp).glob(".autoprimenet-gui-launches/*/status.json"))
 						write_json(path, {"state": "running", "pid": 123})
 					return 1
 				with patch("gui_computation.select_terminal", return_value=("xterm", "xterm")), patch("gui_computation.duplicate_processes", return_value=([], 0)), patch("gui_computation.subprocess.Popen") as spawn:
 					spawn.return_value.wait.side_effect = wait
-					result = launch_computation(temp, profile(), None)
+					result = launch_computation(temp, profile(), None, prepare_launch(temp, profile(), None))
 					deadline = time.monotonic() + 3
 					while session_status(result["session"])["state"] == "waiting" and time.monotonic() < deadline:
 						time.sleep(.01)
@@ -223,10 +223,20 @@ class LaunchEdges(unittest.TestCase):
 		with tempfile.TemporaryDirectory() as temp:
 			payload = Path(temp, "launch.json")
 			write_json(payload, {})
-			result = subprocess.run([sys.executable, "-B", str(helper), "--run", str(payload)], input="\n", capture_output=True, text=True, timeout=10)
+			result = subprocess.run([sys.executable, "-B", str(helper), "--run", plan_digest({}), str(payload)], input="\n", capture_output=True, text=True, timeout=10)
 			self.assertEqual(result.returncode, 1)
 			self.assertIn("Unable to start computation", result.stderr)
 			self.assertEqual(session_status(temp)["state"], "failed")
+
+	def test_terminal_rejects_valid_but_substituted_payload(self):
+		with tempfile.TemporaryDirectory() as temp:
+			payload = Path(temp, "launch.json")
+			plan = resolve_profile(temp, profile())
+			expected = plan_digest(plan)
+			write_json(payload, {**plan, "argv": [*plan["argv"], "--other"]})
+			with patch("gui_computation.subprocess.Popen") as spawn:
+				self.assertEqual(run_computation(payload, pause=False, expected_digest=expected), 1)
+				spawn.assert_not_called()
 
 	def test_helper_records_nonzero_exit_and_waits_for_terminal_acknowledgement(self):
 		with tempfile.TemporaryDirectory() as temp:

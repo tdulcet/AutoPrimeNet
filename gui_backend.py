@@ -24,7 +24,106 @@ import hashlib
 import io
 import json
 import logging
+import math
+import os
 from pathlib import Path
+import stat
+import unicodedata
+
+
+def gpu_settings(record):
+	"""Match original setup's GPU overrides, retaining unknown cores/caches."""
+	if not isinstance(record, (list, tuple)) or len(record) != 8:
+		raise ValueError("Unsupported GPU discovery record.")
+	name, cores, frequency, l1, l2, memory, features, source = record
+	if any(not isinstance(value, str) or len(value) > 4096 or any(char in value for char in "\r\n\x00") for value in (name, features, source)):
+		raise ValueError("Invalid GPU description.")
+	for value in (cores, frequency, l1, l2, memory):
+		if value is None:
+			continue
+		if isinstance(value, bool) or not isinstance(value, (int, float)):
+			raise ValueError("Invalid GPU hardware measurement.")
+		try:
+			valid = math.isfinite(value) and 0 <= value <= 2 ** 53 and value == int(value)
+		except OverflowError:
+			valid = False
+		if not valid:
+			raise ValueError("Invalid GPU hardware measurement.")
+	if frequency is None or memory is None:
+		raise ValueError("GPU frequency or memory is unavailable.")
+	values = {"CpuBrand": name, "cpu_features": features, "CpuSpeed": str(int(frequency)), "memory": str(int(memory)), "Memory": str(round(memory * 0.9))}
+	if cores:
+		values.update(NumCores=str(int(cores)), CpuNumHyperthreads="1")
+	if l1 and l2:
+		values.update(L1=str(int(l1)), L2=str(int(l2)), L3="0")
+	return values
+
+
+def path_key(path):
+	"""Account for the actual macOS volume's filename comparison policy."""
+	value = os.path.normcase(str(path))
+	if sys.platform == "darwin":
+		parent = path.parent
+		while not parent.exists() and parent != parent.parent:
+			parent = parent.parent
+		# Darwin's sys/unistd.h defines _PC_CASE_SENSITIVE as 11. Python's
+		# pathconf_names does not expose this platform-specific constant.
+		if os.pathconf(parent, 11) != 1:
+			value = unicodedata.normalize("NFD", value).casefold()
+	return value
+
+
+def validate_paths(directory, config_name, args):
+	"""Check effective upstream filenames, including indexed PRPLL workers."""
+	base = Path(directory).resolve()
+	folders = [(base / item).resolve() for item in args.dirs] if args.dirs else [base]
+	from gui_computation import FILENAME, PROFILE_LOCK, SESSION_DIRECTORY
+	paths = [("configuration", base / config_name)]
+	paths.extend(("instance ownership", base / name) for name in ("~lock", "~gui-monitor.lock", ".gui-runner.guard"))
+	if args.logfile:
+		paths.append(("activity log", base / args.logfile))
+		# The audited CLI uses RotatingFileHandler with five backups.
+		paths.extend(("rotated activity log", base / (args.logfile + f".{index}")) for index in range(1, 6))
+	for index in range(args.num_workers):
+		folder = base if args.prpll else folders[index if len(folders) > 1 else 0]
+		names = {
+			"work": f"worktodo-{index}.txt" if args.prpll else args.work_file,
+			"results": f"results-{index}.txt" if args.prpll else args.results_file,
+			"certification": f"certwork-{index}.txt" if args.prpll else "certwork.txt",
+			"sent-results history": f"results_sent-{index}.txt" if args.prpll else "results_sent.txt",
+		}
+		for role, name in names.items():
+			path = folder / name
+			paths.append((f"worker {index + 1} {role}", path))
+			if role in {"work", "certification"}:
+				add = path.with_suffix(".add")
+				paths.append((f"worker {index + 1} {role} import", add))
+				paths.append((f"worker {index + 1} {role} import lock", Path(str(add) + ".lck")))
+			paths.append((f"worker {index + 1} {role} lock", Path(str(path) + ".lck")))
+	if args.archive_dir:
+		paths.append(("proof archive directory", base / args.archive_dir))
+	paths.extend((role, base / name) for role, name in (("launcher profiles", FILENAME), ("launcher lock", PROFILE_LOCK)))
+	sessions = Path(path_key((base / SESSION_DIRECTORY).resolve()))
+	seen_paths, seen_files = {}, {}
+	for role, path in paths:
+		resolved = path.resolve()
+		key = path_key(resolved)
+		if Path(key).is_relative_to(sessions):
+			raise ValueError(f"The {role} path conflicts with the launcher session directory.")
+		other = seen_paths.get(key)
+		try:
+			info = resolved.stat()
+		except FileNotFoundError:
+			info = None
+		if info is not None and not (stat.S_ISDIR(info.st_mode) if role == "proof archive directory" else stat.S_ISREG(info.st_mode)):
+			raise ValueError(f"The {role} path must be a {'directory' if role == 'proof archive directory' else 'regular file'}.")
+		if info is not None and info.st_ino:
+			inode = (info.st_dev, info.st_ino)
+			other = other or seen_files.get(inode)
+			seen_files[inode] = role
+		if other:
+			raise ValueError(f"File paths conflict: {other} and {role}. Choose separate paths before saving or starting AutoPrimeNet.")
+		seen_paths[key] = role
 
 
 # Deliberately fail closed when the audited upstream implementation changes.
@@ -182,7 +281,6 @@ def _validate_config(namespace, tree, boundary, request):
 		raise BackendError("A configured worker directory does not exist.")
 	if not args.prpll and len(directories) != len(set(directories)):
 		raise BackendError("Worker directories resolve to the same location.")
-	from gui_paths import validate_paths
 	try:
 		validate_paths(directory, name, args)
 	except ValueError as error:
@@ -260,7 +358,6 @@ def _dispatch(request, path):
 			from gui_progress import progress_snapshot
 			return progress_snapshot(namespace, request.get("configured"))
 		if operation == "discover_gpus":
-			from gui_hardware import gpu_settings
 			devices = []
 			for record in namespace["get_gpus"]():
 				try:

@@ -306,7 +306,7 @@ class WindowTests(unittest.TestCase):
 			self.assertFalse(window.winfo_exists())
 
 	def test_gpu_discovery_review_cancel_and_staged_apply(self):
-		from gui_hardware import gpu_settings
+		from gui_backend import gpu_settings
 		with tempfile.TemporaryDirectory() as directory:
 			path = Path(directory) / "prime.ini"
 			original = "[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n"
@@ -609,7 +609,7 @@ class WindowTests(unittest.TestCase):
 			self.app.progress_view.interval.set("42")
 			self.app.progress_view.save_interval()
 			self.assertEqual(self.app.progress_view.seconds, 42)
-			from gui_launch_profiles import load_settings
+			from gui_computation import load_settings
 			settings, _ = load_settings(temp)
 			self.assertEqual(settings["refresh_seconds"], 42)
 			self.assertEqual(settings["profiles"][0]["name"], "Worker one")
@@ -634,7 +634,7 @@ class WindowTests(unittest.TestCase):
 			self.assertLessEqual(button_bottom, tab_bottom)
 
 	def test_computation_review_cancel_startup_handshake_and_workspace_switch(self):
-		from gui_launch_profiles import defaults, save_settings, write_json
+		from gui_computation import defaults, save_settings, write_json
 		from gui_computation import resolve_profile
 		with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as other:
 			profile = {"name": "Fixture", "program": "Mlucas", "executable": sys.executable, "directory": "", "arguments": [], "terminal": "auto"}
@@ -664,7 +664,7 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(self.app.progress_view.seconds, 90)
 
 	def launcher_fixture(self, directory):
-		from gui_launch_profiles import defaults, save_settings
+		from gui_computation import defaults, save_settings
 		profile = {"name": "Fixture", "program": "Mlucas", "executable": sys.executable, "directory": "", "arguments": [], "terminal": "auto"}
 		save_settings(directory, {**defaults(), "profiles": [profile]}, None)
 		self.app.directory.set(directory)
@@ -673,7 +673,7 @@ class WindowTests(unittest.TestCase):
 		return self.app.launchers
 
 	def test_launcher_edit_delete_reload_and_external_edit_conflict(self):
-		from gui_launch_profiles import FILENAME, load_settings, write_json
+		from gui_computation import FILENAME, load_settings, write_json
 		with tempfile.TemporaryDirectory() as temp:
 			view = self.launcher_fixture(temp)
 			view.edit()
@@ -705,7 +705,7 @@ class WindowTests(unittest.TestCase):
 			self.assertTrue(view.launch_button.instate(["disabled"]))
 
 	def test_launcher_edit_preserves_empty_and_unicode_separator_arguments(self):
-		from gui_launch_profiles import load_settings, save_settings
+		from gui_computation import load_settings, save_settings
 		with tempfile.TemporaryDirectory() as temp:
 			view = self.launcher_fixture(temp)
 			settings, version = load_settings(temp)
@@ -754,7 +754,7 @@ class WindowTests(unittest.TestCase):
 				self.assertEqual(self.app.progress_view.seconds, 90)
 
 	def test_launcher_malformed_settings_recover_and_reserved_work_filename_refuses(self):
-		from gui_launch_profiles import FILENAME, defaults, write_json
+		from gui_computation import FILENAME, defaults, write_json
 		with tempfile.TemporaryDirectory() as temp:
 			path = Path(temp, FILENAME)
 			path.write_text("malformed fixture")
@@ -773,7 +773,7 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(__import__('json').loads(path.read_text()), defaults())
 
 	def test_launcher_timeout_missing_malformed_and_finished_startup_status(self):
-		from gui_launch_profiles import write_json
+		from gui_computation import write_json
 		with tempfile.TemporaryDirectory() as temp:
 			view = self.launcher_fixture(temp)
 			session = Path(temp, "session")
@@ -799,7 +799,7 @@ class WindowTests(unittest.TestCase):
 
 	def test_launcher_repeated_clicks_and_quit_wait_for_prepare_failure(self):
 		import threading
-		from gui_launch_profiles import LaunchError
+		from gui_computation import LaunchError
 		with tempfile.TemporaryDirectory() as temp:
 			view = self.launcher_fixture(temp)
 			release = threading.Event()

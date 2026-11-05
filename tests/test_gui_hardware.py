@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from gui_backend import _dispatch
-from gui_hardware import gpu_settings
+from gui_backend import gpu_settings
 
 
 class HardwareTests(unittest.TestCase):

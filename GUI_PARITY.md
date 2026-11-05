@@ -1,10 +1,12 @@
 # GUI / CLI parity inventory
 
-This inventory covers the 96 argparse entries (including inverse flags, aliases and automatic help) in the audited AutoPrimeNet 2.0.2 source. Counts are parser entries, not distinct features, and do not establish complete parity.
+This table maps the 96 argparse entries in AutoPrimeNet 2.0.2 to GUI controls.
+The count includes inverse flags, aliases and automatic help, so it is larger
+than the number of distinct features.
 
 Source SHA-256: `05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7ec12`.
 
-Generated from the same option inventory and coverage metadata used by the GUI reference. The original source is unchanged. See [GUI.md](GUI.md) for behavior/limits and [GUI_TESTING.md](GUI_TESTING.md) for test evidence.
+The table uses the same option inventory and mappings as the GUI reference. See [GUI_README.md](GUI_README.md) for behavior/limits and [GUI_TESTING.md](GUI_TESTING.md) for test evidence.
 
 ## Coverage meaning
 
@@ -37,7 +39,7 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 | Configuration persistence | Valid edits save automatically after a short pause; completed saves/operations refresh safely, conflicts preserve drafts, and per-user preferences remember the last workspace without restarting monitoring |
 | Lifecycle | Owned native scheduler with separate polling/check-ins, native file watching, one-pass mode, worker-draining Stop, explicit force, optional macOS/Windows/GTK tray with host-loss recovery and taskbar fallback and asynchronous Quit; independent computation terminal startup; no computation Stop/Restart or automatic start |
 
-Batch registration supports one configured worker and up to 100 entries per operation, a 48 KiB normalized plan, and bounded integer/factor sizes. It also registers other unregistered work already in the selected worker file, matching upstream behavior. All graphical file/worker/preview/snapshot limits are documented in GUI.md.
+Batch registration supports one configured worker and up to 100 entries per operation, a 48 KiB normalized plan, and bounded integer/factor sizes. It also registers other unregistered work already in the selected worker file, matching upstream behavior. All graphical file/worker/preview/snapshot limits are documented in GUI_README.md.
 
 ## Parser-entry mapping
 

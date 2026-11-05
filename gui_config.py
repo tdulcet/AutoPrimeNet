@@ -36,6 +36,12 @@ def read_small_file(path):
 	return content.decode("utf-8-sig")
 
 
+def file_version_fields(info):
+	"""Fields shared by pathname and handle queries on this platform."""
+	return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+		info.st_ctime_ns if _STAT_CTIME_IS_CHANGE_TIME else None)
+
+
 def _read_stable_file(path, description, follow_symlinks=False, missing_ok=False):
 	"""Read a bounded regular file; verify both the handle and pathname."""
 	inspect = path.stat if follow_symlinks else path.lstat
@@ -51,23 +57,21 @@ def _read_stable_file(path, description, follow_symlinks=False, missing_ok=False
 		raise WorkspaceError(description + " must be a regular file.")
 	# Windows pathname and handle queries can report different legacy ctimes
 	# (creation versus change time). Compare only consistent fields there.
-	identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
-		value.st_ctime_ns if _STAT_CTIME_IS_CHANGE_TIME else None)
 	flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
 	if not follow_symlinks:
 		flags |= getattr(os, "O_NOFOLLOW", 0)
 	with os.fdopen(os.open(path, flags), "rb") as stream:
 		opened = os.fstat(stream.fileno())
-		if not stat.S_ISREG(opened.st_mode) or identity(opened) != identity(before):
+		if not stat.S_ISREG(opened.st_mode) or file_version_fields(opened) != file_version_fields(before):
 			raise WorkspaceError(description + " changed while opening. Reload before retrying.")
 		data = stream.read(MAX_FILE_BYTES + 1)
 		finished = os.fstat(stream.fileno())
 	if len(data) > MAX_FILE_BYTES:
 		raise WorkspaceError(description + " exceeds the 2 MiB size limit.")
 	after = inspect()
-	if identity(before) != identity(finished) or identity(before) != identity(after) or not stat.S_ISREG(after.st_mode):
+	if file_version_fields(before) != file_version_fields(finished) or file_version_fields(before) != file_version_fields(after) or not stat.S_ISREG(after.st_mode):
 		raise WorkspaceError(description + " changed while loading. Reload before retrying.")
-	return (*identity(after), hashlib.sha256(data).hexdigest()), data
+	return (*file_version_fields(after), hashlib.sha256(data).hexdigest()), data
 
 
 def workspace_snapshot(directory, config_name="prime.ini"):

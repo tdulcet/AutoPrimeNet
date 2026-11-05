@@ -12,13 +12,148 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import stat
 import subprocess
+import tempfile
 import sys
 import time
 import uuid
 
-from gui_launch_profiles import LaunchError, TERMINALS, defaults, file_lock, load_settings, read_bytes, validate_settings, write_json
-from gui_progress import identify_engine
+from gui_progress import ENGINES, REPORT_ONLY, identify_engine
+
+FILENAME = "autoprimenet-gui-launchers.json"
+PROFILE_LOCK = ".autoprimenet-gui-launchers.lock"
+PROGRAMS = (*ENGINES, *REPORT_ONLY)
+TERMINALS = ("auto", "Terminal", "PowerShell", "Cmd", "ptyxis", "gnome-terminal", "konsole", "xfce4-terminal", "xterm")
+MAX_BYTES = 128 * 1024
+
+
+class LaunchError(ValueError):
+	"""A readable launch/profile error."""
+
+
+def defaults():
+	return {"version": 1, "refresh_seconds": 90, "profiles": []}
+
+
+def clean_text(value, label, empty=False):
+	if not isinstance(value, str) or (not value and not empty) or len(value) > 4096 or any(char in value for char in "\x00\r\n"):
+		raise LaunchError(label + " must be a single line of at most 4096 characters.")
+	return value
+
+
+def validate_settings(value):
+	if not isinstance(value, dict) or set(value) != {"version", "refresh_seconds", "profiles"} or type(value["version"]) is not int or value["version"] != 1:
+		raise LaunchError("Unsupported launcher settings format.")
+	if type(value["refresh_seconds"]) is not int or not 1 <= value["refresh_seconds"] <= 86400:
+		raise LaunchError("Progress refresh must be 1–86400 seconds.")
+	profiles = value["profiles"]
+	if not isinstance(profiles, list) or len(profiles) > 128:
+		raise LaunchError("A workspace supports at most 128 launch profiles.")
+	names = set()
+	for profile in profiles:
+		if not isinstance(profile, dict) or set(profile) != {"name", "program", "executable", "directory", "arguments", "terminal"}:
+			raise LaunchError("Invalid launch profile fields.")
+		for key in ("name", "program", "executable", "directory", "terminal"):
+			clean_text(profile[key], key, empty=key == "directory")
+		if len(profile["name"]) > 80 or profile["name"].casefold() in names:
+			raise LaunchError("Profile names must be unique and at most 80 characters.")
+		names.add(profile["name"].casefold())
+		if profile["program"] not in PROGRAMS or profile["terminal"] not in TERMINALS:
+			raise LaunchError("Choose a supported computation program and terminal.")
+		arguments = profile["arguments"]
+		if not isinstance(arguments, list) or len(arguments) > 128:
+			raise LaunchError("Use at most 128 arguments, one per line.")
+		for argument in arguments:
+			clean_text(argument, "Argument", empty=True)
+	return value
+
+
+def read_bytes(path, limit=MAX_BYTES):
+	path = Path(path)
+	before = path.lstat()
+	if not stat.S_ISREG(before.st_mode):
+		raise LaunchError("Launcher files must be regular files, not symbolic links.")
+	flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+	with os.fdopen(os.open(path, flags), "rb") as stream:
+		info = os.fstat(stream.fileno())
+		if not stat.S_ISREG(info.st_mode) or (before.st_dev, before.st_ino) != (info.st_dev, info.st_ino):
+			raise LaunchError("Launcher file changed while opening; reload it.")
+		data = stream.read(limit + 1)
+	if len(data) > limit:
+		raise LaunchError("Launcher file exceeds its size limit.")
+	return data
+
+
+def load_settings(directory):
+	try:
+		data = read_bytes(Path(directory) / FILENAME)
+	except FileNotFoundError:
+		return defaults(), None
+	try:
+		value = json.loads(data)
+	except (UnicodeError, ValueError) as error:
+		raise LaunchError("Launcher settings are malformed; repair or move the file before saving.") from error
+	return validate_settings(value), hashlib.sha256(data).hexdigest()
+
+
+def write_json(path, value):
+	path = Path(path)
+	encoded = json.dumps(value, ensure_ascii=True, indent=2) + "\n"
+	if len(encoded.encode("utf-8")) > MAX_BYTES:
+		raise LaunchError("Launcher file exceeds 128 KiB.")
+	temporary = None
+	try:
+		with tempfile.NamedTemporaryFile("w", encoding="utf-8", prefix=".launcher-", dir=path.parent, delete=False) as stream:
+			temporary = Path(stream.name)
+			stream.write(encoded)
+			stream.flush()
+			os.fsync(stream.fileno())
+		os.replace(temporary, path)
+	finally:
+		if temporary is not None:
+			temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def file_lock(path):
+	path = Path(path)
+	flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+	with os.fdopen(os.open(path, flags, 0o600), "r+b", buffering=0) as stream:
+		info, linked = os.fstat(stream.fileno()), path.lstat()
+		if not stat.S_ISREG(info.st_mode) or not stat.S_ISREG(linked.st_mode) or (info.st_dev, info.st_ino) != (linked.st_dev, linked.st_ino):
+			raise LaunchError("Launcher lock must be a regular, non-symlink file.")
+		try:
+			if os.name == "nt":
+				import msvcrt
+				if not info.st_size:
+					stream.write(b"0")
+					stream.flush()
+				stream.seek(0)
+				msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+			else:
+				import fcntl
+				fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+		except OSError as error:
+			raise LaunchError("Another launcher operation or computation holds this lock. Try again after it finishes.") from error
+		try:
+			yield
+		finally:
+			if os.name == "nt":
+				stream.seek(0)
+				msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def save_settings(directory, value, expected):
+	validate_settings(value)
+	if len((json.dumps(value, ensure_ascii=True, indent=2) + "\n").encode("utf-8")) > MAX_BYTES:
+		raise LaunchError("Launcher settings exceed 128 KiB.")
+	with file_lock(Path(directory) / PROFILE_LOCK):
+		_, current = load_settings(directory)
+		if current != expected:
+			raise LaunchError("Launcher settings changed externally. Reload launchers before saving.")
+		write_json(Path(directory) / FILENAME, value)
+		return load_settings(directory)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -51,7 +186,9 @@ def resolve_profile(base, profile):
 		raise LaunchError("Select an executable computation program.")
 	if os.name == "nt" and executable.suffix.lower() not in {".exe", ".com"}:
 		raise LaunchError("Select the engine's .exe or .com binary, rather than a shell script.")
+	info = executable.stat()
 	return {"name": profile["name"], "program": profile["program"], "directory": str(directory),
+		"executable_id": [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns],
 		"argv": [str(executable), *profile["arguments"]], "terminal": profile["terminal"]}
 
 
@@ -125,9 +262,13 @@ def console_python():
 	return str(executable)
 
 
-def terminal_command(kind, executable, payload, python=None, platform=None):
+def plan_digest(plan):
+	return hashlib.sha256(json.dumps(plan, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def terminal_command(kind, executable, payload, digest, python=None, platform=None):
 	python, platform = python or console_python(), platform or sys.platform
-	command = [python, "-B", str(ROOT / "gui_computation.py"), "--run", str(payload)]
+	command = [python, "-B", str(ROOT / "gui_computation.py"), "--run", digest, str(payload)]
 	kwargs = {"close_fds": True}
 	if platform != "win32":
 		kwargs["start_new_session"] = True
@@ -144,7 +285,7 @@ def terminal_command(kind, executable, payload, python=None, platform=None):
 		# occurs once, with delayed expansion disabled, inside quoted operands.
 		kwargs["cwd"] = str(Path(payload).parent)
 		kwargs["env"] = {**os.environ, "APN_GUI_PYTHON": python, "APN_GUI_HELPER": str(ROOT / "gui_computation.py"),
-			"APN_GUI_PAYLOAD": str(payload)}
+			"APN_GUI_PAYLOAD": str(payload), "APN_GUI_DIGEST": digest}
 		return [executable, "/D", "/V:OFF", "/K", "launch.cmd"], kwargs
 	prefix = {"ptyxis": ["--standalone", "--"], "gnome-terminal": ["--"], "konsole": ["--separate", "-e"],
 		"xfce4-terminal": ["--disable-server", "--execute"], "xterm": ["-e"]}
@@ -153,8 +294,10 @@ def terminal_command(kind, executable, payload, python=None, platform=None):
 	return [executable, *prefix[kind], *command], kwargs
 
 
-def launch_computation(base, profile, expected):
+def launch_computation(base, profile, expected, reviewed):
 	prepared = prepare_launch(base, profile, expected)
+	if any(prepared[key] != reviewed[key] for key in ("plan", "terminal", "terminal_executable")):
+		raise LaunchError("The launch target changed after review. Review the profile again before starting.")
 	root = Path(base).resolve() / SESSION_DIRECTORY
 	if root.is_symlink():
 		raise LaunchError("The GUI launch-session directory must not be a symbolic link.")
@@ -167,8 +310,8 @@ def launch_computation(base, profile, expected):
 	# The helper waits in an independent terminal; GUI exit never stops it.
 	if prepared["terminal"] == "Cmd":
 		with (session / "launch.cmd").open("w", encoding="ascii", newline="") as stream:
-			stream.write('@echo off\r\nsetlocal DisableDelayedExpansion\r\n"%APN_GUI_PYTHON%" -B "%APN_GUI_HELPER%" --run "%APN_GUI_PAYLOAD%"\r\n')
-	argv, kwargs = terminal_command(prepared["terminal"], prepared["terminal_executable"], payload)
+			stream.write('@echo off\r\nsetlocal DisableDelayedExpansion\r\n"%APN_GUI_PYTHON%" -B "%APN_GUI_HELPER%" --run "%APN_GUI_DIGEST%" "%APN_GUI_PAYLOAD%"\r\n')
+	argv, kwargs = terminal_command(prepared["terminal"], prepared["terminal_executable"], payload, plan_digest(reviewed["plan"]))
 	try:
 		if sys.platform != "win32":
 			kwargs.update(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -192,7 +335,7 @@ def launch_computation(base, profile, expected):
 
 def session_status(session):
 	value = json.loads(read_bytes(Path(session) / "status.json", 8192))
-	if not isinstance(value, dict) or value.get("state") not in {"waiting", "running", "finished", "failed"}:
+	if not isinstance(value, dict) or not isinstance(value.get("state"), str) or value["state"] not in {"waiting", "running", "finished", "failed"}:
 		raise LaunchError("Invalid computation startup status.")
 	if value["state"] in {"running", "finished"} and (type(value.get("pid")) is not int or value["pid"] < 1):
 		raise LaunchError("Invalid computation PID.")
@@ -218,20 +361,23 @@ def publish_status(path, value):
 		print("GUI status could not be saved; check this terminal for computation state.", file=sys.stderr, flush=True)
 
 
-def run_computation(payload, pause=True):
+def run_computation(payload, pause=True, expected_digest=None):
 	payload = Path(payload).resolve(strict=True)
 	status = payload.parent / "status.json"
 	try:
 		plan = json.loads(read_bytes(payload))
+		if expected_digest is not None and plan_digest(plan) != expected_digest:
+			raise LaunchError("The launch request no longer matches the reviewed profile.")
 		# Revalidate data in the terminal. No shells interpret engine arguments.
 		profile = {"name": plan["name"], "program": plan["program"], "directory": plan["directory"],
 			"executable": plan["argv"][0], "arguments": plan["argv"][1:], "terminal": plan["terminal"]}
-		plan = resolve_profile(payload.parent, profile)
 		with computation_guard(payload, plan):
 			matches, _ = duplicate_processes(plan)
 			if matches:
 				raise LaunchError("A matching computation is already running in the selected directory. Stop this worker in terminal.")
 			print("Starting " + plan["name"] + " in " + plan["directory"], flush=True)
+			if resolve_profile(payload.parent, profile) != plan:
+				raise LaunchError("The reviewed executable or directory changed before startup.")
 			process = subprocess.Popen(plan["argv"], cwd=plan["directory"])
 			publish_status(status, {"state": "running", "pid": process.pid, "time": time.time()})
 			code = process.wait()
@@ -250,6 +396,6 @@ def run_computation(payload, pause=True):
 
 
 if __name__ == "__main__":
-	if len(sys.argv) != 3 or sys.argv[1] != "--run":
+	if len(sys.argv) != 4 or sys.argv[1] != "--run":
 		raise SystemExit("This helper is started by the GUI's computation launcher.")
-	raise SystemExit(run_computation(sys.argv[2]))
+	raise SystemExit(run_computation(sys.argv[3], expected_digest=sys.argv[2]))

@@ -13,15 +13,11 @@ import stat
 import tempfile
 import time
 
-from gui_config import WorkspaceError, workspace_snapshot
+from gui_config import WorkspaceError, file_version_fields, workspace_snapshot
 
 
 MAX_SNAPSHOT_FILE = 2 * 1024 * 1024
 MAX_SNAPSHOT_TOTAL = 16 * 1024 * 1024
-
-
-def _version(info):
-	return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
 
 
 def _read(path):
@@ -33,13 +29,13 @@ def _read(path):
 		raise WorkspaceError("Assignment snapshots require regular, non-symlink work/certification files.")
 	if before.st_size > MAX_SNAPSHOT_FILE:
 		raise WorkspaceError("A work/certification file exceeds the 2 MiB assignment snapshot limit.")
-	with os.fdopen(os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)), "rb") as stream:
-		if _version(os.fstat(stream.fileno())) != _version(before):
+	with os.fdopen(os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)), "rb") as stream:
+		if file_version_fields(os.fstat(stream.fileno())) != file_version_fields(before):
 			raise WorkspaceError("An assignment file changed during backup. Pause computation and retry.")
 		data = stream.read(MAX_SNAPSHOT_FILE + 1)
-		if len(data) > MAX_SNAPSHOT_FILE or _version(os.fstat(stream.fileno())) != _version(before):
+		if len(data) > MAX_SNAPSHOT_FILE or file_version_fields(os.fstat(stream.fileno())) != file_version_fields(before):
 			raise WorkspaceError("An assignment file changed during backup. Pause computation and retry.")
-	return data, _version(before)
+	return data, file_version_fields(before)
 
 
 def snapshot_assignments(directory, config_name, operation, parameters=None):
@@ -70,7 +66,7 @@ def snapshot_assignments(directory, config_name, operation, parameters=None):
 		# Recheck every input after all reads, including files initially absent.
 		for path, version in versions:
 			try:
-				current = _version(path.lstat())
+				current = file_version_fields(path.lstat())
 			except FileNotFoundError:
 				current = None
 			if current != version:

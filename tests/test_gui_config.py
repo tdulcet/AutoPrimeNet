@@ -27,6 +27,8 @@ class WorkspaceTests(unittest.TestCase):
 					for name in ("st_mode", "st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")})
 			with patch("gui_config._STAT_CTIME_IS_CHANGE_TIME", False), patch("gui_config.os.fstat", side_effect=different_ctime):
 				self.assertEqual(ConfigDocument(directory).data, data)
+				from gui_assignment_backup import _read
+				self.assertEqual(_read(path)[0], data)
 			with patch("gui_config._STAT_CTIME_IS_CHANGE_TIME", True), patch("gui_config.os.fstat", side_effect=different_ctime):
 				with self.assertRaisesRegex(WorkspaceError, "changed while opening"):
 					ConfigDocument(directory)

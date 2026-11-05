@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-from gui_tray_host import tray_platform
+from gui_tray import tray_platform
 
 
 ROOT = Path(__file__).resolve().parent

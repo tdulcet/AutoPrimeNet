@@ -22,7 +22,7 @@ BASELINE_SHA256 = "05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7e
 
 class BackendTests(unittest.TestCase):
 	def test_documented_parity_inventory_matches_audited_parser(self):
-		from gui_reference import reference_info
+		from gui_options import reference_info
 		options = self.run_bridge({"protocol": 1, "operation": "capabilities"})["result"]["cli_options"]
 		documented = []
 		for line in (ROOT / "GUI_PARITY.md").read_text().splitlines():
@@ -48,7 +48,7 @@ class BackendTests(unittest.TestCase):
 		self.assertFalse(response["result"]["network_enabled"])
 
 	def test_all_audited_cli_entries_have_explicit_coverage_classification(self):
-		from gui_reference import reference_info
+		from gui_options import reference_info
 		result = self.run_bridge({"protocol": 1, "operation": "capabilities"})["result"]
 		self.assertEqual(result["backend_version"], "2.0.2")
 		self.assertFalse([item for item in result["cli_options"] if reference_info(item["dest"])[2] == "Unmapped"])

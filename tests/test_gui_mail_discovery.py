@@ -45,6 +45,34 @@ class MailDiscoveryTests(unittest.TestCase):
 		with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
 			return execute(request, callback)
 
+	def test_lookup_budget_includes_redirects_and_dns_replies(self):
+		from requests import Response, Session
+		from requests.adapters import BaseAdapter
+		from gui_mail_discovery import limit_lookup_responses
+
+		class Transport(BaseAdapter):
+			def close(self):
+				pass
+
+			def send(self, request, **kwargs):
+				response = Response()
+				response.url, response.request = request.url, request
+				response.status_code = 302 if request.url.endswith("redirect") else 200
+				if response.status_code == 302:
+					response.headers["Location"] = "/provider"
+				response.raw = io.BytesIO(b"test")
+				return response
+
+		with Session() as dns, patch("gui_mail_discovery.MAX_LOOKUP_BYTES", 10):
+			ns = {"session": dns}
+			limit_lookup_responses(ns)
+			with ns["requests"].Session() as provider:
+				provider.mount("https://", Transport())
+				self.assertEqual(provider.get("https://fixture.invalid/redirect").content, b"test")
+			dns.mount("https://", Transport())
+			with self.assertRaisesRegex(ValueError, "response size limit"):
+				dns.get("https://fixture.invalid/dns")
+
 	def test_security_modes_and_unknown_username(self):
 		for security, tls, starttls in (("SSL", "True", "False"), ("STARTTLS", "False", "True"), ("plain", "False", "False")):
 			with self.subTest(security=security):
