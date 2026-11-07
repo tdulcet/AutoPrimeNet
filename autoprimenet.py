@@ -735,6 +735,7 @@ if nvml_lib:
 		nvml_lib = None
 
 if nvml_lib:
+
 	class nvmlMemory_v2_t(ctypes.Structure):
 		"""NVML v2 device-memory information structure."""
 
@@ -2971,48 +2972,47 @@ def setup(config, args):
 	print("Not all worktypes are supported by all the GIMPS programs:")
 	if sys.stdout.encoding.lower().startswith("utf"):
 		print("""
-┌──────────┬────────┬────────┬───────┬────────┬───────────┬─────────┬───────────────┬───────────┐
-│ Worktype │ Mlucas │ GpuOwl │ PRPLL │ PrMers │ CUDALucas │ CUDAPm1 │ mfaktc/mfakto │ PrimePath │
-├──────────┴────────┴────────┴───────┴────────┴───────────┴─────────┴───────────────┴───────────┤
-│ 4          ✔        ✔                ✔                    ✔                                   │
-│ 5                                    ✔                                                        │
-│ 8                                    ✔                                                        │
-│ 12                                                                  ✔               ✔         │
-│ 101        ✔                                  ✔                                               │
-│ 106                 ✔*       ✔       ✔                                                        │
-│ 150        ✔        ✔        ✔       ✔                                                        │
-│ 151**      ✔        ✔        ✔       ✔                                                        │
-│ 152        ✔        ✔        ✔       ✔                                                        │
-│ 153        ✔        ✔        ✔       ✔                                                        │
-│ 154        ✔        ✔*                                                                        │
-│ 155                 ✔        ✔       ✔                                                        │
-│ 156                                                                                           │
-│ 160        ✔                         ✔                                                        │
-│ 161        ✔                         ✔                                                        │
-└───────────────────────────────────────────────────────────────────────────────────────────────┘""")
+┌──────────┬────────────────────┬────────┬───────┬────────┬───────────────┬───────────┐
+│ Worktype │    Description     │ Mlucas │ PRPLL │ PrMers │ mfaktc/mfakto │ PrimePath │
+├──────────┴────────────────────┴────────┴───────┴────────┴───────────────┴───────────┤
+│ 4          P-1                  ✔        ✔       ✔                                  │
+│ 5          ECM                                   ✔                                  │
+│ 8          ECM cofactor                          ✔                                  │
+│ 12         GPU TF                                         ✔               ✔         │
+│ 101        LL DC                ✔                                                   │
+│ 106        LL DC 0 shift                 ✔       ✔                                  │
+│ 150        PRP                  ✔        ✔       ✔                                  │
+│ 151*       PRP DC               ✔        ✔       ✔                                  │
+│ 152        PRP record           ✔        ✔       ✔                                  │
+│ 153        PRP 100M digit       ✔        ✔       ✔                                  │
+│ 154        PRP needs P-1        ✔        ✔                                          │
+│ 155        DC PRP proof                          ✔                                  │
+│ 156        DC PRP proof shift            ✔                                          │
+│ 160        PRP cofactor         ✔                ✔                                  │
+│ 161        PRP DC cofactor      ✔                ✔                                  │
+└─────────────────────────────────────────────────────────────────────────────────────┘""")
 	else:
 		print("""
-+----------+--------+--------+-------+--------+-----------+---------+---------------+-----------+
-| Worktype | Mlucas | GpuOwl | PRPLL | PrMers | CUDALucas | CUDAPm1 | mfaktc/mfakto | PrimePath |
-+----------+--------+--------+-------+--------+-----------+---------+---------------+-----------+
-| 4          X        X                X                    X                                   |
-| 5                                    X                                                        |
-| 8                                    X                                                        |
-| 12                                                                  X               X         |
-| 101        X                                  X                                               |
-| 106                 X*       X       X                                                        |
-| 150        X        X        X       X                                                        |
-| 151**      X        X        X       X                                                        |
-| 152        X        X        X       X                                                        |
-| 153        X        X        X       X                                                        |
-| 154        X        X*                                                                        |
-| 155                 X        X       X                                                        |
-| 156                                                                                           |
-| 160        X                         X                                                        |
-| 161        X                         X                                                        |
-+-----------------------------------------------------------------------------------------------+""")
-	print("""* Some previous versions of GpuOwl
-** Frequently returns LL DC assignments instead of PRP DC
++----------+--------------------+--------+-------+--------+---------------+-----------+
+| Worktype |    Description     | Mlucas | PRPLL | PrMers | mfaktc/mfakto | PrimePath |
++----------+--------------------+--------+-------+--------+---------------+-----------+
+| 4          P-1                  X        X       X                                  |
+| 5          ECM                                   X                                  |
+| 8          ECM cofactor                          X                                  |
+| 12         GPU TF                                         X               X         |
+| 101        LL DC                X                                                   |
+| 106        LL DC 0 shift                 X       X                                  |
+| 150        PRP                  X        X       X                                  |
+| 151*       PRP DC               X        X       X                                  |
+| 152        PRP record           X        X       X                                  |
+| 153        PRP 100M digit       X        X       X                                  |
+| 154        PRP needs P-1        X        X                                          |
+| 155        DC PRP proof                          X                                  |
+| 156        DC PRP proof shift            X                                          |
+| 160        PRP cofactor         X                X                                  |
+| 161        PRP DC cofactor      X                X                                  |
++-------------------------------------------------------------------------------------+""")
+	print("""* Frequently returns LL DC assignments instead of PRP DC
 """)
 
 	directories = []
@@ -5800,11 +5800,35 @@ LL_v13_RE = re.compile(rb"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+
 
 PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
 
+PRP_v14_RE = re.compile(
+	rb"^OWL PRP (14) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?) shift=(\d+)$"
+)
+
 CERT_v1_RE = re.compile(rb"^OWL CERT (1) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) time=(\d+(?:\.\d+)?)$")
+
+CERT_v2_RE = re.compile(rb"^OWL CERT (2) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
+CERT_v2_shift_RE = re.compile(rb"^OWL CERT (2) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) time=(\d+(?:\.\d+)?) shift=(\d+)$")
+
+CERT_v3_RE = re.compile(rb"^OWL CERT (3) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) err=(\d+) time=(\d+(?:\.\d+)?) shift=(\d+)$")
+
+PRPLL_P1_v1_RE = re.compile(rb"^OWL P1 (1) N=1\*2\^(\d+)-1 B1=(\d+) k=(\d+) bits=(\d+) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
+PRPLL_P1_v2_RE = re.compile(rb"^OWL P1 (2) N=1\*2\^(\d+)-1 B1=(\d+) B2=(\d+) k=(\d+) bits=(\d+) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
+PRPLL_P2_v1_RE = re.compile(
+	rb"^OWL P2 (1) N=1\*2\^(\d+)-1 k=(\d+) B1=(\d+) B2=(\d+) D=(\d+) x64=([\da-f]{16}) muls=(\d+) time=(\d+(?:\.\d+)?)$"
+)
+
+PRPLL_P2_v2_RE = re.compile(
+	rb"^OWL P2 (2) N=1\*2\^(\d+)-1 k=(\d+) B1=(\d+) B2=(\d+) D=(\d+) M=(\d+) plan=(\d+) x64=([\da-f]{16}) muls=(\d+) time=(\d+(?:\.\d+)?)$"
+)
 
 
 def parse_work_unit_prpll(args, adapter, filename, p):
 	"""Parse a PRPLL checkpoint and return assignment progress and timing metadata."""
+	iterations = stage = None
+
 	try:
 		with open(filename, "rb") as f:
 			header = f.readline().rstrip(b"\n")
@@ -5825,29 +5849,72 @@ def parse_work_unit_prpll(args, adapter, filename, p):
 			return None
 
 		counter = int(iteration)
-		avg_msec_per_iter = (float(elapsed) / counter) * 1000
 	elif header.startswith(b"OWL PRP "):
+		prp_v14 = PRP_v14_RE.match(header)
 		prp_v13 = PRP_v13_RE.match(header)
 
-		if prp_v13:
+		if prp_v14:
+			_version, exponent, iteration, _block_size, _res64, _nErrors, elapsed, _shift = prp_v14.groups()
+		elif prp_v13:
 			_version, exponent, iteration, _block_size, _res64, _nErrors, elapsed = prp_v13.groups()
 		else:
 			adapter.debug("PRP savefile with unknown version: %r", header)
 			return None
 
 		counter = int(iteration)
-		avg_msec_per_iter = (float(elapsed) / counter) * 1000
 	elif header.startswith(b"OWL CERT "):
+		cert_v3 = CERT_v3_RE.match(header)
+		cert_v2_shift = CERT_v2_shift_RE.match(header)
+		cert_v2 = CERT_v2_RE.match(header)
 		cert_v1 = CERT_v1_RE.match(header)
 
-		if cert_v1:
+		if cert_v3:
+			_version, exponent, iteration, _squarings, _nErrors, elapsed, _shift = cert_v3.groups()
+		elif cert_v2_shift:
+			_version, exponent, iteration, _squarings, elapsed, _shift = cert_v2_shift.groups()
+		elif cert_v2:
+			_version, exponent, iteration, _squarings, _nErrors, elapsed = cert_v2.groups()
+		elif cert_v1:
 			_version, exponent, iteration, _squarings, elapsed = cert_v1.groups()
 		else:
 			adapter.debug("CERT savefile with unknown version: %r", header)
 			return None
 
 		counter = int(iteration)
-		avg_msec_per_iter = (float(elapsed) / counter) * 1000
+	elif header.startswith(b"OWL P1 "):
+		p1_v2 = PRPLL_P1_v2_RE.match(header)
+		p1_v1 = PRPLL_P1_v1_RE.match(header)
+
+		if p1_v2:
+			_version, exponent, _B1, _B2, iteration, nBits, _nErrors, elapsed = p1_v2.groups()
+		elif p1_v1:
+			_version, exponent, _B1, iteration, nBits, _nErrors, elapsed = p1_v1.groups()
+		else:
+			adapter.debug("P-1 stage 1 savefile with unknown version: %r", header)
+			return None
+
+		counter = int(iteration)
+		iterations = int(nBits)
+		stage = 1
+	elif header.startswith(b"OWL P2 "):
+		p2_v2 = PRPLL_P2_v2_RE.match(header)
+		p2_v1 = PRPLL_P2_v1_RE.match(header)
+
+		if p2_v2:
+			_version, exponent, iteration, B1, B2, D, _M, _plan, _x64, _nMul, elapsed = p2_v2.groups()
+		elif p2_v1:
+			_version, exponent, iteration, B1, B2, D, _x64, _nMul, elapsed = p2_v1.groups()
+		else:
+			adapter.debug("P-1 stage 2 savefile with unknown version: %r", header)
+			return None
+
+		d = int(D)
+		k_begin = (int(B1) + 1 + d // 2) // d
+		k_end = (int(B2) + d // 2) // d + 1
+
+		counter = int(iteration) - k_begin
+		iterations = k_end - k_begin
+		stage = 2
 	else:
 		adapter.debug("Unknown save/checkpoint file header: %r", header)
 		return None
@@ -5856,7 +5923,9 @@ def parse_work_unit_prpll(args, adapter, filename, p):
 		adapter.debug("Expecting the exponent %s, but found %s", p, exponent)
 		return None
 
-	return counter, avg_msec_per_iter
+	avg_msec_per_iter = (float(elapsed) / counter) * 1000
+
+	return counter, iterations, avg_msec_per_iter, stage
 
 
 def parse_work_unit_prmers(args, adapter, filename, exponent):
@@ -6470,7 +6539,7 @@ def parse_gpuowl_log_file(args, adapter, adir, p):
 	return iteration, iterations, msec_per_iter, None, stage, fftlen
 
 
-PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(?:ll|prp|cert)$")
+PRPLL_RE = re.compile(r"^[0-9]+-[0-9]+\.(ll|prp|cert|p[12])$")
 
 
 def get_prpll_progress(args, adapter, adir, p):
@@ -6479,19 +6548,24 @@ def get_prpll_progress(args, adapter, adir, p):
 	for entry in glob.iglob(os.path.join(adir, "*{}".format(p), "{}-[0-9]*.*".format(p))):
 		match = PRPLL_RE.match(os.path.basename(entry))
 		if match:
-			savefiles.append((tuple(map(int, os.path.splitext(os.path.basename(entry))[0].split("-"))), entry))
+			savefiles.append((
+				2 if match.group(1) in {"ll", "prp", "cert"} else 1 if match.group(1) == "p2" else 0,
+				tuple(map(int, os.path.splitext(os.path.basename(entry))[0].split("-"))),
+				entry,
+			))
 	iteration = 0
+	iterations = stage = None
 	avg_msec_per_iter = None
-	for _, savefile in sorted(savefiles, reverse=True):
+	for _, _, savefile in sorted(savefiles, reverse=True):
 		result = parse_work_unit_prpll(args, adapter, savefile, p)
 		if result is not None:
-			iteration, avg_msec_per_iter = result
+			iteration, iterations, avg_msec_per_iter, stage = result
 			break
 		adapter.error("Unable to parse the %r save/checkpoint file", savefile)
 	else:
 		adapter.debug("No save/checkpoint files found for the exponent %s", p)
 
-	return iteration, None, avg_msec_per_iter, None, None, None
+	return iteration, iterations, avg_msec_per_iter, None, stage, None
 
 
 PRMERS_RE = re.compile(
@@ -9034,7 +9108,7 @@ def update_assignment(args, adapter, assignment, task):
 
 	if args.pm1_bounds:
 		add_bounds = False
-		if (args.mlucas or args.prmers) and assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
+		if (args.mlucas or args.prpll or args.prmers) and assignment.work_type == PRIMENET_WORK_TYPE.PFACTOR:
 			adapter.info("Converting from Pfactor= to Pminus1=")
 			assignment.work_type = PRIMENET_WORK_TYPE.PMINUS1
 			add_bounds = True
@@ -9203,7 +9277,7 @@ def register_exponents(config, args, dirs):
 				print("""
 Use the following values to select a worktype:
 	2 - Trial factoring (mfaktc/mfakto and PrimePath only) (Factor=)
-	3 - P-1 factoring with bounds (Mlucas only) (Pminus1=)
+	3 - P-1 factoring with bounds (Mlucas and PRPLL-NTT only) (Pminus1=)
 	4 - P-1 factoring (with bounds for GpuOwl only) (Pfactor=)
 	5 - ECM factoring (PrMers only) (ECM2=)
 	100 - First time LL test (Test=)
@@ -10627,7 +10701,7 @@ parser.add_argument(
 	"--force-pminus1-bounds",
 	dest="pm1_bounds",
 	choices=("MIN", "MID", "MAX"),
-	help="Force using the 'MIN', 'MID' or 'MAX' optimal P-1 bounds (as listed on mersenne.ca) for P-1 tests. For Mlucas and PrMers, this will rewrite Pfactor= assignments to Pminus1=. For GpuOwl, this will use a nonstandard Pfactor= format to add the bounds. Can be used in combination with the --force-pminus1 option.",
+	help="Force using the 'MIN', 'MID' or 'MAX' optimal P-1 bounds (as listed on mersenne.ca) for P-1 tests. For Mlucas, PRPLL-NTT and PrMers, this will rewrite Pfactor= assignments to Pminus1=. For GpuOwl, this will use a nonstandard Pfactor= format to add the bounds. Can be used in combination with the --force-pminus1 option.",
 )
 parser.add_argument(
 	"--ecm-bounds-multiplier",
@@ -11089,16 +11163,17 @@ SUPPORTED = frozenset(
 	(PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR)
 	if args.mfaktc or args.mfakto or args.primepath
 	else (
-		(PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M)
+		(PRIMENET_WP.PFACTOR, PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M)
 		+ ((PRIMENET_WP.LL_DBLCHK,) if args.mlucas or args.cudalucas else ())
+		+ ((106,) if args.gpuowl or args.prpll or args.prmers else ())
 		+ (
 			()
 			if args.cudalucas
 			else (PRIMENET_WP.PRP_FIRST, PRIMENET_WP.PRP_DBLCHK, PRIMENET_WP.PRP_WORLD_RECORD, PRIMENET_WP.PRP_100M)
 		)
-		+ ((106, PRIMENET_WP.PRP_DC_PROOF) if args.gpuowl or args.prpll or args.prmers else ())
-		+ ((PRIMENET_WP.PRP_NO_PMINUS1,) if args.gpuowl or args.mlucas else ())
-		+ (() if args.prpll else (PRIMENET_WP.PFACTOR,))
+		+ ((PRIMENET_WP.PRP_NO_PMINUS1,) if args.gpuowl or args.prpll or args.mlucas else ())
+		+ ((PRIMENET_WP.PRP_DC_PROOF,) if args.gpuowl or args.prmers else ())
+		+ ((156,) if args.prpll else ())
 		+ ((PRIMENET_WP.ECM_SMALL, PRIMENET_WP.ECM_COFACTOR) if args.prmers else ())
 		+ ((PRIMENET_WP.PRP_COFACTOR, PRIMENET_WP.PRP_COFACTOR_DBLCHK) if args.mlucas or args.prmers else ())
 	)
