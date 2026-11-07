@@ -5,8 +5,7 @@ and see how far its workers have progressed. **Start computation** opens your
 engine in a terminal. **Start monitoring** tells AutoPrimeNet to communicate with
 the server. You can run either one on its own.
 
-[Install and launch](#install-and-launch) · [Set up a workspace](#set-up-a-workspace) ·
-[Start a worker](#start-a-worker) · [Check progress](#check-progress) ·
+[Install and launch](#install-and-launch) · [Start a worker](#start-a-worker) · [Check progress](#check-progress) ·
 [Monitor assignments](#monitor-assignments) · [Run the tests](#running-the-test-suite)
 
 ## Install and launch
@@ -52,33 +51,6 @@ Close the demonstration window, then run:
 
 If the Tk check fails, fix the interpreter or display before going further.
 You don't have to activate the environment when you use its Python directly.
-
-## Set up a workspace
-
-A workspace is the directory containing the configuration and work files you
-want AutoPrimeNet to manage. It is usually separate from this source checkout.
-
-1. Choose **Browse** and pick the workspace. If your configuration has a name
-   other than `prime.ini`, enter it in **Settings** and click **Refresh preview**.
-   Previewing reads local files. It doesn't reserve work or start an engine.
-2. In **PrimeNet**, enter your GIMPS username or the literal `ANONYMOUS`.
-   In **Workers**, select your engine. For multiple workers, set the count,
-   click **Apply worker count**, then **Edit selected worker…** for each one.
-   Non-PRPLL workers need separate directories when there is more than one.
-   PRPLL uses indexed files in one directory; leave its worker directories blank.
-3. In **Settings**, match the work and results filenames to the engine. For
-   example, the Ubuntu packaged Mlucas 20.1.1 used `worktodo.ini`, while the
-   source-built 21.0.2 used `worktodo.txt`. Selecting Mlucas doesn't change the filename.
-4. In a dialog, choose **Apply to form** to keep your edits or **Cancel** to
-   discard them. Valid edits save about two seconds after you stop typing and
-   close the editors. Use **Save settings** to save immediately. Check the status
-   at the bottom of the window before starting a server operation.
-
-The next time you open the GUI, it previews the last workspace. It doesn't
-restart monitoring or computation. To forget that selection, remove
-`AutoPrimeNetGUI/preferences.json` under `~/Library/Application Support` on
-macOS, `%APPDATA%` on Windows, or `$XDG_CONFIG_HOME` (normally `~/.config`)
-on Linux/FreeBSD. This leaves the workspace itself alone.
 
 ### Files and backups
 
@@ -302,8 +274,7 @@ minimizes to the Dock or taskbar. Use **File → Quit** to exit or start with
   `.venv/bin/python -c "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk; print(Gtk.get_major_version())"`.
 
 After enabling the desktop extension or installing missing packages, choose
-**Settings → Retry tray integration**. Fedora and Ubuntu GNOME/Wayland tray checks
-are recorded in [GUI_TESTING.md](GUI_TESTING.md); other desktops can behave differently.
+**Settings → Retry tray integration**.
 
 ## Troubleshooting
 
@@ -360,6 +331,4 @@ services, so test actual panel integration manually too.
 To run a smaller group, replace the discovery pattern with a filename such as
 `test_gui_progress.py` or `test_gui_launcher*.py`. No pytest installation is needed.
 
-[GUI_TESTING.md](GUI_TESTING.md) describes architecture, coverage and recorded
-results. [GUI_ACCEPTANCE.md](GUI_ACCEPTANCE.md) provides the manual checklist;
 [GUI_PARITY.md](GUI_PARITY.md) maps CLI options to graphical controls and limits.
