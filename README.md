@@ -300,10 +300,11 @@ options:
   --force-pminus1-bounds {MIN,MID,MAX}
                         Force using the 'MIN', 'MID' or 'MAX' optimal P-1
                         bounds (as listed on mersenne.ca) for P-1 tests. For
-                        Mlucas and PrMers, this will rewrite Pfactor=
-                        assignments to Pminus1=. For GpuOwl, this will use a
-                        nonstandard Pfactor= format to add the bounds. Can be
-                        used in combination with the --force-pminus1 option.
+                        Mlucas, PRPLL-NTT and PrMers, this will rewrite
+                        Pfactor= assignments to Pminus1=. For GpuOwl, this
+                        will use a nonstandard Pfactor= format to add the
+                        bounds. Can be used in combination with the --force-
+                        pminus1 option.
   --ecm-bounds-multiplier ECM_MULTIPLIER
                         Multiply the PrimeNet server assigned ECM bounds by
                         this multiplier.

@@ -321,12 +321,50 @@ PROOF_NUMBER_RE = re.compile(rb"^(\()?([MF]?(\d+)|(?:(\d+)\*)?(\d+)\^(\d+)([+-]\
 # LL_v13 = "OWL LL 13 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " time=%lf\n"
 LL_v13_RE = re.compile(rb"^OWL LL (13) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
 
+# LLV_v1 = "OWL LLV 1 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " time=%lf\n"
+LLV_v1_RE = re.compile(rb"^OWL LLV (1) N=1\*2\^(\d+)-1 k=(\d+) time=(\d+(?:\.\d+)?)$")
+
 # PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u time=%lf\n"
 # PRP_v13 = "OWL PRP 13 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " block=%u res64=%016" SCNx64 " err=%u time=%lf\n"
 PRP_v13_RE = re.compile(rb"^OWL PRP (13) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?)$")
 
+# PRP_v14 = "OWL PRP 14 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " block=%u res64=%016" SCNx64 " err=%u time=%lf shift=%" PRIu64 "\n"
+PRP_v14_RE = re.compile(
+	rb"^OWL PRP (14) N=1\*2\^(\d+)-1 k=(\d+) block=(\d+) res64=([\da-f]{16}) err=(\d+) time=(\d+(?:\.\d+)?) shift=(\d+)$"
+)
+
 # CERT_v1 = "OWL CERT 1 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " squarings=%" PRIu64 " time=%lf\n"
 CERT_v1_RE = re.compile(rb"^OWL CERT (1) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) time=(\d+(?:\.\d+)?)$")
+
+# CERT_v2 = "OWL CERT 2 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " squarings=%" PRIu64 " err=%u time=%lf\n"
+CERT_v2_RE = re.compile(rb"^OWL CERT (2) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
+# CERT_v2_shift = "OWL CERT 2 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " squarings=%" PRIu64 " time=%lf shift=%" PRIu64 "\n"
+CERT_v2_shift_RE = re.compile(rb"^OWL CERT (2) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) time=(\d+(?:\.\d+)?) shift=(\d+)$")
+
+# CERT_v3 = "OWL CERT 3 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " squarings=%" PRIu64 " err=%u time=%lf shift=%" PRIu64 "\n"
+CERT_v3_RE = re.compile(rb"^OWL CERT (3) N=1\*2\^(\d+)-1 k=(\d+) squarings=(\d+) err=(\d+) time=(\d+(?:\.\d+)?) shift=(\d+)$")
+
+# P1_v1 = "OWL P1 1 N=1*2^%" PRIu64 "-1 B1=%" PRIu64 " k=%" PRIu64 " bits=%" PRIu64 " err=%u time=%lf\n"
+PRPLL_P1_v1_RE = re.compile(rb"^OWL P1 (1) N=1\*2\^(\d+)-1 B1=(\d+) k=(\d+) bits=(\d+) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
+# P1_v2 = "OWL P1 2 N=1*2^%" PRIu64 "-1 B1=%" PRIu64 " B2=%" PRIu64 " k=%" PRIu64 " bits=%" PRIu64 " err=%u time=%lf\n"
+PRPLL_P1_v2_RE = re.compile(rb"^OWL P1 (2) N=1\*2\^(\d+)-1 B1=(\d+) B2=(\d+) k=(\d+) bits=(\d+) err=(\d+) time=(\d+(?:\.\d+)?)$")
+
+# P2_v1 = "OWL P2 1 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " B1=%" PRIu64 " B2=%" PRIu64 " D=%u x64=%016" SCNx64 " muls=%" PRIu64 " time=%lf\n"
+PRPLL_P2_v1_RE = re.compile(
+	rb"^OWL P2 (1) N=1\*2\^(\d+)-1 k=(\d+) B1=(\d+) B2=(\d+) D=(\d+) x64=([\da-f]{16}) muls=(\d+) time=(\d+(?:\.\d+)?)$"
+)
+
+# P2_v2 = "OWL P2 2 N=1*2^%" PRIu64 "-1 k=%" PRIu64 " B1=%" PRIu64 " B2=%" PRIu64 " D=%u M=%u plan=%u x64=%016" SCNx64 " muls=%" PRIu64 " time=%lf\n"
+PRPLL_P2_v2_RE = re.compile(
+	rb"^OWL P2 (2) N=1\*2\^(\d+)-1 k=(\d+) B1=(\d+) B2=(\d+) D=(\d+) M=(\d+) plan=(\d+) x64=([\da-f]{16}) muls=(\d+) time=(\d+(?:\.\d+)?)$"
+)
+
+# P1PRP_v1 = "OWL P1PRP 1 N=1*2^%" PRIu64 "-1 B1=%" PRIu64 " B2=%" PRIu64 " k=%" PRIu64 " prp64=%016" SCNx64 " next=%" PRIu64 " stage=%u err=%u\n"
+P1PRP_v1_RE = re.compile(
+	rb"^OWL P1PRP (1) N=1\*2\^(\d+)-1 B1=(\d+) B2=(\d+) k=(\d+) prp64=([\da-f]{16}) next=(\d+) stage=(\d+) err=(\d+)$"
+)
 
 
 PRIME95_RE = re.compile(
@@ -341,7 +379,9 @@ GPUOWL_RE = re.compile(
 	+ r"(?:([0-9]+)(?:-([0-9]+)\.(?:ll|prp|p1final|p2)|(?:-[0-9]+-([0-9]+))?\.p1|(-old)?\.(?:(?:ll|p[12])\.)?owl)|unverified\.prp(\.bak)?)|[0-9]+(-prev)?\.(?:tf\.)?owl)$"
 )
 PRPLL_RE = re.compile(
-	r"(?:(?:(?:ll|cert)-)?([0-9]+)" + re.escape(os.sep) + r"(?:([0-9]+)-([0-9]+)\.(?:ll|prp|cert)|unverified\.prp))$"
+	r"(?:(?:llv?|cert|p[12]|p1prp)-)?([0-9]+)"
+	+ re.escape(os.sep)
+	+ r"(?:[0-9]+-[0-9]+\.(llv?|prp|cert|p[12]|p1prp)|unverified\.prp)$"
 )
 PRMERS_RE = re.compile(
 	r"^(?:(?:wagstaff_|llsafe2?_|llunsafe_)?m_([0-9]+)|pm1_(?:(?:s[34]|s2(?:_vtrace(?:_negadd|_producttree)?)?)_)?m_([0-9]+)(?:_ext)?|ecm2?_(?:te_)?m_([0-9]+)_c([0-9]+))\.ckpt(?:\.(?:old|new))?$"
@@ -638,6 +678,7 @@ if gmp_lib:
 		gmp_lib = None
 
 if gmp_lib:
+
 	class mpz_t(ctypes.Structure):
 		"""ctypes representation of GMP's internal mpz_t integer structure."""
 
@@ -2177,25 +2218,27 @@ def parse_work_unit_prpll(filename):
 			if not header.startswith(b"OWL "):
 				return None
 
-			crc = None
+			elapsed = None
 
-			if header.startswith(b"OWL LL "):
+			if header.startswith((b"OWL LL ", b"OWL LLV ")):
 				ll_v13 = LL_v13_RE.match(header)
+				llv_v1 = LLV_v1_RE.match(header)
 
 				wu.work_type = WORK_TEST
 
 				if ll_v13:
 					version, exponent, iteration, elapsed = ll_v13.groups()
-
-					(crc,) = unpack("=I", f)
+				elif llv_v1:
+					version, exponent, iteration, elapsed = llv_v1.groups()
 				else:
 					logging.error("LL savefile with unknown version: %s", header)
 					return None
 
+				(crc,) = unpack("=I", f)
+
 				wu.n = int(exponent)
 				wu.counter = int(iteration)
 				wu.shift_count = 0
-				wu.total_time = int(float(elapsed) * 1000 * 1000)
 
 				if args.check or args.jacobi:
 					nWords = (wu.n - 1) // 32 + 1
@@ -2213,25 +2256,28 @@ def parse_work_unit_prpll(filename):
 				if args.jacobi:
 					futures.append(executor.submit(jacobi_test_ll, wu, wu.n, residue, filename))
 			elif header.startswith(b"OWL PRP "):
+				prp_v14 = PRP_v14_RE.match(header)
 				prp_v13 = PRP_v13_RE.match(header)
 
 				wu.work_type = WORK_PRP
+				shift = None
 
-				if prp_v13:
+				if prp_v14:
+					version, exponent, iteration, block_size, res64, nErrors, elapsed, shift = prp_v14.groups()
+				elif prp_v13:
 					version, exponent, iteration, block_size, res64, nErrors, elapsed = prp_v13.groups()
-
-					(crc,) = unpack("=I", f)
 				else:
 					logging.error("PRP savefile with unknown version: %s", header)
 					return None
 
+				(crc,) = unpack("=I", f)
+
 				wu.n = int(exponent)
 				wu.counter = int(iteration)
-				wu.shift_count = 0
+				wu.shift_count = int(shift) if shift else 0
 				wu.L = int(block_size)
 				wu.res64 = res64.decode("ascii").upper()
 				wu.nerr_gcheck = int(nErrors)
-				wu.total_time = int(float(elapsed) * 1000 * 1000)
 
 				if args.check:
 					nWords = (wu.n - 1) // 32 + 1
@@ -2250,22 +2296,33 @@ def parse_work_unit_prpll(filename):
 				wu.stage = "PRP"
 				wu.pct_complete = wu.counter / wu.n
 			elif header.startswith(b"OWL CERT "):
+				cert_v3 = CERT_v3_RE.match(header)
+				cert_v2_shift = CERT_v2_shift_RE.match(header)
+				cert_v2 = CERT_v2_RE.match(header)
 				cert_v1 = CERT_v1_RE.match(header)
 
 				wu.work_type = WORK_CERT
+				shift = nErrors = None
 
-				if cert_v1:
+				if cert_v3:
+					version, exponent, iteration, squarings, nErrors, elapsed, shift = cert_v3.groups()
+				elif cert_v2_shift:
+					version, exponent, iteration, squarings, elapsed, shift = cert_v2_shift.groups()
+				elif cert_v2:
+					version, exponent, iteration, squarings, nErrors, elapsed = cert_v2.groups()
+				elif cert_v1:
 					version, exponent, iteration, squarings, elapsed = cert_v1.groups()
-
-					(crc,) = unpack("=I", f)
 				else:
 					logging.error("CERT savefile with unknown version: %s", header)
 					return None
 
+				(crc,) = unpack("=I", f)
+
 				wu.n = int(exponent)
 				wu.counter = int(iteration)
-				wu.shift_count = 0
-				wu.total_time = int(float(elapsed) * 1000 * 1000)
+				wu.shift_count = int(shift) if shift else 0
+				if nErrors:
+					wu.nerr_gcheck = int(nErrors)
 
 				if args.check:
 					nWords = (wu.n - 1) // 32 + 1
@@ -2279,6 +2336,91 @@ def parse_work_unit_prpll(filename):
 
 				wu.stage = "CERT"
 				wu.pct_complete = wu.counter / int(squarings)
+			elif header.startswith((b"OWL P1 ", b"OWL P1PRP ")):
+				p1_v2 = PRPLL_P1_v2_RE.match(header)
+				p1_v1 = PRPLL_P1_v1_RE.match(header)
+				p1prp_v1 = P1PRP_v1_RE.match(header)
+
+				wu.work_type = WORK_PMINUS1
+				wu.pct_complete = None  # ?
+				B2 = stage = elapsed = None
+
+				if p1_v2:
+					version, exponent, B1, B2, iteration, nBits, nErrors, elapsed = p1_v2.groups()
+					wu.pct_complete = int(iteration) / int(nBits)
+				elif p1_v1:
+					version, exponent, B1, iteration, nBits, nErrors, elapsed = p1_v1.groups()
+					wu.pct_complete = int(iteration) / int(nBits)
+				elif p1prp_v1:
+					version, exponent, B1, B2, _k, _prp64, iteration, stage, nErrors = p1prp_v1.groups()
+					stage = int(stage)
+					if stage in {1, 2}:
+						wu.pct_complete = 1.0
+				else:
+					logging.error("P-1 stage 1 savefile with unknown version: %s", header)
+					return None
+
+				(crc,) = unpack("=I", f)
+
+				wu.state = PM1_STATE_STAGE1 if not stage else PM1_STATE_MIDSTAGE if stage == 1 else PM1_STATE_DONE
+				wu.n = int(exponent)
+				wu.counter = int(iteration)
+				wu.B_done = int(B1)
+				if B2:
+					wu.interim_C = int(B2)
+				wu.nerr_gcheck = int(nErrors)
+
+				if args.check or args.jacobi:
+					nWords = (wu.n - 1) // 32 + 1
+					size = nWords * 4
+					buffer = f.read(size)
+					if len(buffer) != size:
+						return None
+					residue = int.from_bytes(buffer, "little")
+
+				if args.jacobi:
+					expected = None
+					if p1_v2 or p1_v1:
+						expected = pm1_prefix_jacobi(wu.n, wu.B_done, 2, wu.counter)
+					if expected is not None:
+						futures.append(executor.submit(jacobi_test_residue, wu, (1 << wu.n) - 1, residue, expected, filename))
+
+				wu.stage = "S1"
+			elif header.startswith(b"OWL P2 "):
+				p2_v2 = PRPLL_P2_v2_RE.match(header)
+				p2_v1 = PRPLL_P2_v1_RE.match(header)
+
+				wu.work_type = WORK_PMINUS1
+
+				if p2_v2:
+					version, exponent, iteration, B1, B2, D, _M, _plan, _x64, _nMul, elapsed = p2_v2.groups()
+				elif p2_v1:
+					version, exponent, iteration, B1, B2, D, _x64, _nMul, elapsed = p2_v1.groups()
+				else:
+					logging.error("P-1 stage 2 savefile with unknown version: %s", header)
+					return None
+
+				(crc,) = unpack("=I", f)
+
+				wu.B_done = int(B1)
+				wu.C_done = int(B2)
+				wu.D = int(D)
+				k_begin = (wu.B_done + 1 + wu.D // 2) // wu.D
+				k_end = (wu.C_done + wu.D // 2) // wu.D + 1
+
+				wu.state = PM1_STATE_STAGE2
+				wu.n = int(exponent)
+				wu.counter = int(iteration) - k_begin
+
+				if args.check:
+					nWords = (wu.n - 1) // 32 + 1
+					size = nWords * 4
+					buffer = f.read(size)
+					if len(buffer) != size:
+						return None
+
+				wu.stage = "S2"
+				wu.pct_complete = wu.counter / (k_end - k_begin)
 			else:
 				logging.error("Unknown save/checkpoint file header: %s", header)
 				return None
@@ -2291,13 +2433,16 @@ def parse_work_unit_prpll(filename):
 		logging.exception("Failed to read the %r file.", filename)
 		return None
 
-	if args.check and crc is not None:
+	if args.check:
 		crc = int(crc)
 		acrc = binascii.crc32(buffer) & 0xFFFFFFFF
 		if crc != acrc:
 			logging.error("CRC error. Expected %X, actual %X.", crc, acrc)
 
 	wu.version = int(version)
+	if elapsed:
+		wu.total_time = int(float(elapsed) * 1000 * 1000)
+
 	return wu
 
 
@@ -3272,7 +3417,7 @@ def main(dirs):
 				match = PRPLL_RE.search(entry)
 				if match:
 					exponent = int(match.group(1))
-					entries.setdefault(exponent, []).append((-1 if match.group(3) else 0, entry))
+					entries.setdefault(exponent, []).append((-1, entry))
 			for entry in entries.values():
 				for j, (num, file) in enumerate(sorted(entry)):
 					result = parse_work_unit_prpll(file)
