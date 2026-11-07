@@ -21,7 +21,7 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 ## Remaining workflow gaps
 
 * Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
-* GTK tray integration passed manual GNOME/Wayland checks on Fedora and Ubuntu. Other Linux desktops, X11 and FreeBSD remain unverified. 
+* GTK tray integration passed manual GNOME/Wayland checks on Fedora and Ubuntu. Other Linux desktops, X11 and FreeBSD remain unverified.
 
 ## Interactive workflows and state
 
