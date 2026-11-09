@@ -150,6 +150,11 @@ class LaunchEdges(unittest.TestCase):
 			with self.assertRaises(LaunchError):
 				select_terminal(preference, platform, lambda _: None)
 
+	def test_missing_psutil_reports_install_command_before_launch(self):
+		with tempfile.TemporaryDirectory() as temp, patch.dict(sys.modules, {"psutil": None}):
+			with self.assertRaisesRegex(LaunchError, "Install requirements-gui-process.txt"):
+				prepare_launch(temp, profile(), None)
+
 	def test_duplicate_processes_match_directory_and_handle_permissions_and_exits(self):
 		with tempfile.TemporaryDirectory() as temp:
 			plan = resolve_profile(temp, profile())

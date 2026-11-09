@@ -5207,6 +5207,18 @@ def get_exponent(args, adapter, n):
 	return result
 
 
+def exponent_registration_metadata(result, exponent):
+	"""Extract the registration defaults from an exponent lookup result."""
+	if result is None or int(result["exponent"]) != exponent:
+		return None
+	actual = result["current"]["actual"]
+	b1 = next((row["b1"] for row in result.get("ecm_effort", ()) if row["fac_miss_chance"] >= 0.01), 0)
+	return (
+		int(actual["tf"]), actual["b1"] and int(actual["b1"]), actual["b2"] and int(actual["b2"]),
+		b1, b1 * 100, [int(factor["factor"]) for factor in result.get("factors_prime", ())],
+	)
+
+
 # endregion
 # region Factoring
 FACTOR_LIMITS = (
@@ -7256,6 +7268,20 @@ def upload_proofs(config, args, adapter, adir, cpu_num, queue=False):
 	return success
 
 
+# Defaults preserve the CLI scheduler. A GUI-owned child can supply lifecycle hooks.
+def scheduler_start(worker):
+	worker.start()
+
+
+def scheduler_checkin():
+	return False
+
+
+scheduler_cycles = count
+scheduler_pause = time.sleep
+scheduler_idle = time.sleep
+
+
 def proofs_worker(args):
 	"""Process proof-upload jobs from the background queue."""
 	while True:
@@ -7278,7 +7304,7 @@ def proofs_worker(args):
 			logging.info(
 				"Will retry uploading the proof file in %.0f minute%s", args.timeout / 60, "s" if args.timeout != 60 else ""
 			)
-			time.sleep(args.timeout)
+			scheduler_idle(args.timeout)
 
 
 # endregion
@@ -8880,9 +8906,9 @@ def results_worker(args, dirs):
 		elapsed = time.perf_counter() - start
 		if failed:
 			logging.info("Will retry reporting the results in %.0f minute%s", args.timeout / 60, "s" if args.timeout != 60 else "")
-			time.sleep(max(args.timeout - elapsed, 0))
+			scheduler_idle(max(args.timeout - elapsed, 0))
 		else:
-			time.sleep(max(5 * 60 - elapsed, 0))
+			scheduler_idle(max(5 * 60 - elapsed, 0))
 
 
 def tf1g_unreserve_all(config, args, adapter, cpu_num, retry_count=0):
@@ -9237,17 +9263,10 @@ Use the following values to select a worktype:
 				sieve_depth = factor_to = pminus1ed = tests_saved = curves_to_do = None
 				b1 = b2 = 0
 				known_factors = []
-				if result is not None and int(result["exponent"]) == p:
-					actual = result["current"]["actual"]
-					sieve_depth = int(actual["tf"])
-					bound1 = actual["b1"] and int(actual["b1"])
-					bound2 = actual["b2"] and int(actual["b2"])
+				metadata = exponent_registration_metadata(result, p)
+				if metadata is not None:
+					sieve_depth, bound1, bound2, b1, b2, known_factors = metadata
 					pminus1ed = bool(bound1) and bool(bound2)
-					if "ecm_effort" in result:
-						b1 = next(r["b1"] for r in result["ecm_effort"] if r["fac_miss_chance"] >= 0.01)
-						b2 = b1 * 100
-					if "factors_prime" in result:
-						known_factors = [int(factor["factor"]) for factor in result["factors_prime"]]
 					print("\nThis exponent has been Trial Factored (TFed) to {:n} bits".format(sieve_depth))
 					if pminus1ed:
 						print("Existing P-1 bounds are B1={:n}, B2={:n}\n".format(bound1, bound2))
@@ -10884,225 +10903,242 @@ group.add_argument("-U", "--email-username", help="SMTP server username")
 group.add_argument("-P", "--email-password", help="SMTP server password")
 group.add_argument("--test-email", action="store_true", help="Send a test e-mail message and exit")
 
-args = parser.parse_args()
-namespace = argparse.Namespace(**dict.fromkeys(vars(args)))
-parser.parse_args(namespace=namespace)
-args_no_defaults = argparse.Namespace(**{key: value for key, value in vars(namespace).items() if value is not None})
+def initialize_cli():
+	"""Parse arguments and initialize one CLI run."""
+	global args, args_no_defaults, config, logger, logfile, COLOR, workdir, test_email, HTTPConnection
 
-logger = logging.getLogger()
-logger.setLevel(max(logging.INFO - args.debug * 10, 0))
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(
-	ColorFormatter(
-		"%(filename)s: "
-		+ ("%(funcName)s:\t" if args.debug > 1 else "")
-		+ "[%(threadName)s%(worker)s %(asctime)s]  %(levelname)s: %(message)s"
+	args = parser.parse_args()
+	namespace = argparse.Namespace(**dict.fromkeys(vars(args)))
+	parser.parse_args(namespace=namespace)
+	args_no_defaults = argparse.Namespace(**{key: value for key, value in vars(namespace).items() if value is not None})
+
+	logger = logging.getLogger()
+	logger.setLevel(max(logging.INFO - args.debug * 10, 0))
+	console_handler = logging.StreamHandler()
+	console_handler.setFormatter(
+		ColorFormatter(
+			"%(filename)s: "
+			+ ("%(funcName)s:\t" if args.debug > 1 else "")
+			+ "[%(threadName)s%(worker)s %(asctime)s]  %(levelname)s: %(message)s"
+		)
 	)
-)
-logger.addHandler(console_handler)
-# logging.basicConfig(level=max(logging.INFO - args.debug * 10, 0), format="%(filename)s: " + ("%(funcName)s:\t" if args.debug > 1 else "") + "[%(threadName)s %(asctime)s]  %(levelname)s: %(message)s")
+	logger.addHandler(console_handler)
+	# logging.basicConfig(level=max(logging.INFO - args.debug * 10, 0), format="%(filename)s: " + ("%(funcName)s:\t" if args.debug > 1 else "") + "[%(threadName)s %(asctime)s]  %(levelname)s: %(message)s")
 
-# If debug is requested
+	# If debug is requested
 
-# https://stackoverflow.com/questions/10588644/how-can-i-see-the-entire-http-request-thats-being-sent-by-my-python-application
-if args.debug > 1:
-	from http.client import HTTPConnection
+	# https://stackoverflow.com/questions/10588644/how-can-i-see-the-entire-http-request-thats-being-sent-by-my-python-application
+	if args.debug > 1:
+		from http.client import HTTPConnection
 
-	HTTPConnection.debuglevel = 1
+		HTTPConnection.debuglevel = 1
 
-	# You must initialize logging, otherwise you'll not see debug output.
-	requests_log = logging.getLogger("requests.packages.urllib3")
-	requests_log.setLevel(logging.DEBUG)
-	requests_log.propagate = True
+		# You must initialize logging, otherwise you'll not see debug output.
+		requests_log = logging.getLogger("requests.packages.urllib3")
+		requests_log.setLevel(logging.DEBUG)
+		requests_log.propagate = True
 
-# Adapted from: https://github.com/python/cpython/blob/main/Lib/_colorize.py
-COLOR = True
-if os.name == "nt":  # Windows
-	ctypes.windll.kernel32.GetStdHandle.argtypes = (wintypes.DWORD,)
-	ctypes.windll.kernel32.GetStdHandle.restype = wintypes.HANDLE
+	# Adapted from: https://github.com/python/cpython/blob/main/Lib/_colorize.py
+	COLOR = True
+	if os.name == "nt":  # Windows
+		ctypes.windll.kernel32.GetStdHandle.argtypes = (wintypes.DWORD,)
+		ctypes.windll.kernel32.GetStdHandle.restype = wintypes.HANDLE
 
-	ctypes.windll.kernel32.GetConsoleMode.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
-	# ctypes.windll.kernel32.GetConsoleMode.restype = wintypes.BOOL
+		ctypes.windll.kernel32.GetConsoleMode.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+		# ctypes.windll.kernel32.GetConsoleMode.restype = wintypes.BOOL
 
-	handle = ctypes.windll.kernel32.GetStdHandle(wintypes.DWORD(-12))  # STD_ERROR_HANDLE
-	mode = wintypes.DWORD()
-	if not ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-		COLOR = False
-		# raise ctypes.WinError()
-	elif not mode.value & 0x0004:  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
-		COLOR = False
+		handle = ctypes.windll.kernel32.GetStdHandle(wintypes.DWORD(-12))  # STD_ERROR_HANDLE
+		mode = wintypes.DWORD()
+		if not ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+			COLOR = False
+			# raise ctypes.WinError()
+		elif not mode.value & 0x0004:  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+			COLOR = False
 
-workdir = os.path.expanduser(os.path.normpath(args.workdir))
-# os.chdir(workdir)
+	workdir = os.path.expanduser(os.path.normpath(args.workdir))
+	# os.chdir(workdir)
 
-# load prime.ini and update args
-config = config_read(args)
-merge_config_and_options(config, args)
-decrypt(config, args)
+	# load prime.ini and update args
+	config = config_read(args)
+	merge_config_and_options(config, args)
+	decrypt(config, args)
 
-try:
-	lockfile = open(os.path.join(workdir, "~lock"), "r+", opener=lambda path, flags: os.open(path, flags | os.O_CREAT, 0o666))  # noqa: SIM115
-except OSError as e:
-	logging.exception("Failed to open the lockfile: %s: %s", type(e).__name__, e, exc_info=args.debug)
-	sys.exit(1)
-atexit.register(lockfile.close)
-
-try:
-	lock_file(lockfile)
-# Python 3.3+: BlockingIOError, PermissionError
-except OSError as e:
-	if e.errno in {errno.EAGAIN, errno.EACCES}:  # errno.EWOULDBLOCK
-		logging.critical("AutoPrimeNet is already running, as the %r lockfile is locked", lockfile.name)
+	try:
+		lockfile = open(os.path.join(workdir, "~lock"), "r+", opener=lambda path, flags: os.open(path, flags | os.O_CREAT, 0o666))  # noqa: SIM115
+	except OSError as e:
+		logging.exception("Failed to open the lockfile: %s: %s", type(e).__name__, e, exc_info=args.debug)
 		sys.exit(1)
+	atexit.register(lockfile.close)
 
-	if args.lock is None or args.lock:
-		logging.exception(
+	try:
+		lock_file(lockfile)
+	# Python 3.3+: BlockingIOError, PermissionError
+	except OSError as e:
+		if e.errno in {errno.EAGAIN, errno.EACCES}:  # errno.EWOULDBLOCK
+			logging.critical("AutoPrimeNet is already running, as the %r lockfile is locked", lockfile.name)
+			sys.exit(1)
+
+		if args.lock is None or args.lock:
+			logging.exception(
+				"Unable to determine if AutoPrimeNet is already running, as an error occurred locking the %r lockfile: %s: %s",
+				lockfile.name,
+				type(e).__name__,
+				e,
+				exc_info=args.debug,
+			)
+			sys.exit(1)
+
+		logging.warning(
 			"Unable to determine if AutoPrimeNet is already running, as an error occurred locking the %r lockfile: %s: %s",
 			lockfile.name,
 			type(e).__name__,
 			e,
-			exc_info=args.debug,
 		)
-		sys.exit(1)
 
-	logging.warning(
-		"Unable to determine if AutoPrimeNet is already running, as an error occurred locking the %r lockfile: %s: %s",
-		lockfile.name,
-		type(e).__name__,
-		e,
-	)
+	try:
+		lockfile.truncate(0)
+		# lockfile.write("{}\n".format(os.getpid()))
+	except OSError as e:
+		logging.warning("Failed to modify the %r lockfile: %s: %s", lockfile.name, type(e).__name__, e)
 
-try:
-	lockfile.truncate(0)
-	# lockfile.write("{}\n".format(os.getpid()))
-except OSError as e:
-	logging.warning("Failed to modify the %r lockfile: %s: %s", lockfile.name, type(e).__name__, e)
+	if COLOR:
+		if "NO_COLOR" in os.environ:
+			COLOR = False
+		if args.color is not None and not args.color:
+			COLOR = False
+		if "FORCE_COLOR" in os.environ:
+			COLOR = True
 
-if COLOR:
-	if "NO_COLOR" in os.environ:
-		COLOR = False
-	if args.color is not None and not args.color:
-		COLOR = False
-	if "FORCE_COLOR" in os.environ:
-		COLOR = True
+	configure_proxy(args)
 
-PROXIES = None
-if args.proxy:
-	url = urlsplit(("" if "://" in args.proxy else "//") + args.proxy, args.proxy_type or "http")
-	proxy = url._replace(
-		netloc=(
-			""
-			if url.username is not None
-			else (
-				quote(args.proxy_username, safe="")
-				+ (":" + quote(args.proxy_password, safe="") if args.proxy_password is not None else "")
-				+ "@"
-				if args.proxy_username is not None
-				else ""
+	args.localfile = os.path.normpath(args.localfile)
+
+	args.work_file = os.path.normpath(args.work_file)
+
+	if args.results_file is not None:
+		args.results_file = os.path.normpath(args.results_file)
+
+	if not vars(args_no_defaults) and not os.path.exists(os.path.join(workdir, args.localfile)):
+		file = sys.executable if is_pyinstaller() else os.path.abspath(__file__)
+		adir = os.getcwd()
+		if adir != os.path.dirname(file):
+			parser.error(
+				"No command line arguments provided or {!r} configuration file found in {!r}. You are running {!r} from outside its directory and would need to either use the --workdir or --setup options to continue.".format(
+					args.localfile, adir, file
+				)
 			)
+		logging.info(
+			"No command line arguments provided or %r configuration file found, now running --setup to configure the program.",
+			args.localfile,
 		)
-		+ url.netloc
-	).geturl()
-	PROXIES = {"http": proxy, "https": proxy}
-	session.proxies.update(PROXIES)
+		args.setup = True
 
-args.localfile = os.path.normpath(args.localfile)
+	args.logfile = os.path.normpath(args.logfile)
+	logfile = os.path.join(workdir, args.logfile)
+	max_bytes = config.getint(SEC.PrimeNet, "MaxLogFileSize") if config.has_option(SEC.PrimeNet, "MaxLogFileSize") else 5 * 1024 * 1024
+	file_handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=max_bytes, backupCount=5, encoding="utf-8")
+	file_handler.setFormatter(Formatter("[%(threadName)s%(worker)s %(asctime)s]  %(levelname)s: %(message)s"))
+	logger.addHandler(file_handler)
 
-args.work_file = os.path.normpath(args.work_file)
+	logging.info("AutoPrimeNet assignment handler version %s, Python %s", VERSION, platform.python_version())
 
-if args.results_file is not None:
-	args.results_file = os.path.normpath(args.results_file)
+	if args.setup:
+		test_email = setup(config, args)
+		encrypt(config, args)
+		config_write(config, args)
+	else:
+		encrypt(config, args)
 
-if not vars(args_no_defaults) and not os.path.exists(os.path.join(workdir, args.localfile)):
-	file = sys.executable if is_pyinstaller() else os.path.abspath(__file__)
-	adir = os.getcwd()
-	if adir != os.path.dirname(file):
-		parser.error(
-			"No command line arguments provided or {!r} configuration file found in {!r}. You are running {!r} from outside its directory and would need to either use the --workdir or --setup options to continue.".format(
-				args.localfile, adir, file
+	if not args.work_preference:
+		args.work_preference = [
+			PRIMENET_WP.GPU_FACTOR
+			if args.mfaktc or args.mfakto or args.primepath
+			else PRIMENET_WP.LL_DBLCHK
+			if args.cudalucas
+			else PRIMENET_WP.PRP_FIRST
+		]
+
+	if args.results_file is None:
+		args.results_file = "results.json.txt" if args.mfaktc or args.mfakto or args.primepath else "results.txt"
+
+	if args.days_of_work is None:
+		args.days_of_work = 1.0 if args.mfaktc or args.mfakto or args.primepath else 3.0
+
+	if args.debug_info:
+		debug_info(config, args)
+		sys.exit(0)
+	initialize_program_options()
+
+
+def configure_proxy(args):
+	"""Apply the effective proxy settings to the backend session."""
+	global PROXIES
+
+	PROXIES = None
+	if args.proxy:
+		url = urlsplit(("" if "://" in args.proxy else "//") + args.proxy, args.proxy_type or "http")
+		proxy = url._replace(
+			netloc=(
+				""
+				if url.username is not None
+				else (
+					quote(args.proxy_username, safe="")
+					+ (":" + quote(args.proxy_password, safe="") if args.proxy_password is not None else "")
+					+ "@"
+					if args.proxy_username is not None
+					else ""
+				)
 			)
-		)
-	logging.info(
-		"No command line arguments provided or %r configuration file found, now running --setup to configure the program.",
-		args.localfile,
-	)
-	args.setup = True
+			+ url.netloc
+		).geturl()
+		PROXIES = {"http": proxy, "https": proxy}
+		session.proxies.update(PROXIES)
 
-args.logfile = os.path.normpath(args.logfile)
-logfile = os.path.join(workdir, args.logfile)
-max_bytes = config.getint(SEC.PrimeNet, "MaxLogFileSize") if config.has_option(SEC.PrimeNet, "MaxLogFileSize") else 5 * 1024 * 1024
-file_handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=max_bytes, backupCount=5, encoding="utf-8")
-file_handler.setFormatter(Formatter("[%(threadName)s%(worker)s %(asctime)s]  %(levelname)s: %(message)s"))
-logger.addHandler(file_handler)
 
-logging.info("AutoPrimeNet assignment handler version %s, Python %s", VERSION, platform.python_version())
+def initialize_program_options():
+	"""Set program capabilities for the current effective arguments."""
+	global RE, PROGRAM, SUPPORTED
 
-if args.setup:
-	test_email = setup(config, args)
-	encrypt(config, args)
-	config_write(config, args)
-else:
-	encrypt(config, args)
+	# check args after merging so that if prime.ini file is changed by hand,
+	# values are also checked
+	RE = re.compile(r"[^A-Za-z0-9_@+,./:()<>=! -]")
 
-if not args.work_preference:
-	args.work_preference = [
-		PRIMENET_WP.GPU_FACTOR
-		if args.mfaktc or args.mfakto or args.primepath
-		else PRIMENET_WP.LL_DBLCHK
+	PROGRAM = PROGRAMS[
+		8
+		if args.primepath
+		else 7
+		if args.mfakto
+		else 6
+		if args.mfaktc
+		else 5
 		if args.cudalucas
-		else PRIMENET_WP.PRP_FIRST
+		else 4
+		if args.prmers
+		else 3
+		if args.prpll
+		else 2
+		if args.gpuowl
+		else 1
 	]
 
-if args.results_file is None:
-	args.results_file = "results.json.txt" if args.mfaktc or args.mfakto or args.primepath else "results.txt"
-
-if args.days_of_work is None:
-	args.days_of_work = 1.0 if args.mfaktc or args.mfakto or args.primepath else 3.0
-
-if args.debug_info:
-	debug_info(config, args)
-	sys.exit(0)
-
-# check args after merging so that if prime.ini file is changed by hand,
-# values are also checked
-RE = re.compile(r"[^A-Za-z0-9_@+,./:()<>=! -]")
-
-PROGRAM = PROGRAMS[
-	8
-	if args.primepath
-	else 7
-	if args.mfakto
-	else 6
-	if args.mfaktc
-	else 5
-	if args.cudalucas
-	else 4
-	if args.prmers
-	else 3
-	if args.prpll
-	else 2
-	if args.gpuowl
-	else 1
-]
-
-SUPPORTED = frozenset(
-	(PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR)
-	if args.mfaktc or args.mfakto or args.primepath
-	else (
-		(PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M)
-		+ ((PRIMENET_WP.LL_DBLCHK,) if args.mlucas or args.cudalucas else ())
-		+ (
-			()
-			if args.cudalucas
-			else (PRIMENET_WP.PRP_FIRST, PRIMENET_WP.PRP_DBLCHK, PRIMENET_WP.PRP_WORLD_RECORD, PRIMENET_WP.PRP_100M)
+	SUPPORTED = frozenset(
+		(PRIMENET_WP.FACTOR, PRIMENET_WP.GPU_FACTOR)
+		if args.mfaktc or args.mfakto or args.primepath
+		else (
+			(PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M)
+			+ ((PRIMENET_WP.LL_DBLCHK,) if args.mlucas or args.cudalucas else ())
+			+ (
+				()
+				if args.cudalucas
+				else (PRIMENET_WP.PRP_FIRST, PRIMENET_WP.PRP_DBLCHK, PRIMENET_WP.PRP_WORLD_RECORD, PRIMENET_WP.PRP_100M)
+			)
+			+ ((106, PRIMENET_WP.PRP_DC_PROOF) if args.gpuowl or args.prpll or args.prmers else ())
+			+ ((PRIMENET_WP.PRP_NO_PMINUS1,) if args.gpuowl or args.mlucas else ())
+			+ (() if args.prpll else (PRIMENET_WP.PFACTOR,))
+			+ ((PRIMENET_WP.ECM_SMALL, PRIMENET_WP.ECM_COFACTOR) if args.prmers else ())
+			+ ((PRIMENET_WP.PRP_COFACTOR, PRIMENET_WP.PRP_COFACTOR_DBLCHK) if args.mlucas or args.prmers else ())
 		)
-		+ ((106, PRIMENET_WP.PRP_DC_PROOF) if args.gpuowl or args.prpll or args.prmers else ())
-		+ ((PRIMENET_WP.PRP_NO_PMINUS1,) if args.gpuowl or args.mlucas else ())
-		+ (() if args.prpll else (PRIMENET_WP.PFACTOR,))
-		+ ((PRIMENET_WP.ECM_SMALL, PRIMENET_WP.ECM_COFACTOR) if args.prmers else ())
-		+ ((PRIMENET_WP.PRP_COFACTOR, PRIMENET_WP.PRP_COFACTOR_DBLCHK) if args.mlucas or args.prmers else ())
 	)
-)
 
 
 def main():
@@ -11266,13 +11302,13 @@ Run --help for a full list of available options.
 	if args.timeout > 0:
 		proofs_thread = threading.Thread(target=proofs_worker, name="UploadProofs", args=(args,))
 		proofs_thread.daemon = True
-		proofs_thread.start()
+		scheduler_start(proofs_thread)
 
 	results_thread = watcher_threads = None
 	if args.timeout > 0 and (args.watch is None or args.watch):
 		results_thread = threading.Thread(target=results_worker, name="ReportResults", args=(args, dirs))
 		results_thread.daemon = True
-		results_thread.start()
+		scheduler_start(results_thread)
 		watcher_threads = watch(args, dirs if args.dirs else (workdir,))
 	else:
 		logging.info(
@@ -11281,12 +11317,12 @@ Run --help for a full list of available options.
 			", ".join(map(repr, map(os.path.abspath, dirs))) if args.dirs else repr(os.path.abspath(workdir)),
 		)
 
-	for j in count():
+	for j in scheduler_cycles():
 		start = time.perf_counter()
 		config = config_read(args)
 		current_time = time.time()
 		last_time = config.getint(SEC.Internals, "LastEndDatesSent") if config.has_option(SEC.Internals, "LastEndDatesSent") else 0
-		checkin = args.timeout <= 0 or current_time >= last_time + args.hours_between_checkins * 60 * 60
+		checkin = scheduler_checkin() or args.timeout <= 0 or current_time >= last_time + args.hours_between_checkins * 60 * 60
 		last_time = last_time if checkin else None
 		watching = args.timeout <= 0 or (args.watch is not None and not args.watch) or not j
 
@@ -11410,12 +11446,18 @@ Run --help for a full list of available options.
 					),  # "%F %T"
 				)
 			try:
-				time.sleep(max(args.timeout - elapsed, 0))
+				scheduler_pause(max(args.timeout - elapsed, 0))
 			except KeyboardInterrupt:
 				break
 
 
-# if __name__ == "__main__":
-main()
-sys.exit(0)
+def cli():
+	"""Run the command-line application and preserve its exit behavior."""
+	initialize_cli()
+	main()
+	sys.exit(0)
+
+
+if __name__ == "__main__":
+	cli()
 # endregion

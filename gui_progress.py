@@ -153,16 +153,22 @@ def progress_snapshot(namespace, configured=None, psutil_module=None):
 		try:
 			import psutil as psutil_module
 		except ImportError:
-			return {"rows": [], "discovery_available": False, "notice": "Process discovery requires psutil. Install requirements-gui.txt in the GUI Python environment."}
-	try:
-		processes, denied, truncated = discover_processes(psutil_module)
-	except (OSError, psutil_module.Error):
-		return {"rows": [], "discovery_available": False, "notice": "Process listing unavailable: operating-system permissions prevent discovery."}
+			pass
+	discovery_available = psutil_module is not None
+	if discovery_available:
+		try:
+			processes, denied, truncated = discover_processes(psutil_module)
+		except (OSError, psutil_module.Error):
+			return {"rows": [], "discovery_available": False, "notice": "Process listing unavailable: operating-system permissions prevent discovery."}
+	else:
+		denied, truncated = 0, False
+		engine = next((name for name in ENGINES if configured and name.casefold() == configured["engine"].casefold()), None)
+		processes = [{"engine": engine, "directory": configured["directory"]}] if engine and configured["workers"] else []
 	tracker = ReadTracker()
 	sys.addaudithook(tracker.audit)
 	rows, now, seen, count = [], time.time(), set(), 0
 	for process in processes:
-		base = {"engine": process["engine"], "pids": str(process["pid"]), "directory": process["directory"] or "Unavailable", "worker": "—", "state": "Working directory unavailable (permissions/platform)"}
+		base = {"engine": process["engine"], "pids": str(process["pid"]) if discovery_available else "Not checked", "directory": process["directory"] or "Unavailable", "worker": "—", "state": "Working directory unavailable (permissions/platform)"}
 		if not process["directory"] or process["engine"] not in ENGINES:
 			if process["engine"] not in ENGINES:
 				base["state"] = "Detected; native progress reader unavailable for this program"
@@ -172,8 +178,9 @@ def progress_snapshot(namespace, configured=None, psutil_module=None):
 		if key in seen:
 			continue
 		seen.add(key)
-		peers = [item for item in processes if (item["engine"], item["directory"]) == key]
-		base["pids"] = ", ".join(str(item["pid"]) for item in peers)
+		peers = [item for item in processes if (item["engine"], item["directory"]) == key] if discovery_available else []
+		if peers:
+			base["pids"] = ", ".join(str(item["pid"]) for item in peers)
 		start = len(rows)
 		try:
 			files = _workfiles(process, configured)
@@ -233,18 +240,25 @@ def progress_snapshot(namespace, configured=None, psutil_module=None):
 						alive.append(str(peer["pid"]))
 				except (psutil_module.Error, OSError):
 					pass
-			for row in rows[start:]:
-				row["pids"] = ", ".join(alive) or "Exited during scan"
+			if peers:
+				for row in rows[start:]:
+					row["pids"] = ", ".join(alive) or "Exited during scan"
 		except (OSError, ValueError):
 			rows.append({**base, "state": "Working directory unavailable"})
 		if count >= MAX_ASSIGNMENTS:
 			break
 	notice = f"Scanned {len(processes)} matching processes at {datetime.fromtimestamp(now):%Y-%m-%d %H:%M:%S}."
+	if not discovery_available:
+		notice = "Automatic process discovery requires psutil. Install requirements-gui-process.txt in the GUI's Python environment."
+		if processes:
+			notice += " Showing saved progress from configured workspace files. Engine status is unknown."
+		else:
+			notice += " Load a workspace with a supported engine to read its saved progress."
 	if denied:
 		notice += f" {denied} processes could not be inspected (permissions)."
 	if truncated:
 		notice += " Display limit reached; some processes/assignments are omitted."
-	return {"rows": rows, "notice": notice, "network_enabled": False, "files_written": False}
+	return {"rows": rows, "notice": notice, "discovery_available": discovery_available, "network_enabled": False, "files_written": False}
 
 
 def format_duration(seconds):

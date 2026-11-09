@@ -157,19 +157,18 @@ class LockPolicyTests(unittest.TestCase):
 	def test_original_startup_honors_saved_policy_in_both_adapters_offline(self):
 		root = Path(__file__).resolve().parents[1]
 		code = r'''
-import ast, contextlib, hashlib, io, json, sys, threading
+import contextlib, errno, hashlib, io, json, sys, threading
 from pathlib import Path
 import gui_backend, gui_registration, gui_runtime
 sys.addaudithook(gui_backend._network_guard)
-original = gui_backend._read_source
 adapter = gui_runtime if sys.argv[2] == 'native' else gui_registration
-def source(path):
-    raw, tree, boundary = original(path)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == 'lock_file':
-            node.body = ast.parse("raise OSError(errno.ENOSYS, 'simulated unsupported native lock')").body
-    return raw, ast.fix_missing_locations(tree), boundary
-adapter._read_source = source
+def unsupported_lock(file):
+    raise OSError(errno.ENOSYS, 'simulated unsupported native lock')
+def load(path):
+    namespace = gui_backend._load_definitions(path)
+    namespace['lock_file'] = unsupported_lock
+    return namespace
+adapter._load_definitions = load
 path = Path(sys.argv[1]) / 'prime.ini'
 seen = []
 def inspect(ns, *unused):

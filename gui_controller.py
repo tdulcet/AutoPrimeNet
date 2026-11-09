@@ -20,6 +20,13 @@ from gui_tray import tray_platform
 ROOT = Path(__file__).resolve().parent
 
 
+def helper_command(script, *arguments, executable=None):
+	python = executable or sys.executable
+	if getattr(sys, "frozen", False):
+		return [python, "--gui-helper", script, *arguments]
+	return [python, "-B", str(ROOT / script), *arguments]
+
+
 class ControllerError(Exception):
 	"""An operation failed without exposing raw subprocess diagnostics."""
 
@@ -107,7 +114,7 @@ def backend_request(operation, **parameters):
 		raise ControllerError("The offline preview request exceeds the 1 MiB limit.")
 	try:
 		process = subprocess.run(
-			[sys.executable, "-B", str(ROOT / "gui_backend.py")],
+			helper_command("gui_backend.py"),
 			input=payload, capture_output=True, text=True,
 			encoding="utf-8", cwd=ROOT, timeout=30,
 		)
@@ -149,7 +156,7 @@ class TrayController:
 			return
 		try:
 			self.process = self._process_factory(
-				[sys.executable, "-B", str(ROOT / "gui_tray.py")],
+				helper_command("gui_tray.py"),
 				stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
 				text=True, encoding="utf-8", cwd=ROOT,
 			)
@@ -248,7 +255,7 @@ class MonitorController:
 		process = None
 		try:
 			process = self._process_factory(
-				[sys.executable, "-B", str(ROOT / "gui_monitor.py")],
+				helper_command("gui_monitor.py"),
 				stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
 				text=True, encoding="utf-8", cwd=ROOT,
 			)

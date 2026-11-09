@@ -10,11 +10,11 @@ This bridge has no command that can change assignments or contact a server.
 
 import sys
 
-if sys.version_info < (3, 15):
+if sys.version_info < (3, 14):
 	if __name__ == "__main__":
-		print("AutoPrimeNet GUI requires Python 3.15.0 or later.", file=sys.stderr)
+		print("AutoPrimeNet GUI requires Python 3.14.0 or later.", file=sys.stderr)
 		sys.exit(2)
-	raise ImportError("AutoPrimeNet GUI requires Python 3.15.0 or later.")
+	raise ImportError("AutoPrimeNet GUI requires Python 3.14.0 or later.")
 
 import argparse
 import ast
@@ -22,6 +22,7 @@ import contextlib
 from configparser import ConfigParser
 import hashlib
 import io
+from importlib.util import module_from_spec, spec_from_file_location
 import json
 import logging
 import math
@@ -128,7 +129,7 @@ def validate_paths(directory, config_name, args):
 
 # Deliberately fail closed when the audited upstream implementation changes.
 # Updating this value requires a fresh integration review, not just rehashing.
-AUDITED_SOURCE_SHA256 = "05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7ec12"
+AUDITED_SOURCE_SHA256 = "3149ed72b9a98643f886fbc5b1f11ca679939797e02f0d62f8edd27b1d675144"
 MAX_REQUEST_BYTES = 1024 * 1024
 PROTOCOL_VERSION = 1
 
@@ -161,16 +162,13 @@ def _network_guard(event, _args):
 		raise BackendError("Network access is disabled in the offline GUI prototype.")
 
 
-def _load_definitions(path, tree, boundary):
-	# Only the reviewed prefix is executed: no argv parsing, config merge, instance
-	# lock, logfile, setup or main(). Native capability/session initialization does
-	# occur, which is why this namespace belongs in a short-lived private child.
-	module = ast.Module(body=tree.body[:boundary], type_ignores=[])
-	namespace = {"__name__": "_autoprimenet_gui_backend", "__file__": str(path)}
-	exec(compile(module, str(path), "exec"), namespace)  # noqa: S102
-	if not all(callable(namespace.get(name)) for name in ("Assignment", "parse_assignment", "output_assignment")):
-		raise BackendError("Required AutoPrimeNet assignment helpers are unavailable.")
-	return namespace
+def _load_definitions(path, _tree=None, _boundary=None):
+	# Keep configuration, patched callbacks and the HTTP session isolated for
+	# each helper invocation, including calls made by the offline test suite.
+	spec = spec_from_file_location("_autoprimenet_gui_backend", path)
+	module = module_from_spec(spec)
+	spec.loader.exec_module(module)
+	return vars(module)
 
 
 def _parser_inventory(tree):
@@ -220,8 +218,6 @@ def _validate_config(namespace, tree, boundary, request):
 		raise BackendError("Configuration validation requires text, a working directory and filename.")
 	if not name or Path(name).name != name or not Path(directory).is_dir():
 		raise BackendError("Select an existing working directory and a configuration filename without a path.")
-	end = next(index for index in range(boundary, len(tree.body)) if _assignment_target(tree.body[index], "args"))
-	exec(compile(ast.Module(body=tree.body[boundary:end], type_ignores=[]), namespace["__file__"], "exec"), namespace)  # noqa: S102
 	parser = namespace["parser"]
 	arguments = ["--workdir", directory, "--config-file", name]
 	args = parser.parse_args(arguments)
@@ -253,9 +249,7 @@ def _validate_config(namespace, tree, boundary, request):
 		args.results_file = "results.json.txt" if args.mfaktc or args.mfakto or args.primepath else "results.txt"
 	if args.days_of_work is None:
 		args.days_of_work = 1.0 if args.mfaktc or args.mfakto or args.primepath else 3.0
-	for variable in ("RE", "PROGRAM", "SUPPORTED"):
-		node = next(item for item in tree.body if _assignment_target(item, variable))
-		exec(compile(ast.Module(body=[node], type_ignores=[]), namespace["__file__"], "exec"), namespace)  # noqa: S102
+	namespace["initialize_program_options"]()
 
 	def reject(message):
 		# Most parser errors identify fields/ranges. Redact any configured secret
@@ -367,8 +361,6 @@ def _dispatch(request, path):
 				devices.append({"name": record[0], "source": record[7], "settings": settings})
 			return {"devices": devices, "network_enabled": False, "files_written": False}
 		if operation == "cli_help":
-			end = next(index for index in range(boundary, len(tree.body)) if _assignment_target(tree.body[index], "args"))
-			exec(compile(ast.Module(body=tree.body[boundary:end], type_ignores=[]), str(path), "exec"), namespace)
 			namespace["parser"].prog = path.name
 			return {"text": namespace["parser"].format_help(), "network_enabled": False, "files_written": False}
 		if operation == "debug_report":

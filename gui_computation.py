@@ -19,6 +19,7 @@ import sys
 import time
 import uuid
 
+from gui_controller import helper_command
 from gui_progress import ENGINES, REPORT_ONLY, identify_engine
 
 FILENAME = "autoprimenet-gui-launchers.json"
@@ -193,7 +194,13 @@ def resolve_profile(base, profile):
 
 
 def duplicate_processes(plan):
-	import psutil
+	try:
+		import psutil
+	except ImportError as error:
+		raise LaunchError(
+			"Start computation requires psutil to check for duplicate engines. "
+			"Install requirements-gui-process.txt in the GUI's Python environment, or start the engine in its own terminal."
+		) from error
 	matches, inaccessible = [], 0
 	for process in psutil.process_iter():
 		if process.pid == os.getpid():
@@ -246,8 +253,8 @@ def prepare_launch(base, profile, expected):
 	if current != expected:
 		raise LaunchError("Launcher settings changed. Reload launchers before starting computation.")
 	plan = resolve_profile(base, profile)
-	name, executable = select_terminal(plan["terminal"])
 	matches, inaccessible = duplicate_processes(plan)
+	name, executable = select_terminal(plan["terminal"])
 	if matches:
 		raise LaunchError("A matching computation program is already running in this directory (PID(s): " + ", ".join(map(str, matches)) + "). Stop this worker in terminal.")
 	return {"plan": plan, "terminal": name, "terminal_executable": executable, "inaccessible": inaccessible}
@@ -268,8 +275,11 @@ def plan_digest(plan):
 
 def terminal_command(kind, executable, payload, digest, python=None, platform=None):
 	python, platform = python or console_python(), platform or sys.platform
-	command = [python, "-B", str(ROOT / "gui_computation.py"), "--run", digest, str(payload)]
+	command = helper_command("gui_computation.py", "--run", digest, str(payload), executable=python)
 	kwargs = {"close_fds": True}
+	if getattr(sys, "frozen", False):
+		# This terminal can outlive the GUI and its temporary extraction directory.
+		kwargs["env"] = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
 	if platform != "win32":
 		kwargs["start_new_session"] = True
 	if kind == "Terminal":
@@ -284,7 +294,7 @@ def terminal_command(kind, executable, payload, digest, python=None, platform=No
 		# A static script avoids cmd.exe /K quoting of dynamic paths. Expansion
 		# occurs once, with delayed expansion disabled, inside quoted operands.
 		kwargs["cwd"] = str(Path(payload).parent)
-		kwargs["env"] = {**os.environ, "APN_GUI_PYTHON": python, "APN_GUI_HELPER": str(ROOT / "gui_computation.py"),
+		kwargs["env"] = {**kwargs.get("env", os.environ), "APN_GUI_PYTHON": python, "APN_GUI_MODE": command[1], "APN_GUI_HELPER": command[2],
 			"APN_GUI_PAYLOAD": str(payload), "APN_GUI_DIGEST": digest}
 		return [executable, "/D", "/V:OFF", "/K", "launch.cmd"], kwargs
 	prefix = {"ptyxis": ["--standalone", "--"], "gnome-terminal": ["--"], "konsole": ["--separate", "-e"],
@@ -310,7 +320,7 @@ def launch_computation(base, profile, expected, reviewed):
 	# The helper waits in an independent terminal; GUI exit never stops it.
 	if prepared["terminal"] == "Cmd":
 		with (session / "launch.cmd").open("w", encoding="ascii", newline="") as stream:
-			stream.write('@echo off\r\nsetlocal DisableDelayedExpansion\r\n"%APN_GUI_PYTHON%" -B "%APN_GUI_HELPER%" --run "%APN_GUI_DIGEST%" "%APN_GUI_PAYLOAD%"\r\n')
+			stream.write('@echo off\r\nsetlocal DisableDelayedExpansion\r\n"%APN_GUI_PYTHON%" %APN_GUI_MODE% "%APN_GUI_HELPER%" --run "%APN_GUI_DIGEST%" "%APN_GUI_PAYLOAD%"\r\n')
 	argv, kwargs = terminal_command(prepared["terminal"], prepared["terminal_executable"], payload, plan_digest(reviewed["plan"]))
 	try:
 		if sys.platform != "win32":
@@ -395,7 +405,11 @@ def run_computation(payload, pause=True, expected_digest=None):
 	return code
 
 
-if __name__ == "__main__":
+def main():
 	if len(sys.argv) != 4 or sys.argv[1] != "--run":
 		raise SystemExit("This helper is started by the GUI's computation launcher.")
-	raise SystemExit(run_computation(sys.argv[3], expected_digest=sys.argv[2]))
+	return run_computation(sys.argv[3], expected_digest=sys.argv[2])
+
+
+if __name__ == "__main__":
+	raise SystemExit(main())

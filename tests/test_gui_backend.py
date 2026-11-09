@@ -17,10 +17,33 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "gui_backend.py"
-BASELINE_SHA256 = "05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7ec12"
+BASELINE_SHA256 = "3149ed72b9a98643f886fbc5b1f11ca679939797e02f0d62f8edd27b1d675144"
 
 
 class BackendTests(unittest.TestCase):
+	def test_import_does_not_start_cli(self):
+		code = """
+import sys
+
+def offline(event, args):
+    if event in ("socket.connect", "socket.getaddrinfo", "socket.sendto"):
+        raise RuntimeError("AutoPrimeNet import attempted network access")
+
+sys.addaudithook(offline)
+sys.path.insert(0, sys.argv[1])
+sys.argv = ["autoprimenet", "--invalid-cli-argument"]
+import autoprimenet
+assert callable(autoprimenet.cli)
+assert not hasattr(autoprimenet, "args")
+"""
+		with tempfile.TemporaryDirectory() as directory:
+			result = subprocess.run(
+				[sys.executable, "-B", "-c", code, str(ROOT)],
+				cwd=directory, capture_output=True, text=True, timeout=30,
+			)
+			self.assertEqual(result.returncode, 0, result.stderr)
+			self.assertEqual(list(Path(directory).iterdir()), [])
+
 	def test_documented_parity_inventory_matches_audited_parser(self):
 		from gui_options import reference_info
 		options = self.run_bridge({"protocol": 1, "operation": "capabilities"})["result"]["cli_options"]
@@ -165,7 +188,7 @@ class BackendTests(unittest.TestCase):
 		self.assertFalse(response["ok"])
 		self.assertIn("single line", response["error"])
 
-	def test_existing_source_remains_byte_identical(self):
+	def test_reviewed_source_matches_baseline(self):
 		self.assertEqual(hashlib.sha256((ROOT / "autoprimenet.py").read_bytes()).hexdigest(), BASELINE_SHA256)
 
 

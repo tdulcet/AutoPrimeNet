@@ -28,6 +28,31 @@ def preview(directory, entries, worker=1, text=TEXT):
 
 
 class RegistrationTests(unittest.TestCase):
+	def test_lookup_reuses_metadata_and_does_not_write_workspace(self):
+		import gui_registration
+		load = gui_registration._load_definitions
+		metadata = {"exponent": 11, "current": {"actual": {"tf": 70, "b1": 100, "b2": 1000}},
+			"ecm_effort": [{"b1": 250000, "fac_miss_chance": 0.02}], "factors_prime": [{"factor": "23"}]}
+
+		def load_fixture(*args):
+			namespace = load(*args)
+			namespace["get_exponent"] = lambda args, logger, exponent: metadata
+			return namespace
+
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory, "prime.ini")
+			path.write_text(TEXT, encoding="utf-8")
+			request = dict(directory=directory, config_name=path.name, config_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+				exponent=11, work_type=5)
+			with patch.object(gui_registration, "_load_definitions", side_effect=load_fixture):
+				result = gui_registration.lookup_exponent(request)
+				self.assertEqual(result, dict(sieve_depth=70, pminus1ed=True, tests_saved=0.0,
+					known_factors=[23], B1=250000, B2=25000000, curves=100))
+				with self.assertRaisesRegex(ValueError, "prime exponent"):
+					gui_registration.lookup_exponent(dict(request, exponent=12))
+			self.assertEqual(list(Path(directory).iterdir()), [path])
+			self.assertEqual(path.read_text(encoding="utf-8"), TEXT)
+
 	def test_original_constructor_and_formatter_for_all_eight_work_types(self):
 		expected = {2: "Factor=127,70,72", 3: "Pminus1=1,2,127,-1,100000,10000000,70", 4: "Pfactor=1,2,127,-1,70,1.3", 5: "ECM2=1,2,127,-1,100000,10000000,100", 100: "Test=127,70,0", 101: "DoubleCheck=127,70,0", 150: "PRP=1,2,127,-1,70,1.3", 151: "PRPDC=1,2,127,-1,70,1.3,3,1"}
 		with tempfile.TemporaryDirectory() as directory:

@@ -1227,6 +1227,28 @@ class WindowTests(unittest.TestCase):
 			self.assertEqual(len(list(base.glob(".gui-assignment-backup-*"))), 2)
 			self.assertEqual((base / "operation.record").read_text(), "recover_all")
 
+	def test_exponent_lookup_applies_suggestions_after_review(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory, "prime.ini")
+			path.write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n", encoding="utf-8")
+			self.app.directory.set(directory)
+			self.app.refresh()
+			self.wait_until(lambda: self.app.editor.document is not None and not self.app.jobs.busy)
+			form = self.app.registration
+			form.open()
+			form.values["exponent"].set("127")
+			with patch("gui_registration_form.messagebox.askyesno", side_effect=[True, False, True, True]), patch(
+				"gui_registration_form.request_suggestions", return_value={"sieve_depth": 73, "tests_saved": 0.0},
+			) as lookup:
+				form.lookup()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				self.assertEqual(form.values["sieve_depth"].get(), "70")
+				form.lookup()
+				self.wait_until(lambda: not self.app.jobs.busy)
+				self.assertEqual(form.values["sieve_depth"].get(), "73")
+				self.assertEqual(form.entries, [])
+				self.assertEqual(lookup.call_count, 2)
+
 	def test_registration_batch_offline_preview_edit_and_simulated_registration(self):
 		from gui_controller import MonitorController
 		from test_gui_monitor import fake_monitor_process

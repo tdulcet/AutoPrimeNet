@@ -4,6 +4,8 @@ import sys
 
 try:
 	import autoprimenet
+
+	autoprimenet.cli()
 # except KeyboardInterrupt:
 except SystemExit:
 	if not sys.stdin.isatty() or not sys.stdout.isatty():

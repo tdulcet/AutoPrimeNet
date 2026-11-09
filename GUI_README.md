@@ -11,17 +11,17 @@ the server. You can run either one on its own.
 ## Install and launch
 
 Run the commands below from the repository root. You'll need a desktop session
-and Python **3.15.0 or later** with working Tk bindings. The virtual environment
-installs Requests and psutil; it doesn't install Tk or a computation engine.
+and Python **3.14.0 or later** with working Tk bindings. The virtual environment
+installs Requests. Install Tk and your computation engine separately.
 If you only want the command-line application, follow the [CLI README](README.md).
 
 **macOS, Linux and FreeBSD.** On a Mac using Homebrew, install the matching
-interpreter and bindings with `brew install python@3.15 python-tk@3.15`. On Linux
+interpreter and bindings with `brew install python@3.14 python-tk@3.14`. On Linux
 or FreeBSD, install Python, venv support and Tk for that same interpreter using
 your distribution's packages or your chosen Python build. Then run:
 
 ```sh
-python3.15 -m venv .venv
+python3.14 -m venv .venv
 .venv/bin/python -m pip install -r requirements-gui.txt
 .venv/bin/python -m pip check
 .venv/bin/python -m tkinter
@@ -33,11 +33,16 @@ Close the small Tk demonstration window, then start the GUI:
 .venv/bin/python -B autoprimenet_gui.py
 ```
 
-**Windows (PowerShell).** Install Python 3.15 or later with Tcl/Tk selected.
-Use the matching version with the Python launcher:
+**Windows standalone build.** If you have the `AutoPrimeNet_GUI_Windows_x64`
+workflow artifact, extract it and run `autoprimenet-gui.exe`. It bundles Python
+and Tk. The executable uses the console subsystem for its backend helpers and
+terminal launches, so starting it from Explorer can also show a console window.
+
+**Windows from source (PowerShell).** Install Python 3.14 or later with Tcl/Tk
+selected. Use the matching version with the Python launcher:
 
 ```powershell
-py -3.15 -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-gui.txt
 .\.venv\Scripts\python.exe -m pip check
 .\.venv\Scripts\python.exe -m tkinter
@@ -51,6 +56,19 @@ Close the demonstration window, then run:
 
 If the Tk check fails, fix the interpreter or display before going further.
 You don't have to activate the environment when you use its Python directly.
+
+### Optional process discovery
+
+For automatic detection of running engines and **Start computation**, install
+psutil in the same virtual environment. The standalone Windows executable
+includes it.
+
+* **macOS, Linux and FreeBSD:** `.venv/bin/python -m pip install -r requirements-gui-process.txt`
+* **Windows:** `.\.venv\Scripts\python.exe -m pip install -r requirements-gui-process.txt`
+
+Without psutil, start the engine in its own terminal. PrimeNet monitoring and
+configuration still work, and **Progress** can read saved files for supported
+engines in a loaded workspace. It cannot tell whether the engine is running.
 
 ### Files and backups
 
@@ -125,7 +143,9 @@ which can be normal for a long checkpoint interval. Estimates assume continuous
 computation. Later compatible assignments can use the same worker's measured
 speed; a stage percentage needn't represent the entire assignment.
 
-The reader checks accessible process directories and configured worker files.
+The reader uses psutil to find accessible process directories and configured
+worker files. The computation launcher also uses it to check for duplicate
+processes.
 Without a matching workspace it looks for `worktodo.txt` or `worktodo.ini`
 (PRPLL: `worktodo-N.txt`). Renamed executables, restricted directories or
 checkpoints written elsewhere can prevent discovery. A scan has a 30-second
@@ -156,7 +176,9 @@ work, report results and progress, upload proofs and send configured notificatio
 ### Register, recover or release assignments
 
 Use **PrimeNet → Register or update computer** to send the saved settings.
-**Ping PrimeNet** tests connectivity; the experimental **v6** ping tests that API
+The GUI splits CLI setup across PrimeNet, Workers, Settings, Advanced and
+Notifications. GPU and SMTP discovery, the test email and computer registration
+are separate actions. **Ping PrimeNet** tests connectivity; the experimental **v6** ping tests that API
 version only. Saving settings or running a local preview does neither.
 
 In **Assignments**, you can report pending results, report results and upload
@@ -172,8 +194,11 @@ and type `REGISTER N` to register the validated batch of N rows. This can also
 register **other unregistered work already in that worker's file**. A batch
 holds 1–100 entries; changing the worker or queue requires a fresh preview.
 The form accepts TF, both P−1 variants, ECM, LL, LL double-check, PRP and PRP
-double-check. Enter known factors explicitly, comma-separated. A preview
-doesn't check whether the server will accept a reservation.
+double-check. Use **Look up exponent…** to request metadata and suggested
+factoring parameters from mersenne.ca. Review the suggestions before applying
+them to the current form. You can also enter parameters manually, with known
+factors separated by commas. A preview doesn't check whether the server will
+accept a reservation.
 
 Pause affected engines before using recovery or unreservation. Review the worker
 and exponent carefully: unreserving one exponent operates on the **first match**
@@ -265,7 +290,7 @@ minimizes to the Dock or taskbar. Use **File → Quit** to exit or start with
 `--no-tray` to skip the tray helper.
 
 * **macOS** — run `.venv/bin/python -m pip install -r requirements-gui-tray.txt`.
-* **Windows** — run `.\.venv\Scripts\python.exe -m pip install -r requirements-gui-tray.txt` in PowerShell.
+* **Windows from source only** — run `.\.venv\Scripts\python.exe -m pip install -r requirements-gui-tray.txt` in PowerShell.
 * **Linux/FreeBSD:** Install GTK **3**, GLib/GIO introspection, Cairo and the
   matching build dependencies, then install `requirements-gui-tray-gtk.txt` in
   the venv. AppIndicator needs its introspection data and a working desktop tray
@@ -289,7 +314,8 @@ After enabling the desktop extension or installing missing packages, choose
 
 ## Running the test suite
 
-Use the same Python environment as the GUI, with `requirements-gui.txt` installed.
+Use the GUI's Python environment with `requirements-gui.txt` and
+`requirements-gui-process.txt` installed.
 Run these commands from the repository root. Tests use temporary workspaces and
 simulated service responses; they do not need a real PrimeNet account or send
 real results, proofs or email.

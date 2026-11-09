@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 from gui_backend import _read_source
 from gui_monitor import StopControl, run_native, run_schedule
-from gui_runtime import ROOT, Runtime, StoppingQueue, WorkerStopped, instrument
+from gui_runtime import ROOT, Runtime, StoppingQueue, WorkerStopped
 
 
 class RuntimeTests(unittest.TestCase):
@@ -65,16 +65,13 @@ class RuntimeTests(unittest.TestCase):
 			settings = backend_request("validate_config", **dict(request, text=document.text.replace("1800", "0")))
 			self.assertEqual(settings["timeout"], 0)
 
-	def test_instrumentation_retains_race_delays_and_guards_layout(self):
+	def test_scheduler_hooks_retain_race_delays(self):
 		_source, tree, _ = _read_source(ROOT / "autoprimenet.py")
-		tree = instrument(tree)
 		functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
 		for name, seconds in (("results_worker", 1), ("proofs_worker", 60)):
 			self.assertIn(f"time.sleep({seconds})", ast.unparse(functions[name]))
-		self.assertIn("_gui_cycles()", ast.unparse(functions["main"]))
-		self.assertEqual(ast.unparse(functions["main"]).count("_gui_start("), 2)
-		with self.assertRaises(ValueError):
-			instrument(tree)  # A second transform must fail, not stack hooks.
+		self.assertIn("scheduler_cycles()", ast.unparse(functions["main"]))
+		self.assertEqual(ast.unparse(functions["main"]).count("scheduler_start("), 2)
 
 	def test_push_wakes_idle_scheduler_and_stop_takes_precedence(self):
 		stop, push = threading.Event(), threading.Event()
@@ -176,7 +173,7 @@ def prepare(ns, runtime):
     ns['update_progress_all'] = lambda *args: None
     ns['upload_proofs'] = lambda *args: True
     ns['get_assignments'] = lambda *args: polls.append(args[-1])
-    ns['_gui_pause'] = lambda delay: runtime.finished(delay)
+    ns['scheduler_pause'] = lambda delay: runtime.finished(delay)
 path = Path(sys.argv[1]) / 'prime.ini'
 request = dict(protocol=1, directory=str(path.parent), config_name=path.name, interval=1800, config_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -219,7 +216,7 @@ def prepare(ns, runtime):
         if len(polls) == 2:
             runtime.push.set()
     ns['get_assignments'] = poll
-    ns['_gui_pause'] = lambda delay: runtime.finished(delay)
+    ns['scheduler_pause'] = lambda delay: runtime.finished(delay)
 path = Path(sys.argv[1]) / 'prime.ini'
 request = dict(protocol=1, directory=str(path.parent), config_name=path.name, interval=1800, config_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -257,7 +254,7 @@ def prepare(ns, runtime):
     ns['register_assignments'] = lambda *args: False
     ns['update_progress_all'] = lambda *args: None
     ns['upload_proofs'] = lambda *args: True
-    ns['_gui_idle'] = lambda delay: None  # Test only: skip the 5-minute cooldown.
+    ns['scheduler_idle'] = lambda delay: None  # Test only: skip the 5-minute cooldown.
     def submit(*args):
         seen.append((path.parent / 'results.txt').read_text())
         scanned.set()

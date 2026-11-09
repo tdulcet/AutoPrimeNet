@@ -5,7 +5,6 @@ Copyright (C) 2026 Jacob Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
-import ast
 import contextlib
 import hashlib
 import io
@@ -15,7 +14,9 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-from gui_backend import _assignment_target, _load_definitions, _read_source, _validate_config
+from gui_backend import _load_definitions, _read_source, _validate_config
+
+from gui_controller import helper_command
 
 ROOT = Path(__file__).resolve().parent
 MAX_BYTES = 16384
@@ -99,13 +100,7 @@ def execute(request, before_discovery=None):
 		if not namespace["EMAIL_RE"].fullmatch(email):
 			raise ValueError("Enter a valid sender email address.")
 		_validate_config(namespace, tree, boundary, {"text": document.text, "directory": str(document.directory), "config_name": document.path.name})
-		# Reuse only the audited proxy initialization statements. Skip all native
-		# startup, lock files, logs, setup, scheduler and email sending.
-		index = next(i for i, node in enumerate(tree.body) if _assignment_target(node, "PROXIES"))
-		proxy_if = tree.body[index + 1]
-		if not isinstance(proxy_if, ast.If) or ast.unparse(proxy_if.test) != "args.proxy":
-			raise ValueError("Unsupported proxy startup layout.")
-		exec(compile(ast.Module(body=tree.body[index:index + 2], type_ignores=[]), str(path), "exec"), namespace)
+		namespace["configure_proxy"](namespace["args"])
 		namespace["TIMEOUT"] = 8
 		limit_lookup_responses(namespace)
 		if before_discovery is not None:
@@ -124,7 +119,7 @@ def discover_mail(document, email):
 	request = {"protocol": 1, "operation": "discover_mail", "directory": str(document.directory), "config_name": document.path.name,
 		"config_sha256": hashlib.sha256(document.data).hexdigest(), "email": email}
 	try:
-		process = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve())], input=json.dumps(request), capture_output=True,
+		process = subprocess.run(helper_command("gui_mail_discovery.py"), input=json.dumps(request), capture_output=True,
 			text=True, encoding="utf-8", cwd=ROOT, timeout=90)
 		response = json.loads(process.stdout)
 	except (OSError, ValueError, subprocess.TimeoutExpired) as error:

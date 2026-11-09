@@ -4,7 +4,7 @@ This table maps the 96 argparse entries in AutoPrimeNet 2.0.2 to GUI controls.
 The count includes inverse flags, aliases and automatic help, so it is larger
 than the number of distinct features.
 
-Source SHA-256: `05776d74b7b816c52774c30de438e7dcf047127a810daa8ee36335f8b8e7ec12`.
+Source SHA-256: `3149ed72b9a98643f886fbc5b1f11ca679939797e02f0d62f8edd27b1d675144`.
 
 The table uses the same option inventory and mappings as the GUI reference. See [GUI_README.md](GUI_README.md) for behavior/limits.
 
@@ -21,6 +21,7 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 ## Remaining workflow gaps
 
 * Hidden `--prime95` is not a supported graphical engine. Hidden legacy `--password` is rejected by the original backend, so SMTP/proxy password management does not implement account-password authentication.
+* The GUI setup inputs are grouped in forms. GPU and SMTP discovery, test email and computer registration each have their own action. Exponent registration accepts the CLI work types and uses its backend, with an explicit action to look up metadata and review suggested bounds.
 * GTK tray integration passed manual GNOME/Wayland checks on Fedora and Ubuntu. Other Linux desktops, X11 and FreeBSD remain unverified.
 
 ## Interactive workflows and state
@@ -30,7 +31,7 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 | Initial account/program/worker setup | PrimeNet, Workers and Settings forms with optional GPU/SMTP discovery; validate/save offline, then Register or update computer with confirmation |
 | Hardware/resources | PrimeNet hardware dialog with explicit values and detected/default inheritance; local GPU discovery and a reviewed GPU picker |
 | Notifications | SMTP/recipient/TLS forms, send policy, masked encrypted password replacement, confirmed test email and reviewed provider discovery; no per-event editor |
-| Exponent registration | Batch form for the eight original work types, explicit parameters/factors, source-based offline preview, typed confirmation, work snapshots and original registration function; no implicit exponent metadata lookup |
+| Exponent registration | Batch form for the eight original work types, explicit parameters/factors, shared backend offline preview, typed confirmation, work snapshots and original registration function; optional mersenne.ca metadata lookup with review |
 | Recovery and unreservation | Dedicated confirmations, structured exponent input and work/certification snapshots; no automatic reservation rollback or restore |
 | Status/logs/diagnostics | Dashboard immediate PrimeNet check-in while monitoring continues; original local status report to native log, bounded private log/trace viewer, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
 | Computation startup | Dashboard or Launchers → Start computation; workspace-local profiles and independent OS terminals; explicit review and duplicate checks; no computation stop/restart/autostart |

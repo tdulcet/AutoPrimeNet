@@ -52,6 +52,22 @@ class ProgressTests(unittest.TestCase):
 	def tearDownClass(cls):
 		cls.namespace["session"].close()
 
+	def test_without_psutil_reads_workspace_files_without_claiming_process_status(self):
+		with tempfile.TemporaryDirectory() as temp:
+			directory = Path(temp)
+			self.fixture("Mlucas", directory)
+			configured = {"directory": temp, "engine": "mlucas",
+				"workers": [{"number": 1, "work_file": str(directory / "worktodo.txt")}]}
+			with patch.dict(sys.modules, {"psutil": None}):
+				result = progress_snapshot(self.namespace, configured)
+				empty = progress_snapshot(self.namespace)
+			self.assertFalse(result["discovery_available"])
+			self.assertIn("requirements-gui-process.txt", result["notice"])
+			self.assertEqual(result["rows"][0]["pids"], "Not checked")
+			self.assertGreater(result["rows"][0]["speed"], 0)
+			self.assertEqual(empty["rows"], [])
+			self.assertIn("Load a workspace", empty["notice"])
+
 	def snapshot(self, engine, directory, configured=None):
 		return progress_snapshot(self.namespace, configured, system(Process(engine, str(directory))))
 

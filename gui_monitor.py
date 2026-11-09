@@ -16,7 +16,7 @@ import time
 
 from gui_backend import BackendError, _read_source
 from gui_config import ConfigDocument, WorkspaceError, instance_lease, inspect_workspace
-from gui_controller import ControllerError, ROOT, backend_request
+from gui_controller import ControllerError, ROOT, backend_request, helper_command
 from gui_operations import OPERATIONS, operation_arguments
 from gui_assignment_backup import snapshot_assignments
 from gui_trace import debug_level, private_trace
@@ -69,7 +69,7 @@ def _cli_process(directory, config_name, control, operation=None, parameters=Non
 	environment.pop("FORCE_COLOR", None)
 	flags = () if operation is None else operation_arguments(operation, parameters)
 	registration = operation in {"register_computer", "register_exponents"}
-	command = [sys.executable, "-B", str(ROOT / "gui_registration.py")] if registration else [sys.executable, "-B", str(ROOT / "autoprimenet.py"), "--workdir", str(directory), "--config-file", config_name, "--timeout", "0", *(["--debug"] * level), *flags]
+	command = helper_command("gui_registration.py") if registration else helper_command("autoprimenet.py", "--workdir", str(directory), "--config-file", config_name, "--timeout", "0", *(["--debug"] * level), *flags)
 	payload = None
 	if registration:
 		request = {"operation": operation, "directory": str(directory), "config_name": config_name, "parameters": parameters or {}, "config_sha256": expected_hash or hashlib.sha256(ConfigDocument(directory, config_name).data).hexdigest()}
@@ -165,7 +165,7 @@ def _native_process(directory, config_name, control, interval, expected_hash, ca
 	environment = dict(os.environ)
 	environment["NO_COLOR"] = "1"
 	environment.pop("FORCE_COLOR", None)
-	process = subprocess.Popen([sys.executable, "-B", str(ROOT / "gui_runtime.py")], stdin=subprocess.PIPE,
+	process = subprocess.Popen(helper_command("gui_runtime.py"), stdin=subprocess.PIPE,
 		stderr=subprocess.PIPE if capture else subprocess.DEVNULL, cwd=ROOT, env=environment)
 	if capture:
 		capture.start(process.stderr)

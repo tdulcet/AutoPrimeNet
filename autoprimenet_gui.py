@@ -7,8 +7,8 @@ SPDX-License-Identifier: GPL-3.0-only
 
 import sys
 
-if sys.version_info < (3, 15):
-	print("AutoPrimeNet GUI requires Python 3.15.0 or later.", file=sys.stderr)
+if sys.version_info < (3, 14):
+	print("AutoPrimeNet GUI requires Python 3.14.0 or later.", file=sys.stderr)
 	sys.exit(2)
 
 import argparse
@@ -466,7 +466,7 @@ class Application:
 			self.status.set("Generating private diagnostics offline…")
 
 	def show_about(self):
-		messagebox.showinfo("About AutoPrimeNet GUI", "Optional GUI foundation\nBackend AutoPrimeNet {}\nPython 3.15.0 or later\nGPL-3.0\n\nSee GUI_PARITY.md for implemented controls and remaining gaps.".format(self.backend_version), parent=self.root)
+		messagebox.showinfo("About AutoPrimeNet GUI", "Optional GUI foundation\nBackend AutoPrimeNet {}\nPython 3.14.0 or later\nGPL-3.0\n\nSee GUI_PARITY.md for implemented controls and remaining gaps.".format(self.backend_version), parent=self.root)
 
 	def request_cli_help(self):
 		if not self.jobs.busy and not self.quit_pending and self.jobs.submit("cli_help", backend_request, "cli_help"):
@@ -596,6 +596,8 @@ class Application:
 			self.set_busy(False)
 			if name == "registration_preview":
 				self.registration.complete_preview(value, error)
+			elif name == "registration_lookup":
+				self.registration.complete_lookup(value, error)
 			elif name == "discover_gpus":
 				self.editor.complete_gpus(value, error)
 			elif name == "discover_mail":
@@ -809,7 +811,45 @@ class Application:
 		self.root.destroy()
 
 
+def run_helper(script):
+	# Frozen helpers share the executable but retain their isolated subprocesses.
+	if script == "autoprimenet.py":
+		from gui_backend import _load_definitions
+		return _load_definitions(Path(__file__).with_name(script))["cli"]()
+	if script == "gui_backend.py":
+		from gui_backend import main
+	elif script == "gui_computation.py":
+		from gui_computation import main
+	elif script == "gui_mail_discovery.py":
+		from gui_mail_discovery import main
+	elif script == "gui_monitor.py":
+		from gui_monitor import main
+	elif script == "gui_registration.py":
+		from gui_registration import main
+	elif script == "gui_runtime.py":
+		from gui_runtime import main
+	elif script == "gui_tray.py":
+		from gui_tray import main
+	else:
+		raise SystemExit("Unknown GUI helper.")
+	return main()
+
+
 def main():
+	if len(sys.argv) >= 3 and sys.argv[1] == "--gui-helper":
+		sys.argv = sys.argv[2:]
+		return run_helper(sys.argv[0])
+	if sys.argv[1:] == ["--gui-smoke-test"]:
+		root = tk.Tk()
+		try:
+			root.withdraw()
+			if not backend_request("cli_help").get("text"):
+				raise RuntimeError("The GUI backend returned no help text.")
+			if getattr(sys, "frozen", False) and not backend_request("progress").get("discovery_available"):
+				raise RuntimeError("The packaged GUI could not discover processes.")
+		finally:
+			root.destroy()
+		return 0
 	parser = argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--no-tray", action="store_true", help="Minimize to the taskbar/Dock instead of using a tray helper")
 	args = parser.parse_args()
@@ -819,4 +859,4 @@ def main():
 
 
 if __name__ == "__main__":
-	main()
+	raise SystemExit(main())

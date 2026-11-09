@@ -4,10 +4,13 @@ Copyright (C) 2026 Jacob Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
+import hashlib
+import json
+import subprocess
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from gui_controller import backend_request
+from gui_controller import backend_request, helper_command
 from gui_registration_plan import DEFAULT_ENTRY, WORK_TYPES, validate_shape
 
 
@@ -22,6 +25,18 @@ LABELS = {
 
 def request_preview(document, parameters):
 	return backend_request("preview_registration", text=document.text, directory=str(document.directory), config_name=document.path.name, parameters=parameters)
+
+
+def request_suggestions(document, exponent, work_type):
+	request = dict(operation="lookup_exponent", directory=str(document.directory), config_name=document.path.name,
+		config_sha256=hashlib.sha256(document.data).hexdigest(), exponent=exponent, work_type=work_type)
+	try:
+		process = subprocess.run(helper_command("gui_registration.py"), input=json.dumps(request),
+			capture_output=True, text=True, encoding="utf-8", timeout=45)
+		process.check_returncode()
+		return json.loads(process.stdout)["suggestions"]
+	except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+		raise ValueError("Exponent lookup failed. Check the exponent and connection, or enter parameters manually.") from error
 
 
 class RegistrationForm:
@@ -51,7 +66,7 @@ class RegistrationForm:
 		window.minsize(740, 620)
 		outer = ttk.Frame(window, padding=12)
 		outer.pack(fill="both", expand=True)
-		ttk.Label(outer, text="Advanced: choose explicit values, queue rows, then preview offline. Registration appends work and contacts PrimeNet only after typed confirmation.\nChoose work types appropriate to your computation engine. No mersenne.ca metadata lookup is performed; preview is not server acceptance.", wraplength=890).pack(anchor="w")
+		ttk.Label(outer, text="Advanced: choose explicit values, queue rows, then preview offline. Registration appends work and contacts PrimeNet only after typed confirmation.\nChoose work types appropriate to your computation engine. Use Look up exponent to review suggested parameters from mersenne.ca.", wraplength=890).pack(anchor="w")
 		form = ttk.Frame(outer)
 		form.pack(fill="x", pady=8)
 		self.worker = tk.StringVar(value="1")
@@ -83,7 +98,7 @@ class RegistrationForm:
 		self.values["prp_residue_type"].trace_add("write", lambda *_: self.set_busy(False))
 		buttons = ttk.Frame(outer)
 		buttons.pack(fill="x")
-		for label, command in (("Add row", self.add), ("Replace selected row", self.replace), ("Remove selected row", self.remove)):
+		for label, command in (("Look up exponent…", self.lookup), ("Add row", self.add), ("Replace selected row", self.replace), ("Remove selected row", self.remove)):
 			button = ttk.Button(buttons, text=label, command=command)
 			button.pack(side="left", padx=(0, 8), pady=4)
 			self.widgets.append(button)
@@ -222,6 +237,36 @@ class RegistrationForm:
 			self.output.delete("1.0", "end")
 			self.output.configure(state="disabled")
 			self.status.set("Batch changed; validate and preview before registering.")
+
+	def lookup(self):
+		if self.app.jobs.busy or self.app.monitor.active:
+			return
+		try:
+			exponent = int(self.values["exponent"].get())
+			if not 2 <= exponent <= 10000000000:
+				raise ValueError
+		except ValueError:
+			self.status.set("Enter an exponent from 2 through 10,000,000,000.")
+			return
+		kind = int(self.work_type.get().split(" — ")[0])
+		if not messagebox.askyesno("Look up exponent", "Send exponent {} to mersenne.ca to look up factoring data?".format(exponent), parent=self.window):
+			return
+		if self.app.jobs.submit("registration_lookup", request_suggestions, self.document, exponent, kind):
+			self.app.set_busy(True)
+			self.status.set("Looking up exponent metadata…")
+
+	def complete_lookup(self, suggestions, error):
+		if self.app.quit_pending or self.window is None or not self.window.winfo_exists():
+			return
+		if error or not suggestions:
+			self.status.set(str(error) if error else "No exponent metadata found. Enter parameters manually.")
+			return
+		fields = {key: value for key, value in suggestions.items() if key in self.enabled_fields()}
+		review = "\n".join("{}: {}".format(LABELS[key], value) for key, value in fields.items())
+		if messagebox.askyesno("Apply exponent suggestions?", review, parent=self.window):
+			for key, value in fields.items():
+				self.values[key].set(", ".join(map(str, value)) if isinstance(value, list) else str(value))
+			self.status.set("Suggestions applied to the form. Review the values before adding a row.")
 
 	def request_preview(self):
 		if self.app.jobs.busy or self.app.monitor.active:
