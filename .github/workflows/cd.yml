@@ -8,6 +8,11 @@ on:
       - '.github/workflows/**'
       - 'wrapper.py'
       - 'autoprimenet.py'
+      - 'autoprimenet_gui.py'
+      - 'gui_*.py'
+      - 'requirements-gui*.txt'
+      - 'GUI_README.md'
+      - 'GUI_PARITY.md'
   schedule:
     - cron: '0 0 1 * *'
   workflow_dispatch:
@@ -75,6 +80,39 @@ jobs:
           README.md
           LICENSE
           dist/*
+
+  GUI:
+    name: Windows standalone GUI
+    runs-on: windows-latest
+    env:
+      GIT_CONFIG_COUNT: 1
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.14"
+        architecture: x64
+    - name: Install build dependencies
+      run: python -m pip install -r requirements-gui-tray.txt -r requirements-gui-process.txt pyinstaller "requests[socks]"
+    - name: Build standalone GUI
+      run: >-
+        python -m PyInstaller --noconfirm --onefile --console --name autoprimenet-gui
+        --add-data "autoprimenet.py:." --hidden-import autoprimenet
+        --hidden-import pystray._win32 autoprimenet_gui.py
+    - name: Smoke-test the packaged Tk window and backend helper
+      run: |
+        .\dist\autoprimenet-gui.exe --gui-smoke-test
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - uses: actions/upload-artifact@v7
+      with:
+        name: AutoPrimeNet_GUI_Windows_x64
+        path: |
+          dist/autoprimenet-gui.exe
+          GUI_README.md
+          GUI_PARITY.md
+          LICENSE
 
   deploy:
     name: Windows Deploy
