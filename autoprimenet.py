@@ -8149,7 +8149,20 @@ def report_result(config, args, adapter, ar, message, assignment, result_type, t
 		if result_type == PRIMENET_AR.PP1_FACTOR:
 			params["f"] = ",".join(ar["factors"])
 	elif result_type in {PRIMENET_AR.ECM_FACTOR, PRIMENET_AR.ECM_NOFACTOR}:
-		params["d"] = 1
+		# Keep the assignment open while other curves for it are still queued
+		# (an ECM assignment is for several curves; when it is split into
+		# several worktodo lines, e.g. one per worker, only the last line - or a
+		# found factor - closes it).  Same form as the P-1/TF results above.
+		params["d"] = (
+			1
+			if result_type == PRIMENET_AR.ECM_FACTOR
+			or not any(
+				task.k == assignment.k and task.b == assignment.b and task.n == assignment.n and task.c == assignment.c
+				for task in tasks
+				if isinstance(task, Assignment)
+			)
+			else 0
+		)
 		params.update((("A", assignment.k), ("b", assignment.b), ("c", assignment.c)))
 		params["CR"] = ar["curves"]
 		params["B1"] = ar["b1"]
