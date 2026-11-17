@@ -7,7 +7,7 @@
 # ]
 # ///
 
-"""Automatic assignment handler for Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, CUDAPm1, mfaktc, mfakto, PrimePath, cofact, gvtf and Mp_p-1_gpu.
+"""Automatic assignment handler for Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, Prime95/MPrime, CUDAPm1, mfaktc, mfakto, PrimePath, cofact, gvtf and Mp_p-1_gpu.
 
 [*] Python can be downloaded from https://www.python.org/downloads/
     * An .exe version of this script (not requiring Python) can be downloaded from:
@@ -1934,6 +1934,32 @@ class PRIMENET_WP:
 	PRP_COFACTOR_DBLCHK = 161  # PRP double check of Mersenne cofactors
 
 
+# Work preferences supported by Prime95/MPrime (the CPU program; no GPU-only
+# work preferences such as GPU_FACTOR or the GPU proof/double-check preferences).
+PRIME95_WORK_PREFERENCES = frozenset(
+	{
+		PRIMENET_WP.WHATEVER,
+		PRIMENET_WP.FACTOR_LMH,
+		PRIMENET_WP.FACTOR,
+		PRIMENET_WP.PFACTOR,
+		PRIMENET_WP.ECM_SMALL,
+		PRIMENET_WP.ECM_FERMAT,
+		PRIMENET_WP.ECM_COFACTOR,
+		PRIMENET_WP.LL_FIRST,
+		PRIMENET_WP.LL_DBLCHK,
+		PRIMENET_WP.LL_WORLD_RECORD,
+		PRIMENET_WP.LL_100M,
+		PRIMENET_WP.PRP_FIRST,
+		PRIMENET_WP.PRP_DBLCHK,
+		PRIMENET_WP.PRP_WORLD_RECORD,
+		PRIMENET_WP.PRP_100M,
+		PRIMENET_WP.PRP_NO_PMINUS1,
+		PRIMENET_WP.PRP_COFACTOR,
+		PRIMENET_WP.PRP_COFACTOR_DBLCHK,
+	}
+)
+
+
 # class PRIMENET_WORK_TYPE(IntEnum):
 class PRIMENET_WORK_TYPE:
 	"""PrimeNet v5 assignment work-type codes."""
@@ -3657,6 +3683,23 @@ def decrypt(config, args):
 
 def check_options(parser, args):
 	"""Validate command-line options and reject incompatible or out-of-range combinations."""
+	# The --prime95 option selects the Prime95/MPrime program: AutoPrimeNet can
+	# get assignments for it (Prime95-style worktodo lines) and report its
+	# results.  The hidden --trusted option is the PrimeNet secure-state fallback:
+	# it signs the requests like the official Prime95 client, so work continues
+	# while PrimeNet is in a secure state; it can be combined with any program.
+	programs = (
+		args.mlucas,
+		args.cudalucas,
+		args.gpuowl,
+		args.prpll,
+		args.prmers,
+		args.mfaktc,
+		args.mfakto,
+		args.primepath,
+	)
+	prime95_only = args.prime95 and not any(programs)
+
 	if os.path.dirname(args.localfile):
 		parser.error("Configuration file filename should not include a directory/path")
 
@@ -3693,8 +3736,10 @@ def check_options(parser, args):
 		if res:
 			logging.warning("CPU features has invalid character: %r", res.group())
 
+	# Prime95/MPrime supports the CPU work preferences only (see
+	# PRIME95_WORK_PREFERENCES); the other programs have their own subset.
 	for work_preference in args.work_preference:
-		if work_preference not in SUPPORTED:
+		if work_preference not in (PRIME95_WORK_PREFERENCES if prime95_only else SUPPORTED):
 			parser.error("Unsupported work preference = {} for {}".format(work_preference, PROGRAM["name"]))
 
 	if len(args.work_preference) not in {1, args.num_workers}:
@@ -3734,19 +3779,10 @@ def check_options(parser, args):
 	if args.prmers:
 		logging.warning("PrMers support is experimental and for testing only. At the time of this release, PrMers was still alpha.")
 
-	if not (
-		args.mlucas or args.cudalucas or args.gpuowl or args.prpll or args.prmers or args.mfaktc or args.mfakto or args.primepath
-	):
+	if not (any(programs) or args.prime95):
 		parser.error("Must select a GIMPS program to get assignments for")
 
-	if (
-		sum(
-			1
-			for opt in (args.mlucas, args.cudalucas, args.gpuowl, args.prpll, args.prmers, args.mfaktc, args.mfakto, args.primepath)
-			if opt
-		)
-		!= 1
-	):
+	if sum(1 for opt in programs if opt) > 1:
 		parser.error("AutoPrimeNet can only be used with a single GIMPS program")
 
 	if args.day_night_memory > args.memory:
@@ -4573,7 +4609,8 @@ def generate_application_str(config, args):
 		if args.gpuowl
 		else 1
 	]
-	if args.prime95:
+	if args.prime95 or args.trusted:
+		program = PROGRAMS[0]
 		return "{},{},v{},build {}".format(aplatform, program["name"], program["version"], program["build"])
 	name = program["name"]
 	version = program["version"]
@@ -5150,7 +5187,7 @@ def secure_v5_url(guid, params):
 def send_request(args, adapter, guid, params):
 	"""Send a PrimeNet v5 request and return its parsed response."""
 	if guid is not None:
-		if not args.prime95:
+		if not args.trusted:
 			params["ss"] = 19191919
 			params["sh"] = "ABCDABCDABCDABCDABCDABCDABCDABCD"
 		else:
@@ -10665,7 +10702,13 @@ group.add_argument(
 	default=None,
 	help="Get assignments for PrimePath. This is experimental and for testing only.",
 )
-parser.add_argument("--prime95", action="store_true", help=argparse.SUPPRESS)
+group.add_argument(
+	"--prime95",
+	action="store_true",
+	default=None,
+	help="Get assignments and report results for Prime95/MPrime.",
+)
+parser.add_argument("--trusted", action="store_true", help=argparse.SUPPRESS)
 parser.add_argument("--num-workers", type=int, default=1, help="Number of workers (CPU Cores/GPUs), Default: %(default)r")
 parser.add_argument(
 	"-n",
@@ -11137,8 +11180,13 @@ if args.debug_info:
 # values are also checked
 RE = re.compile(r"[^A-Za-z0-9_@+,./:()<>=! -]")
 
+prime95_program = args.prime95 and not (
+	args.mlucas or args.cudalucas or args.gpuowl or args.prpll or args.prmers or args.mfaktc or args.mfakto or args.primepath
+)
 PROGRAM = PROGRAMS[
-	8
+	0
+	if prime95_program
+	else 8
 	if args.primepath
 	else 7
 	if args.mfakto
