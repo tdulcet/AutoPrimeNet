@@ -1923,13 +1923,17 @@ class PRIMENET_WP:
 	LL_FIRST = 100  # LL first time tests
 	LL_DBLCHK = 101  # LL double checks
 	LL_WORLD_RECORD = 102  # LL test of world record Mersenne
+	# LL_10M = 103  # LL 10 million digit --- no longer supported
 	LL_100M = 104  # LL 100 million digit
+	# LL_FIRST_NOFAC = 105  # LL first time tests, no trial factoring or P-1 factoring -- superfluous
+	GPU_DBLCHK = 106
 	PRP_FIRST = 150  # PRP test of big Mersennes
 	PRP_DBLCHK = 151  # PRP double checks
 	PRP_WORLD_RECORD = 152  # PRP test of world record Mersennes
 	PRP_100M = 153  # PRP test of 100M digit Mersennes
 	PRP_NO_PMINUS1 = 154  # PRP test that if possible also needs P-1
 	PRP_DC_PROOF = 155  # PRP double-check where a proof will be produced
+	PRP_DC_SCZ = 156
 	PRP_COFACTOR = 160  # PRP test of Mersenne cofactors
 	PRP_COFACTOR_DBLCHK = 161  # PRP double check of Mersenne cofactors
 
@@ -5142,7 +5146,7 @@ def secure_v5_url(guid, params):
 	p_v5key = md5(k).hexdigest().upper()
 
 	params["ss"] = random.randint(0, 0xFFFF)
-	url = urlencode(params) + "&" + p_v5key
+	url = urlencode(OrderedDict((k, v) for k, v in params.items() if v is not None)) + "&" + p_v5key
 
 	params["sh"] = md5(url.encode()).hexdigest().upper()
 
@@ -11174,7 +11178,7 @@ SUPPORTED = frozenset(
 	else (
 		(PRIMENET_WP.PFACTOR, PRIMENET_WP.LL_FIRST, PRIMENET_WP.LL_WORLD_RECORD, PRIMENET_WP.LL_100M)
 		+ ((PRIMENET_WP.LL_DBLCHK,) if args.mlucas or args.cudalucas else ())
-		+ ((106,) if args.gpuowl or args.prpll or args.prmers else ())
+		+ ((PRIMENET_WP.GPU_DBLCHK,) if args.gpuowl or args.prpll or args.prmers else ())
 		+ (
 			()
 			if args.cudalucas
