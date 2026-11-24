@@ -11194,7 +11194,7 @@ SUPPORTED = frozenset(
 
 def main():
 	"""Parse command-line options and run the requested AutoPrimeNet workflow."""
-	global config
+	# global config
 	check_options(parser, args)
 
 	if len(args.work_preference) == 1 and args.num_workers > 1:
@@ -11370,7 +11370,7 @@ Run --help for a full list of available options.
 
 	for j in count():
 		start = time.perf_counter()
-		config = config_read(args)
+		# config = config_read(args)
 		current_time = time.time()
 		last_time = config.getint(SEC.Internals, "LastEndDatesSent") if config.has_option(SEC.Internals, "LastEndDatesSent") else 0
 		checkin = args.timeout <= 0 or current_time >= last_time + args.hours_between_checkins * 60 * 60
