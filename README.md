@@ -5,7 +5,7 @@ The PrimeNet automated assignment handler program for GIMPS
 
 Copyright © 2024 Teal Dulcet
 
-Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, mfaktc, mfakto and PrimePath GIMPS software. Additionally, it can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and greater, and Windows, macOS, FreeBSD and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
+Automatically gets and registers assignments, reports assignment progress and results, uploads proof files to and downloads certification starting values from PrimeNet for the Mlucas, GpuOwl, PRPLL, PrMers, CUDALucas, Prime95/MPrime, mfaktc, mfakto and PrimePath GIMPS software. Additionally, it can get assignments and report results to mersenne.ca for exponents above the current PrimeNet limit of 1G. Supports [Python versions](https://devguide.python.org/versions) 3.4 and greater, and Windows, macOS, FreeBSD and Linux. Requires the [Requests library](https://requests.readthedocs.io/en/latest/), which is included with most Python 3 installations. The program will automatically prompt to install Requests on first run if it is not already installed.
 
 Originally adapted from the PrimeNet Python script from [Mlucas](https://www.mersenneforum.org/mayer/README.html#download2) by [Loïc Le Loarer](https://github.com/llloic11/primenet) and Ernst W. Mayer, which itself was adapted from primetools by [Mark Rose](https://github.com/MarkRose/primetools) and [teknohog](https://github.com/teknohog/primetools).
 
@@ -46,9 +46,9 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 		* mfakto
 		* PrimePath
 	* Partial support
+		* Prime95/MPrime (assignments and results, the program itself is managed by the user)
 		* CUDAPm1
 	* Report results only
-		* Prime95/MPrime
 		* cofact
 		* gvtf
 		* Mp_p-1_gpu
@@ -140,6 +140,31 @@ AutoPrimeNet (the PrimeNet program) was moved from the [Distributed Computing Sc
 * 100% Open Source
 * Can claim full EFF Awards
 
+## Prime95/MPrime support
+
+AutoPrimeNet can manage the work for Prime95/mprime itself (the CPU program):
+pass `--prime95` instead of one of the other program options. It gets
+assignments and writes Prime95-style `worktodo.txt` lines (`PRP=`, `ECM2=`,
+`Pminus1=`, ...), reports their expected completion dates and reports the
+results, but it does **not** start or monitor the Prime95/mprime executable -
+run that yourself, exactly as with the other supported programs. Only the CPU
+work preferences supported by Prime95/MPrime are accepted (no GPU-only
+preferences); it also works for source/unofficial builds, whose results PrimeNet
+does not accept directly, and with the untrusted (dummy) security parameters.
+
+```sh
+python3 autoprimenet.py -w WORKDIR -u USER_ID --prime95 --setup          # once
+python3 autoprimenet.py -w WORKDIR -u USER_ID --prime95 -T 5             # get work, monitor, report
+python3 autoprimenet.py -w WORKDIR -u USER_ID --prime95 --report-results # report the results file only
+```
+
+The results file is the usual `results.json.txt` (or the `--results-file`/`-r`
+file), so a farm can simply call the `--report-results` command after each batch.
+
+The hidden `--trusted` option is the PrimeNet secure-state fallback (the option
+formerly named `--prime95`): it signs the requests as the official Prime95
+client and can be combined with any program, e.g. `--mlucas --trusted`.
+
 ## Usage
 
 ```
@@ -151,7 +176,7 @@ usage: autoprimenet.py [-h] [--version] [-d] [-w WORKDIR] [-D DIRS]
                        [--min-exp MIN_EXP] [--max-exp MAX_EXP]
                        [--min-bit MIN_BIT] [--max-bit MAX_BIT]
                        [--force-target-bits]
-                       [-m | -g | --prpll | --prmers | --cudalucas | --mfaktc | --mfakto | --primepath]
+                       [-m | -g | --prpll | --prmers | --cudalucas | --mfaktc | --mfakto | --primepath | --prime95]
                        [--num-workers NUM_WORKERS] [-n NUM_CACHE]
                        [-W DAYS_OF_WORK] [--force-pminus1 TESTS_SAVED]
                        [--pminus1-threshold PM1_MULTIPLIER]
@@ -278,6 +303,8 @@ options:
   --mfakto              Get assignments for mfakto.
   --primepath           Get assignments for PrimePath. This is experimental
                         and for testing only.
+  --prime95             Get assignments and report results for
+                        Prime95/MPrime.
   --num-workers NUM_WORKERS
                         Number of workers (CPU Cores/GPUs), Default: 1
   -n NUM_CACHE, --num-cache NUM_CACHE
