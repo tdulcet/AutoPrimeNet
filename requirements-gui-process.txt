@@ -1,0 +1,2 @@
+# Cross-platform discovery of running computation engines and working directories.
+psutil>=7.2.2
