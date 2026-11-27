@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Owned CLI helper for scheduled monitoring and one-shot actions.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -14,7 +14,7 @@ import tempfile
 import threading
 import time
 
-from gui_backend import BackendError, _read_source
+from gui_backend import BackendError
 from gui_config import ConfigDocument, WorkspaceError, instance_lease, inspect_workspace
 from gui_controller import ControllerError, ROOT, backend_request, helper_command
 from gui_operations import OPERATIONS, operation_arguments
@@ -63,7 +63,6 @@ def _cli_process(directory, config_name, control, operation=None, parameters=Non
 	"""Run only our CLI child; forced termination requires a separate command."""
 	if operation is None and parameters:
 		raise ValueError("Scheduled cycles do not accept operation parameters.")
-	_read_source(ROOT / "autoprimenet.py")
 	environment = dict(os.environ)
 	environment["NO_COLOR"] = "1"
 	environment.pop("FORCE_COLOR", None)

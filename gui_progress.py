@@ -1,6 +1,6 @@
 """Read-only process discovery and native computation progress snapshots.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

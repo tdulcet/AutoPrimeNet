@@ -1,6 +1,6 @@
 """Opt-in desktop tests; never initialize Tk in a headless/default test run.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

@@ -1,6 +1,6 @@
 """Background jobs and owned helper processes for the optional GUI.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

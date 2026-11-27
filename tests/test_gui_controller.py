@@ -1,6 +1,6 @@
 """Tests for responsive job delivery and offline process calls.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -17,6 +17,18 @@ from gui_controller import BackgroundJobs, ControllerError, MonitorController, T
 
 
 class ControllerTests(unittest.TestCase):
+	def test_frozen_helpers_dispatch_through_bundled_executable(self):
+		import sys
+		from unittest.mock import patch
+		from gui_controller import helper_command
+		with patch.object(sys, "frozen", True, create=True):
+			self.assertEqual(helper_command("gui_backend.py", executable="gui.exe"),
+				["gui.exe", "--gui-helper", "gui_backend.py"])
+		with patch.object(sys, "frozen", False, create=True):
+			command = helper_command("gui_backend.py", executable="python")
+			self.assertEqual(command[:2], ["python", "-B"])
+			self.assertTrue(command[2].endswith("gui_backend.py"))
+
 	def test_monitor_event_fields_cannot_break_tk_polling(self):
 		for message in (
 			{"event": "ready"}, {"event": "ready", "interval": True},

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Explicit network-enabled SMTP discovery, isolated from the offline bridge.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -14,7 +14,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-from gui_backend import _load_definitions, _read_source, _validate_config
+from gui_backend import _load_definitions, _validate_config
 
 from gui_controller import helper_command
 
@@ -94,12 +94,11 @@ def execute(request, before_discovery=None):
 	if hashlib.sha256(document.data).hexdigest() != request.get("config_sha256"):
 		raise ValueError("Configuration changed; refresh before mail discovery.")
 	path = ROOT / "autoprimenet.py"
-	_source, tree, boundary = _read_source(path)
-	namespace = _load_definitions(path, tree, boundary)
+	namespace = _load_definitions(path)
 	try:
 		if not namespace["EMAIL_RE"].fullmatch(email):
 			raise ValueError("Enter a valid sender email address.")
-		_validate_config(namespace, tree, boundary, {"text": document.text, "directory": str(document.directory), "config_name": document.path.name})
+		_validate_config(namespace, {"text": document.text, "directory": str(document.directory), "config_name": document.path.name})
 		namespace["configure_proxy"](namespace["args"])
 		namespace["TIMEOUT"] = 8
 		limit_lookup_responses(namespace)

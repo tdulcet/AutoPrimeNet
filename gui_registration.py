@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Private live registration adapter; never imported by the GUI process.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 import sys
 
-from gui_backend import _load_definitions, _read_source, _validate_config
+from gui_backend import _load_definitions, _validate_config
 from gui_config import ConfigDocument
 from gui_mail_discovery import limit_lookup_responses
 from gui_trace import debug_arguments
@@ -70,6 +70,8 @@ def execute(request, before_main=None):
 	except SystemExit as error:
 		return int(error.code or 0)
 	finally:
+		if "namespace" in locals():
+			namespace["close_cli"]()
 		sys.argv = argv
 	return 0
 
@@ -83,12 +85,11 @@ def lookup_exponent(request):
 	if hashlib.sha256(document.data).hexdigest() != request["config_sha256"]:
 		raise ValueError("Configuration changed before exponent lookup.")
 	path = ROOT / "autoprimenet.py"
-	_, tree, boundary = _read_source(path)
-	namespace = _load_definitions(path, tree, boundary)
+	namespace = _load_definitions(path)
 	try:
 		if not namespace["is_prime"](exponent):
 			raise ValueError("Choose a prime exponent.")
-		_validate_config(namespace, tree, boundary, {"text": document.text, "directory": str(document.directory), "config_name": document.path.name})
+		_validate_config(namespace, {"text": document.text, "directory": str(document.directory), "config_name": document.path.name})
 		args = namespace["args"]
 		namespace["configure_proxy"](args)
 		namespace["TIMEOUT"] = 8

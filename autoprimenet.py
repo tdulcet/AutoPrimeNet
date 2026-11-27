@@ -10903,9 +10903,33 @@ group.add_argument("-U", "--email-username", help="SMTP server username")
 group.add_argument("-P", "--email-password", help="SMTP server password")
 group.add_argument("--test-email", action="store_true", help="Send a test e-mail message and exit")
 
+_cli_initialized = False
+_cli_handlers = []
+_cli_lock = None
+
+
+def close_cli():
+	"""Release resources owned by this CLI initialization."""
+	global _cli_lock
+	for handler in _cli_handlers:
+		logging.getLogger().removeHandler(handler)
+		handler.close()
+	_cli_handlers[:] = []
+	if _cli_lock is not None:
+		_cli_lock.close()
+		_cli_lock = None
+	session.close()
+
+
 def initialize_cli():
 	"""Parse arguments and initialize one CLI run."""
 	global args, args_no_defaults, config, logger, logfile, COLOR, workdir, test_email, HTTPConnection
+	global _cli_initialized, _cli_lock
+
+	if _cli_initialized:
+		raise RuntimeError("Initialize AutoPrimeNet once per process.")
+	_cli_initialized = True
+	atexit.register(close_cli)
 
 	args = parser.parse_args()
 	namespace = argparse.Namespace(**dict.fromkeys(vars(args)))
@@ -10923,6 +10947,7 @@ def initialize_cli():
 		)
 	)
 	logger.addHandler(console_handler)
+	_cli_handlers.append(console_handler)
 	# logging.basicConfig(level=max(logging.INFO - args.debug * 10, 0), format="%(filename)s: " + ("%(funcName)s:\t" if args.debug > 1 else "") + "[%(threadName)s %(asctime)s]  %(levelname)s: %(message)s")
 
 	# If debug is requested
@@ -10968,7 +10993,7 @@ def initialize_cli():
 	except OSError as e:
 		logging.exception("Failed to open the lockfile: %s: %s", type(e).__name__, e, exc_info=args.debug)
 		sys.exit(1)
-	atexit.register(lockfile.close)
+	_cli_lock = lockfile
 
 	try:
 		lock_file(lockfile)
@@ -11039,6 +11064,7 @@ def initialize_cli():
 	file_handler = logging.handlers.RotatingFileHandler(logfile, maxBytes=max_bytes, backupCount=5, encoding="utf-8")
 	file_handler.setFormatter(Formatter("[%(threadName)s%(worker)s %(asctime)s]  %(levelname)s: %(message)s"))
 	logger.addHandler(file_handler)
+	_cli_handlers.append(file_handler)
 
 	logging.info("AutoPrimeNet assignment handler version %s, Python %s", VERSION, platform.python_version())
 
@@ -11075,6 +11101,7 @@ def configure_proxy(args):
 	global PROXIES
 
 	PROXIES = None
+	session.proxies.clear()
 	if args.proxy:
 		url = urlsplit(("" if "://" in args.proxy else "//") + args.proxy, args.proxy_type or "http")
 		proxy = url._replace(
@@ -11453,8 +11480,11 @@ Run --help for a full list of available options.
 
 def cli():
 	"""Run the command-line application and preserve its exit behavior."""
-	initialize_cli()
-	main()
+	try:
+		initialize_cli()
+		main()
+	finally:
+		close_cli()
 	sys.exit(0)
 
 

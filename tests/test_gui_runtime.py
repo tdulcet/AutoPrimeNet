@@ -1,6 +1,6 @@
 """Native scheduler lifecycle checks using temporary files and blocked sockets.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -16,7 +16,6 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from gui_backend import _read_source
 from gui_monitor import StopControl, run_native, run_schedule
 from gui_runtime import ROOT, Runtime, StoppingQueue, WorkerStopped
 
@@ -66,7 +65,7 @@ class RuntimeTests(unittest.TestCase):
 			self.assertEqual(settings["timeout"], 0)
 
 	def test_scheduler_hooks_retain_race_delays(self):
-		_source, tree, _ = _read_source(ROOT / "autoprimenet.py")
+		tree = ast.parse((ROOT / "autoprimenet.py").read_text())
 		functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
 		for name, seconds in (("results_worker", 1), ("proofs_worker", 60)):
 			self.assertIn(f"time.sleep({seconds})", ast.unparse(functions[name]))

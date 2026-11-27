@@ -1,10 +1,11 @@
 # GUI / CLI parity inventory
 
 This table maps the 96 argparse entries in AutoPrimeNet 2.0.2 to GUI controls.
-The count includes inverse flags, aliases and automatic help, so it is larger
-than the number of distinct features.
+Each row represents an argparse action, including inverse flags and automatic
+help. Aliases for the same action share a row. This count is larger than the
+number of distinct features.
 
-Source SHA-256: `3149ed72b9a98643f886fbc5b1f11ca679939797e02f0d62f8edd27b1d675144`.
+The option inventory is read from the shared backend argument parser.
 
 The table uses the same option inventory and mappings as the GUI reference. See [GUI_README.md](GUI_README.md) for behavior/limits.
 
@@ -34,20 +35,24 @@ Current parser-entry coverage: 94 Available, 0 Partial, 0 CLI only, 1 Hidden / C
 | Exponent registration | Batch form for the eight original work types, explicit parameters/factors, shared backend offline preview, typed confirmation, work snapshots and original registration function; optional mersenne.ca metadata lookup with review |
 | Recovery and unreservation | Dedicated confirmations, structured exponent input and work/certification snapshots; no automatic reservation rollback or restore |
 | Status/logs/diagnostics | Dashboard immediate PrimeNet check-in while monitoring continues; original local status report to native log, bounded private log/trace viewer, offline owner-private diagnostic file; no proof of remote acceptance from local exit status |
-| Computation startup | Dashboard or Launchers → Start computation; workspace-local profiles and independent OS terminals; explicit review and duplicate checks; no computation stop/restart/autostart |
-| Local computation progress | Progress tab automatically discovers accessible running engines and reads saved checkpoints/logs for the eight fully supported programs; refreshes independently of monitoring at a workspace-configurable interval (90 seconds by default); partial/result-reporting programs show detection without a progress reader |
+| Computation startup | Dashboard or Launchers → Start computation; workspace-local profiles and independent OS terminals; requires optional psutil for duplicate checks; explicit review; no computation stop/restart/autostart |
+| Local computation progress | Progress tab uses optional psutil to discover accessible running engines and reads saved checkpoints/logs for the eight fully supported programs; refreshes independently of monitoring at a workspace-configurable interval (90 seconds by default); partial/result-reporting programs show detection without a progress reader; without psutil, reads configured workspace files with engine status unknown |
 | Configuration persistence | Valid edits save automatically after a short pause; completed saves/operations refresh safely, conflicts preserve drafts, and per-user preferences remember the last workspace without restarting monitoring |
 | Lifecycle | Owned native scheduler with separate polling/check-ins, native file watching, one-pass mode, worker-draining Stop, explicit force, optional macOS/Windows/GTK tray with host-loss recovery and taskbar fallback and asynchronous Quit; independent computation terminal startup; no computation Stop/Restart or automatic start |
 
-Batch registration supports one configured worker and up to 100 entries per operation, a 48 KiB normalized plan, and bounded integer/factor sizes. It also registers other unregistered work already in the selected worker file, matching upstream behavior. All graphical file/worker/preview/snapshot limits are documented in GUI_README.md.
+Batch registration supports one configured worker and up to 100 entries per operation, a 48 KiB normalized plan, and bounded integer/factor sizes. It also registers other unregistered work already in the selected worker file, matching upstream behavior. See GUI_README.md for file, worker, preview and snapshot limits.
 
 ## Parser-entry mapping
 
+Hardware, Connection and Behavior in the locations below name the corresponding
+edit dialogs. Help is the top-level menu. Working directory selection is in the
+top bar, and the configuration filename is on Settings.
+
 | CLI flags | Destination | Coverage | Graphical location / limitation |
 | --- | --- | --- | --- |
-| `--version` | `version` | Available | Advanced → Help → About |
+| `--version` | `version` | Available | Help menu → About |
 | `-d`, `--debug` | `debug` | Available | Settings → Behavior → Debug verbosity (0–3; 2+: raw trace) |
-| `-w`, `--workdir` | `workdir` | Available | Settings → Working directory selector |
+| `-w`, `--workdir` | `workdir` | Available | Top bar → Working directory selector |
 | `-D`, `--dir` | `dirs` | Available | Workers → Edit selected worker → Directory |
 | `-i`, `--work-file` | `work_file` | Available | Settings → Work filename |
 | `-r`, `--results-file` | `results_file` | Available | Settings → Results filename (blank: program default) |
@@ -112,7 +117,7 @@ Batch registration supports one configured worker and up to 100 entries per oper
 | `--encrypt` | `encrypt` | Available | Settings → Connection → Backend password encryption policy |
 | `--no-color` | `color` | Available | Settings → Behavior → Native CLI console color |
 | `--color` | `color` | Available | Settings → Behavior → Native CLI console color |
-| `--setup` | `setup` | Available | PrimeNet → Register or update computer |
+| `--setup` | `setup` | Available | Setup inputs across configuration tabs; PrimeNet → Register or update computer |
 | `--proxy-type` | `proxy_type` | Available | Settings → Connection → Proxy type (blank: http) |
 | `-x`, `--proxy-server` | `proxy` | Available | Settings → Connection → Proxy server (optional hostname:port) |
 | `--proxy-username` | `proxy_username` | Available | Settings → Connection → Proxy username (optional) |
@@ -140,4 +145,4 @@ Batch registration supports one configured worker and up to 100 entries per oper
 | `-U`, `--email-username` | `email_username` | Available | Notifications → SMTP username (optional) |
 | `-P`, `--email-password` | `email_password` | Available | Notifications → Manage passwords (encrypted replacement) |
 | `--test-email` | `test_email` | Available | Notifications → Send test email |
-| `-h`, `--help` | `help` | Available | Advanced → Original CLI help / searchable reference |
+| `-h`, `--help` | `help` | Available | Help menu → Original CLI help; Advanced → searchable reference |

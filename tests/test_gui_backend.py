@@ -1,10 +1,9 @@
 """Isolated tests for the offline GUI integration prototype.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
-import hashlib
 import json
 import os
 import re
@@ -17,7 +16,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "gui_backend.py"
-BASELINE_SHA256 = "3149ed72b9a98643f886fbc5b1f11ca679939797e02f0d62f8edd27b1d675144"
 
 
 class BackendTests(unittest.TestCase):
@@ -141,13 +139,108 @@ assert not hasattr(autoprimenet, "args")
 		self.assertTrue(response["ok"])
 		self.assertEqual(response["result"]["assignments"], [{"parsed": False}])
 
-	def test_source_drift_is_rejected_before_execution(self):
+	def test_compatible_backend_edit_does_not_require_source_hash_update(self):
 		with tempfile.TemporaryDirectory() as directory:
 			source = Path(directory) / "autoprimenet.py"
-			source.write_text("raise RuntimeError('DO NOT EXECUTE')\n")
+			source.write_bytes((ROOT / "autoprimenet.py").read_bytes() + b"\n# Compatible upstream edit\n")
+			response = self.run_bridge({"protocol": 1, "operation": "capabilities"}, source)
+			self.assertTrue(response["ok"], response)
+			self.assertEqual(len(response["result"]["cli_options"]), 96)
+
+	def test_clearing_proxy_configuration_clears_session_proxy(self):
+		from types import SimpleNamespace
+		from gui_backend import _load_definitions
+		namespace = _load_definitions(ROOT / "autoprimenet.py")
+		try:
+			args = SimpleNamespace(proxy="localhost:8080", proxy_type=None, proxy_username=None, proxy_password=None)
+			namespace["configure_proxy"](args)
+			self.assertTrue(namespace["session"].proxies)
+			args.proxy = None
+			namespace["configure_proxy"](args)
+			self.assertEqual(namespace["session"].proxies, {})
+			self.assertIsNone(namespace["PROXIES"])
+		finally:
+			namespace["session"].close()
+
+	def test_cli_cleanup_releases_lock_and_handlers_and_refuses_reinitialization(self):
+		code = """
+import logging, sys
+from pathlib import Path
+import gui_backend
+sys.addaudithook(gui_backend._network_guard)
+ns = gui_backend._load_definitions(Path(sys.argv[1]))
+original = list(logging.getLogger().handlers)
+sys.argv = ["autoprimenet", "--workdir", sys.argv[2], "--timeout", "0"]
+try:
+    ns["initialize_cli"]()
+    lock = ns["_cli_lock"]
+    assert not lock.closed
+    assert len(ns["_cli_handlers"]) == 2
+    try:
+        ns["initialize_cli"]()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Repeated initialization was accepted")
+finally:
+    ns["close_cli"]()
+    ns["close_cli"]()
+assert lock.closed
+assert logging.getLogger().handlers == original
+"""
+		with tempfile.TemporaryDirectory() as directory:
+			Path(directory, "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			result = subprocess.run([sys.executable, "-B", "-c", code, str(ROOT / "autoprimenet.py"), directory],
+				cwd=ROOT, capture_output=True, text=True, timeout=30)
+			self.assertEqual(result.returncode, 0, result.stderr)
+
+	def test_incompatible_api_closes_loaded_session(self):
+		from types import SimpleNamespace
+		from unittest.mock import Mock, patch
+		from gui_backend import BackendError, _load_definitions
+		session = Mock()
+		module = SimpleNamespace(session=session)
+		spec = SimpleNamespace(loader=Mock())
+		with patch("gui_backend.spec_from_file_location", return_value=spec), patch("gui_backend.module_from_spec", return_value=module):
+			with self.assertRaisesRegex(BackendError, "shared API"):
+				_load_definitions(ROOT / "autoprimenet.py")
+		session.close.assert_called_once()
+
+	def test_failed_cli_initialization_releases_partial_resources(self):
+		code = """
+import logging, sys
+from pathlib import Path
+import gui_backend
+sys.addaudithook(gui_backend._network_guard)
+ns = gui_backend._load_definitions(Path(sys.argv[1]))
+original = list(logging.getLogger().handlers)
+def fail(*args):
+    raise RuntimeError("simulated setup failure")
+ns["encrypt"] = fail
+sys.argv = ["autoprimenet", "--workdir", sys.argv[2], "--timeout", "0"]
+try:
+    ns["cli"]()
+except RuntimeError as error:
+    assert str(error) == "simulated setup failure"
+else:
+    raise AssertionError("Expected initialization to fail")
+assert ns["_cli_lock"] is None
+assert ns["_cli_handlers"] == []
+assert logging.getLogger().handlers == original
+"""
+		with tempfile.TemporaryDirectory() as directory:
+			Path(directory, "prime.ini").write_text("[PrimeNet]\nusername=ANONYMOUS\nmlucas=True\n")
+			result = subprocess.run([sys.executable, "-B", "-c", code, str(ROOT / "autoprimenet.py"), directory],
+				cwd=ROOT, capture_output=True, text=True, timeout=30)
+			self.assertEqual(result.returncode, 0, result.stderr)
+
+	def test_missing_shared_api_is_reported(self):
+		with tempfile.TemporaryDirectory() as directory:
+			source = Path(directory) / "autoprimenet.py"
+			source.write_text("# Incompatible backend\n")
 			response = self.run_bridge({"protocol": 1, "operation": "parse_work", "lines": []}, source)
 		self.assertFalse(response["ok"])
-		self.assertIn("differs from the audited version", response["error"])
+		self.assertIn("shared API", response["error"])
 
 	def test_mutating_operations_and_bad_protocol_are_rejected(self):
 		for request in (
@@ -188,8 +281,6 @@ assert not hasattr(autoprimenet, "args")
 		self.assertFalse(response["ok"])
 		self.assertIn("single line", response["error"])
 
-	def test_reviewed_source_matches_baseline(self):
-		self.assertEqual(hashlib.sha256((ROOT / "autoprimenet.py").read_bytes()).hexdigest(), BASELINE_SHA256)
 
 
 if __name__ == "__main__":

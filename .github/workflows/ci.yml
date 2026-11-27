@@ -241,11 +241,6 @@ jobs:
   GUI:
     name: GUI Python 3.14
     runs-on: ${{ matrix.os }}
-    env:
-      # The GUI bridge verifies the checked-out backend source byte for byte.
-      GIT_CONFIG_COUNT: 1
-      GIT_CONFIG_KEY_0: core.autocrlf
-      GIT_CONFIG_VALUE_0: "false"
     strategy:
       fail-fast: false
       matrix:

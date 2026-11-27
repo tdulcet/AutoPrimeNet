@@ -1,6 +1,6 @@
 """Allowlisted one-shot operations exposed by the graphical interface.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

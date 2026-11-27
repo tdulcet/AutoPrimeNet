@@ -1,6 +1,6 @@
 """Offline password persistence tests, using disposable credentials only.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -56,9 +56,8 @@ class CredentialTests(unittest.TestCase):
 from pathlib import Path
 sys.addaudithook(b._network_guard)
 p = Path('autoprimenet.py').resolve()
-_, tree, boundary = b._read_source(p)
-ns = b._load_definitions(p, tree, boundary)
-b._validate_config(ns, tree, boundary, {'text': Path(sys.argv[1], 'prime.ini').read_text(), 'directory': sys.argv[1]})
+ns = b._load_definitions(p)
+b._validate_config(ns, {'text': Path(sys.argv[1], 'prime.ini').read_text(), 'directory': sys.argv[1]})
 print(json.dumps({key: hashlib.sha256(getattr(ns['args'], attr).encode()).hexdigest() for key, attr in [('email', 'email_password'), ('proxy', 'proxy_password')]}))
 ns['session'].close()
 """

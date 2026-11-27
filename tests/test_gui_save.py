@@ -1,6 +1,6 @@
 """Configuration persistence tests using disposable workspaces only.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -349,13 +349,12 @@ class InitializationTests(unittest.TestCase):
 				from io import StringIO
 				sys.addaudithook(b._network_guard)
 				path = Path('autoprimenet.py').resolve()
-				_, tree, boundary = b._read_source(path)
-				ns = b._load_definitions(path, tree, boundary)
+				ns = b._load_definitions(path)
 				if not ns['libcrypto']:
 					print('null')
 					sys.exit(0)
 				text = '[PrimeNet]\\nusername=ANONYMOUS\\nmlucas=True\\nProxyHost=localhost:8080\\nProxyPass=fixture-secret\\n[Email]\\nfrom_email=sender@example.org\\nsmtp_server=localhost\\npassword=fixture-mail-secret\\n'
-				b._validate_config(ns, tree, boundary, {'text': text, 'directory': sys.argv[1]})
+				b._validate_config(ns, {'text': text, 'directory': sys.argv[1]})
 				ns['args'].encrypt = True
 				ns['encrypt'](ns['config'], ns['args'])
 				buffer = StringIO()

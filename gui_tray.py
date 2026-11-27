@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Private native tray helper; communicate menu events over stdout.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

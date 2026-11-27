@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import psutil
 
-from gui_backend import _load_definitions, _read_source
+from gui_backend import _load_definitions
 from gui_progress import ENGINES, MAX_FILE_BYTES, discover_processes, identify_engine, progress_snapshot
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,8 +45,7 @@ class ProgressTests(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		path = ROOT / "autoprimenet.py"
-		_, tree, boundary = _read_source(path)
-		cls.namespace = _load_definitions(path, tree, boundary)
+		cls.namespace = _load_definitions(path)
 
 	@classmethod
 	def tearDownClass(cls):

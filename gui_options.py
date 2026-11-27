@@ -1,6 +1,6 @@
 """Typed metadata and validation for graphical configuration forms.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

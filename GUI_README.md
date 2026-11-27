@@ -10,9 +10,11 @@ the server. You can run either one on its own.
 
 ## Install and launch
 
-Run the commands below from the repository root. You'll need a desktop session
-and Python **3.14.0 or later** with working Tk bindings. The virtual environment
-installs Requests. Install Tk and your computation engine separately.
+For a source install, run the commands below from the repository root. You'll
+need a desktop session and Python **3.14.0 or later** with working Tk bindings.
+The virtual environment installs Requests. Install Tk and your computation
+engine separately. Windows users with a standalone build can use the packaged
+launch instructions below.
 If you only want the command-line application, follow the [CLI README](README.md).
 
 **macOS, Linux and FreeBSD.** On a Mac using Homebrew, install the matching
@@ -34,8 +36,9 @@ Close the small Tk demonstration window, then start the GUI:
 ```
 
 **Windows standalone build.** If you have the `AutoPrimeNet_GUI_Windows_x64`
-workflow artifact, extract it and run `autoprimenet-gui.exe`. It bundles Python
-and Tk. The executable uses the console subsystem for its backend helpers and
+workflow artifact from a successful **Windows standalone GUI** job in the
+CD workflow, extract it and run `autoprimenet-gui.exe`. It bundles Python
+Tk, Requests with SOCKS support, tray dependencies and psutil. The executable uses the console subsystem for its backend helpers and
 terminal launches, so starting it from Explorer can also show a console window.
 
 **Windows from source (PowerShell).** Install Python 3.14 or later with Tcl/Tk
@@ -57,6 +60,15 @@ Close the demonstration window, then run:
 If the Tk check fails, fix the interpreter or display before going further.
 You don't have to activate the environment when you use its Python directly.
 
+After opening the GUI, select the engine's working directory and configuration
+filename, then choose **Refresh preview** to load it. Enter your GIMPS username or `ANONYMOUS`, choose the engine and
+workers, and review the assignment and resource settings. Confirm that the
+settings save successfully before starting monitoring. Select **Register or
+update computer** to register explicitly, or review **Start monitoring…**,
+whose normal cycle can register the computer and request work. Explicit
+computer registration synchronizes the saved settings and program options; it
+does not also fetch assignments or send a test email.
+
 ### Optional process discovery
 
 For automatic detection of running engines and **Start computation**, install
@@ -72,19 +84,42 @@ engines in a loaded workspace. It cannot tell whether the engine is running.
 
 ### Files and backups
 
+Valid configuration edits save automatically after a short pause once editor
+dialogs close and monitoring is stopped. **Save settings** offers an explicit
+validated save. Completed saves and
+backend operations refresh the workspace, while conflicting external edits
+preserve your draft for review. On restart, the GUI remembers the last loaded
+directory and configuration filename and opens its local preview. Start
+monitoring and computation explicitly when you want them to run. **File → Quit**
+flushes eligible pending configuration edits; a failed save keeps the window
+open so the error can be resolved.
+
 Keep configuration, logs, work, results and proof archives at separate paths.
 The launcher uses `autoprimenet-gui-launchers.json`,
 `.autoprimenet-gui-launchers.lock`, and `.autoprimenet-gui-launches/`; leave
 those names for the GUI. Keep real workspaces outside the checkout so you don't
 accidentally commit assignments, credentials or traces.
 
-Saving validates the proposed configuration, backs up an existing file before
+Saving validates the proposed configuration, creates a
+`<config-name>.gui-backup-*.bak` backup beside an existing configuration before
 replacing it, and preserves unrelated settings and comments. A running backend
 can later rewrite the INI in its own format. If another program changes it while
 you are editing, keep a copy of any draft values you need, refresh, and reapply
 them. The GUI won't merge the two versions. To run monitoring, the INI must be
-UTF-8 **without a BOM**. A workspace preview supports up to 128 workers, 1,000
-work lines, 2 MiB per file and 1 MiB per backend request.
+UTF-8 **without a BOM**. A workspace preview supports up to 128 workers and
+1,000 work lines across those workers, with limits of 2 MiB per file and 1 MiB
+per backend request.
+
+The GUI defaults to `worktodo.txt`. Match **Settings → Work filename** to the
+file your engine actually consumes. Some Mlucas installations use
+`worktodo.ini`; selecting Mlucas does not change the filename automatically.
+PRPLL uses `worktodo-0.txt`, `worktodo-1.txt`, and so on, regardless of the
+Work filename field.
+
+For multiple workers with other engines, configure a different existing
+directory for each worker under **Workers → Edit selected worker**. Relative
+worker directories start at the workspace. PRPLL keeps its indexed worker
+files in the workspace and does not accept per-worker directories.
 
 ## Start a worker
 
@@ -138,15 +173,17 @@ Prime95/MPrime, CUDAPm1, cofact, gvtf and Mp_p-1_gpu can appear as running
 processes without progress statistics.
 
 Progress comes from files the engine has written. **Unavailable** means no
-usable measurement; **stale** means the saved data is over 15 minutes old,
+usable measurement; **Stale saved progress** means the newest timestamp among files read in the
+worker directory is over 15 minutes old,
 which can be normal for a long checkpoint interval. Estimates assume continuous
 computation. Later compatible assignments can use the same worker's measured
 speed; a stage percentage needn't represent the entire assignment.
 
-The reader uses psutil to find accessible process directories and configured
-worker files. The computation launcher also uses it to check for duplicate
-processes.
-Without a matching workspace it looks for `worktodo.txt` or `worktodo.ini`
+With psutil installed, the reader discovers process directories and reads the
+configured worker files. Without it, only a loaded workspace's saved files are
+read and engine status is unknown. The computation launcher requires psutil
+for duplicate checks. Without a matching workspace it looks for
+`worktodo.txt` or `worktodo.ini`
 (PRPLL: `worktodo-N.txt`). Renamed executables, restricted directories or
 checkpoints written elsewhere can prevent discovery. A scan has a 30-second
 timeout and limits of 128 matching processes, 128 worker files per group and
@@ -160,7 +197,8 @@ work, report results and progress, upload proofs and send configured notificatio
 
 * **Polling:** In **Settings → Edit monitoring and output preferences…**, use
   `0` for one pass, or at least 1,800 seconds for continuous monitoring. The poll
-  interval cannot exceed the progress check-in interval set in **PrimeNet**.
+  interval is capped at 604,800 seconds (seven days) and cannot exceed the
+  progress check-in interval set in **PrimeNet**.
   Enable file watching to process new results and proofs between polls.
 * **Check in now:** **Push Status to PrimeNet Now** requests an early check-in
   from the running scheduler. An active cycle finishes first. With monitoring
@@ -178,8 +216,8 @@ work, report results and progress, upload proofs and send configured notificatio
 Use **PrimeNet → Register or update computer** to send the saved settings.
 The GUI splits CLI setup across PrimeNet, Workers, Settings, Advanced and
 Notifications. GPU and SMTP discovery, the test email and computer registration
-are separate actions. **Ping PrimeNet** tests connectivity; the experimental **v6** ping tests that API
-version only. Saving settings or running a local preview does neither.
+are separate actions. **Ping PrimeNet** tests connectivity; the experimental
+**v6** ping tests that API version only. Saving settings or running a local preview does neither.
 
 In **Assignments**, you can report pending results, report results and upload
 proofs, or pause/resume requests for new work. Pausing new requests leaves
@@ -191,13 +229,19 @@ batch**, select one worker and a work type, enter its parameters, and choose
 **Add row**. Select a queued row to replace or remove it. **Validate and preview
 offline** shows the actual work lines. Review them, pause the affected engine,
 and type `REGISTER N` to register the validated batch of N rows. This can also
-register **other unregistered work already in that worker's file**. A batch
-holds 1–100 entries; changing the worker or queue requires a fresh preview.
+register **other unregistered work already in that worker's file**, and can
+rewrite work lines according to configured conversion and factoring settings. A batch
+holds 1–100 entries in a normalized plan of at most 48 KiB. Each entry accepts
+up to 32 known factors, with each integer limited to 1,024 bits. Exponents must
+be prime and between 2 and 10,000,000,000. Changing the worker or queue requires
+a fresh preview.
 The form accepts TF, both P−1 variants, ECM, LL, LL double-check, PRP and PRP
 double-check. Use **Look up exponent…** to request metadata and suggested
 factoring parameters from mersenne.ca. Review the suggestions before applying
-them to the current form. You can also enter parameters manually, with known
-factors separated by commas. A preview doesn't check whether the server will
+them to the current form. Lookup requires saved settings, uses the saved proxy,
+and has a 45-second helper timeout without changing work files. Requests use
+an eight-second connection/read timeout and a shared 1 MiB response budget.
+You can also enter parameters manually, with known factors separated by commas. A preview doesn't check whether the server will
 accept a reservation.
 
 Pause affected engines before using recovery or unreservation. Review the worker
@@ -309,10 +353,31 @@ After enabling the desktop extension or installing missing packages, choose
 | Settings won't save | Check the username, worker directories, file permissions and filename conflicts. Read the error before refreshing an unsaved form. |
 | Work downloaded but nothing is calculating | Start the computation engine. Monitoring only manages assignments. |
 | A launch times out | Inspect its terminal and refresh Progress before trying again. Check the executable path and terminal permissions. |
-| Progress is missing | Check the work filename, process permissions and checkpoint interval. Some programs only support process detection. |
+| Progress is missing | Load a workspace to read saved progress. Install the optional process dependency for automatic discovery. Check the work filename, process permissions and checkpoint interval. |
 | Monitoring won't start | Save or reload the workspace, check UTF-8 encoding, then inspect the log and [lock policy](#native-instance-lock-policy). |
 
+## Shared backend
+
+The GUI loads `autoprimenet.py` as a module and reads its argument parser for
+the CLI reference. Backend compatibility checks verify required entry points. Compatible upstream
+edits do not require a source hash update; behavioral compatibility is verified
+by the regression suite.
+Configuration fingerprints still protect against workspace changes during an
+operation.
+
+CLI initialization is supported once per process. GUI operations use isolated
+helper processes, and monitoring drains active workers before releasing its
+logging handlers, instance lock and HTTP session.
+
 ## Running the test suite
+
+The CI workflow runs the default suite from source on Ubuntu, macOS and Windows
+with Python 3.14. Desktop tests require the explicit opt-in below. The CD
+workflow builds the standalone Windows x64 artifact and runs its packaged smoke
+test. A successful source test run alone does not verify the Windows executable.
+The GUI artifact is uploaded to its workflow run; the existing CLI FTP
+deployment does not publish that GUI artifact.
+
 
 Use the GUI's Python environment with `requirements-gui.txt` and
 `requirements-gui-process.txt` installed.

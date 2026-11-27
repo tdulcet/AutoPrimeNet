@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """GUI-owned native scheduler with boundary stops and worker draining.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
@@ -170,6 +170,8 @@ def execute(request, stop, emit, before_main=None, push=None):
 		try:
 			runtime.drain()
 		finally:
+			if "namespace" in locals():
+				namespace["close_cli"]()
 			sys.argv = argv
 	return code
 

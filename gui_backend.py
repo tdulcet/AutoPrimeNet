@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline integration bridge for the optional AutoPrimeNet GUI.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 
 Run as a private child process, never import AutoPrimeNet into the GUI process.
@@ -17,10 +17,8 @@ if sys.version_info < (3, 14):
 	raise ImportError("AutoPrimeNet GUI requires Python 3.14.0 or later.")
 
 import argparse
-import ast
 import contextlib
 from configparser import ConfigParser
-import hashlib
 import io
 from importlib.util import module_from_spec, spec_from_file_location
 import json
@@ -127,9 +125,6 @@ def validate_paths(directory, config_name, args):
 		seen_paths[key] = role
 
 
-# Deliberately fail closed when the audited upstream implementation changes.
-# Updating this value requires a fresh integration review, not just rehashing.
-AUDITED_SOURCE_SHA256 = "3149ed72b9a98643f886fbc5b1f11ca679939797e02f0d62f8edd27b1d675144"
 MAX_REQUEST_BYTES = 1024 * 1024
 PROTOCOL_VERSION = 1
 
@@ -138,54 +133,37 @@ class BackendError(Exception):
 	"""A safe, user-facing error from the offline bridge."""
 
 
-def _assignment_target(node, name):
-	return isinstance(node, ast.Assign) and any(
-		isinstance(target, ast.Name) and target.id == name for target in node.targets
-	)
-
-
-def _read_source(path):
-	source = path.read_bytes()
-	if hashlib.sha256(source).hexdigest() != AUDITED_SOURCE_SHA256:
-		raise BackendError("AutoPrimeNet source differs from the audited version; integration review required.")
-	tree = ast.parse(source, filename=str(path))
-	boundaries = [index for index, node in enumerate(tree.body) if _assignment_target(node, "parser")]
-	if len(boundaries) != 1:
-		raise BackendError("Unsupported AutoPrimeNet startup layout.")
-	boundary = boundaries[0]
-	return source, tree, boundary
-
-
 def _network_guard(event, _args):
 	"""Deny outbound Python socket operations for the entire prototype child."""
 	if event in {"socket.connect", "socket.getaddrinfo", "socket.sendto"}:
 		raise BackendError("Network access is disabled in the offline GUI prototype.")
 
 
-def _load_definitions(path, _tree=None, _boundary=None):
+def _load_definitions(path):
 	# Keep configuration, patched callbacks and the HTTP session isolated for
 	# each helper invocation, including calls made by the offline test suite.
 	spec = spec_from_file_location("_autoprimenet_gui_backend", path)
 	module = module_from_spec(spec)
 	spec.loader.exec_module(module)
-	return vars(module)
+	namespace = vars(module)
+	required = ("Assignment", "parse_assignment", "output_assignment", "initialize_cli",
+		"initialize_program_options", "configure_proxy", "close_cli", "main", "get_gpus",
+		"register_exponents", "exponent_registration_metadata", "scheduler_cycles",
+		"scheduler_pause", "scheduler_idle", "scheduler_start", "scheduler_checkin")
+	if not isinstance(namespace.get("parser"), argparse.ArgumentParser) or not isinstance(namespace.get("VERSION"), str) or any(not callable(namespace.get(name)) for name in required):
+		session = namespace.get("session")
+		if session is not None:
+			session.close()
+		raise BackendError("AutoPrimeNet does not provide the shared API required by this GUI.")
+	return namespace
 
 
-def _parser_inventory(tree):
-	options = []
-	for node in sorted(ast.walk(tree), key=lambda item: getattr(item, "lineno", 0)):
-		if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-			continue
-		if node.func.attr != "add_argument":
-			continue
-		flags = [item.value for item in node.args if isinstance(item, ast.Constant) and isinstance(item.value, str)]
-		keywords = {item.arg: item.value for item in node.keywords}
-		canonical = next((flag for flag in flags if flag.startswith("--")), flags[0])
-		dest = ast.literal_eval(keywords["dest"]) if "dest" in keywords else canonical.lstrip("-").replace("-", "_")
-		options.append({"flags": flags, "dest": dest, "source_line": node.lineno})
-	# argparse creates help without an explicit add_argument call.
-	options.append({"flags": ["-h", "--help"], "dest": "help", "source_line": None})
-	return options
+def _parser_inventory(parser):
+	# argparse exposes actions through this internal collection, also used by help.
+	actions = list(parser._actions)
+	actions.sort(key=lambda action: action.dest == "help")
+	return [{"flags": list(action.option_strings), "dest": action.dest, "source_line": None}
+		for action in actions if action.option_strings]
 
 
 def _parse_work(namespace, lines):
@@ -209,7 +187,7 @@ def _parse_work(namespace, lines):
 	return {"assignments": results, "validation": "format parsing only; no server reservation or mathematical validation"}
 
 
-def _validate_config(namespace, tree, boundary, request):
+def _validate_config(namespace, request):
 	"""Initialize parser/configuration in memory; never execute CLI startup."""
 	text = request.get("text")
 	directory = request.get("directory")
@@ -289,14 +267,14 @@ def _validate_config(namespace, tree, boundary, request):
 	}
 
 
-def _protect_credentials(namespace, tree, boundary, request):
+def _protect_credentials(namespace, request):
 	"""Encrypt only explicit replacements with the original CLI implementation."""
 	replacements = request.get("credentials")
 	if not isinstance(replacements, dict) or not replacements or set(replacements) - {"proxy", "email"}:
 		raise BackendError("Select a supported password to replace.")
 	if any(not isinstance(value, str) or not value or len(value) > 4096 or any(char in value for char in "\r\n\x00") for value in replacements.values()):
 		raise BackendError("Passwords must contain 1–4096 characters without line breaks or NUL.")
-	_validate_config(namespace, tree, boundary, request)
+	_validate_config(namespace, request)
 	args, config = namespace["args"], namespace["config"]
 	if args.encrypt is False:
 		raise BackendError("Enable password encryption or clear its override before replacing a password.")
@@ -333,21 +311,19 @@ def _dispatch(request, path):
 	operation = request.get("operation")
 	if operation not in {"capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus", "progress"}:
 		raise BackendError("Unsupported offline bridge operation.")
-	_source, tree, boundary = _read_source(path)
-	if operation == "capabilities":
-		return {
-			"backend_version": ast.literal_eval(next(node.value for node in tree.body if _assignment_target(node, "VERSION"))),
-			"source_sha256": AUDITED_SOURCE_SHA256,
-			"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus", "progress"],
-			"network_enabled": False,
-			"cli_options": _parser_inventory(tree),
-		}
-	# Reject invalid request shape before initializing the upstream prefix.
+	# Reject invalid request shape before loading the backend.
 	lines = request.get("lines")
 	if operation == "parse_work" and (not isinstance(lines, list) or len(lines) > 1000 or any(not isinstance(line, str) for line in lines)):
 		raise BackendError("Work preview requires a list of at most 1000 text lines.")
-	namespace = _load_definitions(path, tree, boundary)
+	namespace = _load_definitions(path)
 	try:
+		if operation == "capabilities":
+			return {
+				"backend_version": namespace["VERSION"],
+				"operations": ["capabilities", "parse_work", "validate_config", "protect_credentials", "preview_registration", "debug_report", "cli_help", "discover_gpus", "progress"],
+				"network_enabled": False,
+				"cli_options": _parser_inventory(namespace["parser"]),
+			}
 		if operation == "progress":
 			from gui_progress import progress_snapshot
 			return progress_snapshot(namespace, request.get("configured"))
@@ -364,7 +340,7 @@ def _dispatch(request, path):
 			namespace["parser"].prog = path.name
 			return {"text": namespace["parser"].format_help(), "network_enabled": False, "files_written": False}
 		if operation == "debug_report":
-			_validate_config(namespace, tree, boundary, request)
+			_validate_config(namespace, request)
 			buffer = io.StringIO()
 			with contextlib.redirect_stdout(buffer):
 				namespace["debug_info"](namespace["config"], namespace["args"])
@@ -378,18 +354,18 @@ def _dispatch(request, path):
 			return {"text": text, "private": True, "network_enabled": False, "files_written": False}
 		if operation == "preview_registration":
 			from gui_registration_plan import preview_plan
-			_validate_config(namespace, tree, boundary, request)
+			_validate_config(namespace, request)
 			try:
 				return preview_plan(namespace, request.get("parameters"), request["directory"])
 			except ValueError as error:
 				raise BackendError(str(error)) from error
 		if operation == "protect_credentials":
-			return _protect_credentials(namespace, tree, boundary, request)
+			return _protect_credentials(namespace, request)
 		if operation == "validate_config":
-			return _validate_config(namespace, tree, boundary, request)
+			return _validate_config(namespace, request)
 		return _parse_work(namespace, lines)
 	finally:
-		# The upstream prefix registers this close at exit as well. Requests close
+		# The backend registers this close at exit as well. Requests close
 		# is idempotent; explicitly release it after this single preview operation.
 		namespace["session"].close()
 

@@ -1,6 +1,6 @@
 """Tray host policy tests with simulated GTK/D-Bus and local IPC helpers.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

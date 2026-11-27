@@ -1,6 +1,6 @@
 """Private helper entry-point rejection and output-channel boundaries.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 

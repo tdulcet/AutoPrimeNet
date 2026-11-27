@@ -1,6 +1,6 @@
 """Graphical batch editing and offline preview for exponent registration.
 
-Copyright (C) 2026 Jacob Pollicove
+Copyright (C) 2026 Jacob L. Pollicove
 SPDX-License-Identifier: GPL-3.0-only
 """
 
